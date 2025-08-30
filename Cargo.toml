@@ -1,0 +1,63 @@
+[workspace]
+resolver = "3"
+members = ["macro", "pbt"]
+
+
+[workspace.package]
+version = "0.4.0"
+edition = "2024"
+license = "MPL-2.0"
+description = "Property-based testing plus `#[derive(..)]`, no-std, automatic edge cases, and exhaustive breadth-first search over arbitrary types."
+homepage = "https://github.com/wrsturgeon/pbt.git"
+repository = "https://github.com/wrsturgeon/pbt.git"
+readme = "README.md"
+keywords = ["test", "testing", "property", "prop", "pbt"]
+categories = [
+    "algorithms",
+    "development-tools",
+    "development-tools::testing",
+    "rust-patterns",
+    "security",
+]
+
+
+# https://doc.rust-lang.org/rustc/lints/groups.html
+[workspace.lints.rust]
+warnings = { level = "warn", priority = -1 }
+deprecated-safe = { level = "warn", priority = -1 }
+future-incompatible = { level = "warn", priority = -1 }
+keyword-idents = { level = "warn", priority = -1 }
+let-underscore = { level = "warn", priority = -1 }
+nonstandard-style = { level = "warn", priority = -1 }
+refining-impl-trait = { level = "warn", priority = -1 }
+rust-2018-compatibility = { level = "warn", priority = -1 }
+rust-2018-idioms = { level = "warn", priority = -1 }
+rust-2021-compatibility = { level = "warn", priority = -1 }
+rust-2024-compatibility = { level = "warn", priority = -1 }
+unused = { level = "warn", priority = -1 }
+
+# https://doc.rust-lang.org/clippy/lints.html
+[workspace.lints.clippy]
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+restriction = { level = "warn", priority = -1 }
+cargo = { level = "warn", priority = -1 }
+nursery = { level = "warn", priority = -1 }
+
+blanket-clippy-restriction-lints = "allow" # start with all and disallow some, s.t. we get new ones for free
+implicit-return = "allow"
+mod-module-files = "allow"
+needless-borrowed-reference = "allow"
+question-mark-used = "allow"
+ref-patterns = "allow"
+semicolon-outside-block = "allow"
+separated-literal-suffix = "allow"
+shadow-reuse = "allow"
+shadow-same = "allow"
+shadow-unrelated = "allow"
+single-call-fn = "allow"
+std-instead-of-alloc = "allow"

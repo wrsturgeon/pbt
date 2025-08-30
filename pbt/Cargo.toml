@@ -1,0 +1,27 @@
+[package]
+name = "pbt"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description.workspace = true
+homepage.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+
+[dependencies]
+finite = { version = "~0.0", optional = true }
+paste = "~1.0"
+pbt-macro = { path = "../macro" }
+rand_core = "~0.9"
+rand_xoshiro = "~0.7"
+
+
+[features]
+finite = ["dep:finite"]
+
+
+[lints]
+workspace = true
