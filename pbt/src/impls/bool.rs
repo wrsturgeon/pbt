@@ -11,6 +11,7 @@ use {
 impl AstSize for bool {
     const MAX_AST_SIZE: Result<Max<Result<usize, error::Overflow>>, error::Undecidable> =
         Ok(Max::Finite(Ok(0)));
+    const MAX_EXPECTED_AST_SIZE: Result<Max<f32>, error::Undecidable> = Ok(Max::Finite(0.));
 
     #[inline]
     fn ast_size(&self) -> usize {

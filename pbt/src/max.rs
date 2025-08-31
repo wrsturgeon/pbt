@@ -9,13 +9,13 @@ use core::cmp;
     reason = "In `PartialOrd` ordering, not alphabetical."
 )]
 #[derive(Debug)]
-pub enum Max<Finite: Ord> {
+pub enum Max<Finite: PartialOrd> {
     Uninstantiable,
     Finite(Finite),
     Infinite,
 }
 
-impl<Finite: Ord> Max<Finite> {
+impl<Finite: PartialOrd> Max<Finite> {
     #[inline]
     pub const fn is_instantiable(&self) -> bool {
         !matches!(*self, Self::Uninstantiable)
@@ -28,10 +28,10 @@ impl<Finite: Ord> Max<Finite> {
 }
 
 #[expect(clippy::missing_trait_methods, reason = "intentional")]
-impl<Finite: Ord> Eq for Max<Finite> {}
+impl<Finite: PartialOrd> Eq for Max<Finite> {}
 
 #[expect(clippy::missing_trait_methods, reason = "intentional")]
-impl<Finite: Ord> PartialEq for Max<Finite> {
+impl<Finite: PartialOrd> PartialEq for Max<Finite> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         match *self {
@@ -71,9 +71,23 @@ impl<Finite: Ord> Ord for Max<Finite> {
 }
 
 #[expect(clippy::missing_trait_methods, reason = "intentional")]
-impl<Finite: Ord> PartialOrd for Max<Finite> {
+impl<Finite: PartialOrd> PartialOrd for Max<Finite> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(<Self as Ord>::cmp(self, other))
+        match *self {
+            Self::Uninstantiable => match *other {
+                Self::Uninstantiable => Some(cmp::Ordering::Equal),
+                Self::Finite(_) | Self::Infinite => Some(cmp::Ordering::Less),
+            },
+            Self::Finite(ref lhs) => match *other {
+                Self::Uninstantiable => Some(cmp::Ordering::Greater),
+                Self::Finite(ref rhs) => lhs.partial_cmp(rhs),
+                Self::Infinite => Some(cmp::Ordering::Less),
+            },
+            Self::Infinite => match *other {
+                Self::Infinite => Some(cmp::Ordering::Equal),
+                Self::Uninstantiable | Self::Finite(_) => Some(cmp::Ordering::Greater),
+            },
+        }
     }
 }
