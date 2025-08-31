@@ -15,6 +15,8 @@ macro_rules! test_impls_for {
     ($t:ty, $name:ident $(,)?) => {
         #[cfg(test)]
         mod $name {
+            extern crate alloc;
+
             const MANY: usize = 1_000;
 
             #[test]
@@ -121,6 +123,55 @@ macro_rules! test_impls_for {
                         }
                     }
                 }
+            }
+
+            #[test]
+            fn pseudorandom_exhaustive() {
+                const FIRST_N: usize = 16;
+                const HAYSTACK_SIZE: usize = MANY.saturating_mul(10);
+
+                let mut size = 0;
+                let mut seen: alloc::vec::Vec<($t, bool)> = alloc::vec![];
+                'seen: loop {
+                    let Ok(iter) = <$t as $crate::exhaust::Exhaust>::exhaust(size) else {
+                        break 'seen;
+                    };
+                    for key in iter {
+                        let () = seen.push((key, false));
+                        if seen.len() == FIRST_N {
+                            break 'seen
+                        }
+                    }
+                    let Some(new_size) = size.checked_add(1) else {
+                        break 'seen;
+                    };
+                    size = new_size;
+                }
+
+                #[expect(
+                    clippy::as_conversions,
+                    clippy::cast_precision_loss,
+                    reason = "not meant to be precise"
+                )]
+                let size = size as f32;
+
+                let mut rng = $crate::pseudorandom::default_rng();
+                for _ in 0..HAYSTACK_SIZE {
+                    if let Ok(generated) = <$t as $crate::pseudorandom::Pseudorandom>::pseudorandom(size, &mut rng) {
+                        'seen: for &mut (ref key, ref mut value) in seen.iter_mut() {
+                            if *key == generated {
+                                *value = true;
+                                if seen.iter().all(|&(_key, value)| value) {
+                                    return;
+                                }
+                                break 'seen;
+                            }
+                        }
+                    }
+                }
+
+                let unseen: alloc::vec::Vec<$t> = seen.into_iter().filter_map(|(key, value)| (!value).then_some(key)).collect();
+                panic!("The following terms were not produced by `pseudorandom`: {unseen:#?}");
             }
 
             #[test]
