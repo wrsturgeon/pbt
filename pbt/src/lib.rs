@@ -136,6 +136,11 @@ macro_rules! test_impls_for {
                 }
 
                 for &size in SIZES {
+                    #[expect(
+                        clippy::as_conversions,
+                        clippy::cast_precision_loss,
+                        reason = "not meant to be precise"
+                    )]
                     let size = size as f32;
                     if let $crate::max::Max::Finite(max_expected) = max_expected && size > max_expected {
                         return;
@@ -152,6 +157,11 @@ macro_rules! test_impls_for {
                     }
 
                     if let Some(acc) = acc {
+                        #[expect(
+                            clippy::as_conversions,
+                            clippy::cast_precision_loss,
+                            reason = "not meant to be precise"
+                        )]
                         let mean = acc as f32 * const { 1. / (MANY as f32) };
                         let error_absolute = mean - size;
                         let error_relative = error_absolute / size;
