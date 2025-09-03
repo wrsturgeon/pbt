@@ -1,8 +1,8 @@
-use crate::{error, max::Max};
+use crate::max::{Max, MaybeDecidable, MaybeOverflow};
 
 pub trait AstSize {
-    const MAX_AST_SIZE: Result<Max<Result<usize, error::Overflow>>, error::Undecidable>;
-    const MAX_EXPECTED_AST_SIZE: Result<Max<f32>, error::Undecidable>;
+    const MAX_AST_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>>;
+    const MAX_EXPECTED_AST_SIZE: MaybeDecidable<Max<f32>>;
 
-    fn ast_size(&self) -> usize;
+    fn ast_size(&self) -> MaybeOverflow<usize>;
 }

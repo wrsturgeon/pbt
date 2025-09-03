@@ -1,7 +1,7 @@
-use crate::{error, max::Max};
+use crate::max::{Max, MaybeDecidable, MaybeOverflow};
 
 pub trait ValueSize {
-    const MAX_VALUE_SIZE: Result<Max<Result<usize, error::Overflow>>, error::Undecidable>;
+    const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>>;
 
-    fn value_size(&self) -> usize;
+    fn value_size(&self) -> MaybeOverflow<usize>;
 }

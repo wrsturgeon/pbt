@@ -1,4 +1,4 @@
-use core::cmp;
+use core::{cmp, convert::Infallible, num::TryFromIntError};
 
 #[expect(
     clippy::exhaustive_enums,
@@ -13,6 +13,18 @@ pub enum Max<Finite: PartialOrd> {
     Uninstantiable,
     Finite(Finite),
     Infinite,
+}
+
+#[derive(Debug)]
+pub enum MaybeDecidable<T> {
+    Decidable(T),
+    Undecidable,
+}
+
+#[derive(Debug)]
+pub enum MaybeOverflow<T> {
+    Contained(T),
+    Overflow,
 }
 
 impl<Finite: PartialOrd> Max<Finite> {
@@ -89,5 +101,73 @@ impl<Finite: PartialOrd> PartialOrd for Max<Finite> {
                 Self::Uninstantiable | Self::Finite(_) => Some(cmp::Ordering::Greater),
             },
         }
+    }
+}
+
+impl<T: PartialEq> PartialEq for MaybeDecidable<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        let Self::Decidable(ref lhs) = *self else {
+            return false;
+        };
+        let Self::Decidable(ref rhs) = *other else {
+            return false;
+        };
+        lhs.eq(rhs)
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for MaybeDecidable<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        let Self::Decidable(ref lhs) = *self else {
+            return None;
+        };
+        let Self::Decidable(ref rhs) = *other else {
+            return None;
+        };
+        lhs.partial_cmp(rhs)
+    }
+}
+
+impl<T: PartialEq> PartialEq for MaybeOverflow<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        let Self::Contained(ref lhs) = *self else {
+            return false;
+        };
+        let Self::Contained(ref rhs) = *other else {
+            return false;
+        };
+        lhs.eq(rhs)
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for MaybeOverflow<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        match (self, other) {
+            (&Self::Contained(ref lhs), &Self::Contained(ref rhs)) => lhs.partial_cmp(rhs),
+            (&Self::Contained(_), &Self::Overflow) => Some(cmp::Ordering::Less),
+            (&Self::Overflow, &Self::Contained(_)) => Some(cmp::Ordering::Greater),
+            (&Self::Overflow, &Self::Overflow) => None,
+        }
+    }
+}
+
+impl<T> From<Result<T, TryFromIntError>> for MaybeOverflow<T> {
+    #[inline]
+    fn from(value: Result<T, TryFromIntError>) -> Self {
+        match value {
+            Ok(ok) => Self::Contained(ok),
+            Err(_) => Self::Overflow,
+        }
+    }
+}
+
+impl<T> From<Result<T, Infallible>> for MaybeOverflow<T> {
+    #[inline]
+    fn from(Ok(ok): Result<T, Infallible>) -> Self {
+        Self::Contained(ok)
     }
 }

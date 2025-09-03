@@ -2,20 +2,26 @@
 
 use {
     crate::{
-        ast_size::AstSize, error, exhaust::Exhaust, max::Max, pseudorandom::Pseudorandom,
-        test_impls_for, value_size::ValueSize,
+        ast_size::AstSize,
+        error,
+        exhaust::Exhaust,
+        max::{Max, MaybeDecidable, MaybeOverflow},
+        pseudorandom::Pseudorandom,
+        test_impls_for,
+        value_size::ValueSize,
     },
     core::iter,
 };
 
 impl AstSize for bool {
-    const MAX_AST_SIZE: Result<Max<Result<usize, error::Overflow>>, error::Undecidable> =
-        Ok(Max::Finite(Ok(0)));
-    const MAX_EXPECTED_AST_SIZE: Result<Max<f32>, error::Undecidable> = Ok(Max::Finite(0.));
+    const MAX_AST_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
+        MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0)));
+    const MAX_EXPECTED_AST_SIZE: MaybeDecidable<Max<f32>> =
+        MaybeDecidable::Decidable(Max::Finite(0.));
 
     #[inline]
-    fn ast_size(&self) -> usize {
-        0
+    fn ast_size(&self) -> MaybeOverflow<usize> {
+        MaybeOverflow::Contained(0)
     }
 }
 impl Exhaust for bool {
@@ -38,12 +44,12 @@ impl Pseudorandom for bool {
     }
 }
 impl ValueSize for bool {
-    const MAX_VALUE_SIZE: Result<Max<Result<usize, error::Overflow>>, error::Undecidable> =
-        Ok(Max::Finite(Ok(0)));
+    const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
+        MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0)));
 
     #[inline]
-    fn value_size(&self) -> usize {
-        usize::from(*self)
+    fn value_size(&self) -> MaybeOverflow<usize> {
+        MaybeOverflow::Contained(usize::from(*self))
     }
 }
 test_impls_for!(bool, bool);
