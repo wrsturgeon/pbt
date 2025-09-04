@@ -15,6 +15,7 @@ use {
     rand_core::RngCore,
 };
 
+/// Implement methods for `MaybeOverflow<$ty>`.
 macro_rules! impl_maybe_overflow {
     ($ty:ty) => {
         impl MaybeOverflow<$ty> {
@@ -71,19 +72,12 @@ macro_rules! impl_maybe_overflow {
     };
 }
 
+/// Implement methods for `Max<MaybeOverflow<$ty>>`.
 macro_rules! impl_max {
     ($ty:ty) => {
         impl Max<MaybeOverflow<$ty>> {
             #[inline]
-            pub const fn plus(self, rhs: $ty) -> Self {
-                match self {
-                    Self::Uninstantiable => Self::Uninstantiable,
-                    Self::Finite(lhs) => Self::Finite(lhs.plus(rhs)),
-                    Self::Infinite => Self::Infinite,
-                }
-            }
-
-            #[inline]
+            #[must_use]
             pub const fn minus(self, rhs: $ty) -> Self {
                 match self {
                     Self::Uninstantiable => Self::Uninstantiable,
@@ -91,10 +85,21 @@ macro_rules! impl_max {
                     Self::Infinite => Self::Infinite,
                 }
             }
+
+            #[inline]
+            #[must_use]
+            pub const fn plus(self, rhs: $ty) -> Self {
+                match self {
+                    Self::Uninstantiable => Self::Uninstantiable,
+                    Self::Finite(lhs) => Self::Finite(lhs.plus(rhs)),
+                    Self::Infinite => Self::Infinite,
+                }
+            }
         }
     };
 }
 
+/// Implement `AstSize for $ty`.
 macro_rules! impl_ast_size {
     ($ty:ty) => {
         impl AstSize for $ty {
@@ -111,6 +116,7 @@ macro_rules! impl_ast_size {
     };
 }
 
+/// Implement all relevant traits for `NonZero<$ty>`.
 macro_rules! impl_nonzero {
     ($ty:ty) => {
         impl_ast_size!(NonZero<$ty>);
@@ -159,6 +165,7 @@ macro_rules! impl_nonzero {
     };
 }
 
+/// Implement logic common to all integers, signed or unsigned.
 macro_rules! impl_int_for_ty {
     ($ty:ty) => {
         impl_maybe_overflow!($ty);
@@ -169,6 +176,7 @@ macro_rules! impl_int_for_ty {
     };
 }
 
+/// Implement logic common to all unsigned integers.
 macro_rules! impl_unsigned {
     ($ty:ty) => {
         impl_int_for_ty!($ty);
@@ -176,8 +184,16 @@ macro_rules! impl_unsigned {
         impl ValueSize for $ty {
             const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
                 MaybeDecidable::Decidable(Max::Finite({
-                    let cast = <$ty>::MAX as usize;
-                    if cast as $ty == <$ty>::MAX {
+                    #[expect(
+                        clippy::allow_attributes,
+                        clippy::as_conversions,
+                        irrefutable_let_patterns,
+                        reason = "Relevant only after a platform-dependent bit width."
+                    )]
+                    #[allow(clippy::cast_possible_truncation, reason = "Roundtrip checked.")]
+                    if let cast = <$ty>::MAX as usize
+                        && cast as $ty == <$ty>::MAX
+                    {
                         MaybeOverflow::Contained(cast)
                     } else {
                         MaybeOverflow::Overflow
@@ -208,14 +224,28 @@ macro_rules! impl_unsigned {
                 _expected_ast_size: f32,
                 rng: &mut Rng,
             ) -> Result<Self, error::Uninstantiable> {
+                #[expect(
+                    clippy::allow_attributes,
+                    clippy::as_conversions,
+                    reason = "Relevant only after a platform-dependent bit width."
+                )]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_lossless,
+                    reason = "Bit width checked above."
+                )]
+                let u32 = rng.next_u32() as Self;
+
                 Ok(if const { <$ty>::BITS <= u32::BITS } {
-                    rng.next_u32() as Self
+                    u32
                 } else {
                     let mut acc: Self = 0;
                     let mut shift: u32 = 0;
-                    while let Some(shl) = (rng.next_u32() as Self).checked_shl(shift) {
+                    while let Some(shl) = u32.checked_shl(shift) {
                         acc |= shl;
-                        shift += 32;
+                        shift = shift
+                            .checked_add(32)
+                            .expect("INTERNAL ERROR: Extremely wide integer!");
                     }
                     acc
                 })
@@ -224,6 +254,7 @@ macro_rules! impl_unsigned {
     };
 }
 
+/// Implement logic common to all signed integers.
 macro_rules! impl_signed {
     ($ty:ty) => {
         impl_int_for_ty!($ty);
@@ -231,6 +262,12 @@ macro_rules! impl_signed {
         impl ValueSize for $ty {
             const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
                 MaybeDecidable::Decidable(Max::Finite({
+                    #[expect(
+                        clippy::allow_attributes,
+                        clippy::as_conversions,
+                        reason = "Relevant only after a platform-dependent bit width."
+                    )]
+                    #[allow(clippy::cast_possible_truncation, reason = "Roundtrip checked.")]
                     let cast = <$ty>::MIN.unsigned_abs() as usize;
                     if cast == 0 {
                         MaybeOverflow::Overflow
@@ -261,6 +298,12 @@ macro_rules! impl_signed {
                     Err(_) => {
                         // SAFETY: If `value_size` were zero, the above would have succeeded.
                         let value_size = unsafe { value_size.unchecked_sub(1) };
+                        #[expect(
+                            clippy::allow_attributes,
+                            clippy::as_conversions,
+                            reason = "Relevant only after a platform-dependent bit width."
+                        )]
+                        #[allow(clippy::cast_possible_truncation, reason = "Roundtrip checked.")]
                         if value_size == const { Self::MIN.unsigned_abs() as usize } {
                             Ok([Self::MIN, Self::MIN].into_iter().take(1))
                         } else {
@@ -277,14 +320,29 @@ macro_rules! impl_signed {
                 _expected_ast_size: f32,
                 rng: &mut Rng,
             ) -> Result<Self, error::Uninstantiable> {
+                #[expect(
+                    clippy::allow_attributes,
+                    clippy::as_conversions,
+                    reason = "Relevant only after a platform-dependent bit width."
+                )]
+                #[allow(
+                    clippy::cast_possible_truncation,
+                    clippy::cast_possible_wrap,
+                    clippy::cast_lossless,
+                    reason = "Bit width checked above."
+                )]
+                let u32 = rng.next_u32() as Self;
+
                 Ok(if const { <$ty>::BITS <= u32::BITS } {
-                    rng.next_u32() as Self
+                    u32
                 } else {
                     let mut acc: Self = 0;
                     let mut shift: u32 = 0;
-                    while let Some(shl) = (rng.next_u32() as Self).checked_shl(shift) {
+                    while let Some(shl) = u32.checked_shl(shift) {
                         acc |= shl;
-                        shift += 32;
+                        shift = shift
+                            .checked_add(32)
+                            .expect("INTERNAL ERROR: Extremely wide integer!");
                     }
                     acc
                 })
@@ -293,6 +351,7 @@ macro_rules! impl_signed {
     };
 }
 
+/// Implement logic common to all integers of a given bit width.
 macro_rules! impl_int {
     ($bits:tt) => {
         paste! {

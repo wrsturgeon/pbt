@@ -15,12 +15,20 @@ pub enum Max<Finite: PartialOrd> {
     Infinite,
 }
 
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "yes, *cue Peggy Lee* that is all there is"
+)]
 #[derive(Debug)]
 pub enum MaybeDecidable<T> {
     Decidable(T),
     Undecidable,
 }
 
+#[expect(
+    clippy::exhaustive_enums,
+    reason = "yes, *cue Peggy Lee* that is all there is"
+)]
 #[derive(Debug)]
 pub enum MaybeOverflow<T> {
     Contained(T),
@@ -104,6 +112,7 @@ impl<Finite: PartialOrd> PartialOrd for Max<Finite> {
     }
 }
 
+#[expect(clippy::missing_trait_methods, reason = "intentional")]
 impl<T: PartialEq> PartialEq for MaybeDecidable<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -117,6 +126,7 @@ impl<T: PartialEq> PartialEq for MaybeDecidable<T> {
     }
 }
 
+#[expect(clippy::missing_trait_methods, reason = "intentional")]
 impl<T: PartialOrd> PartialOrd for MaybeDecidable<T> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -130,6 +140,7 @@ impl<T: PartialOrd> PartialOrd for MaybeDecidable<T> {
     }
 }
 
+#[expect(clippy::missing_trait_methods, reason = "intentional")]
 impl<T: PartialEq> PartialEq for MaybeOverflow<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -143,6 +154,7 @@ impl<T: PartialEq> PartialEq for MaybeOverflow<T> {
     }
 }
 
+#[expect(clippy::missing_trait_methods, reason = "intentional")]
 impl<T: PartialOrd> PartialOrd for MaybeOverflow<T> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -158,10 +170,7 @@ impl<T: PartialOrd> PartialOrd for MaybeOverflow<T> {
 impl<T> From<Result<T, TryFromIntError>> for MaybeOverflow<T> {
     #[inline]
     fn from(value: Result<T, TryFromIntError>) -> Self {
-        match value {
-            Ok(ok) => Self::Contained(ok),
-            Err(_) => Self::Overflow,
-        }
+        value.map_or_else(|_| Self::Overflow, Self::Contained)
     }
 }
 
