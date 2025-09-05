@@ -14,7 +14,7 @@ pub mod max;
 pub mod pseudorandom;
 pub mod value_size;
 
-pub use impls::ints::in_between::*;
+// pub use impls::ints::in_between::*;
 
 #[macro_export]
 macro_rules! test_impls_for {
@@ -33,8 +33,8 @@ macro_rules! test_impls_for {
                 let ast_size = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE;
                 let value_size = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE;
                 let (ast_size, value_size) = match (&ast_size, &value_size) {
-                    (&MaybeDecidable::Decidable(ref ast_size), &MaybeDecidable::Decidable(ref value_size)) => (ast_size, value_size),
-                    (&MaybeDecidable::Undecidable, &MaybeDecidable::Undecidable) => return,
+                    (&$crate::max::MaybeDecidable::Decidable(ref ast_size), &$crate::max::MaybeDecidable::Decidable(ref value_size)) => (ast_size, value_size),
+                    (&$crate::max::MaybeDecidable::Undecidable, &$crate::max::MaybeDecidable::Undecidable) => return,
                     _ => panic!("Maximum sizes for ASTs and values don't agree: the maximum AST size is {ast_size:?}, but the maximum value size is {value_size:?}"),
                 };
                 match (ast_size, value_size) {
@@ -51,8 +51,8 @@ macro_rules! test_impls_for {
                 let ast_size = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE;
                 let expected_size = <$t as $crate::ast_size::AstSize>::MAX_EXPECTED_AST_SIZE;
                 let (ast_size, expected_size) = match (&ast_size, &expected_size) {
-                    (&MaybeDecidable::Decidable(ref ast_size), &MaybeDecidable::Decidable(ref expected_size)) => (ast_size, expected_size),
-                    (&MaybeDecidable::Undecidable, &MaybeDecidable::Undecidable) => return,
+                    (&$crate::max::MaybeDecidable::Decidable(ref ast_size), &$crate::max::MaybeDecidable::Decidable(ref expected_size)) => (ast_size, expected_size),
+                    (&$crate::max::MaybeDecidable::Undecidable, &$crate::max::MaybeDecidable::Undecidable) => return,
                     _ => panic!("Maximum AST size and maximum expected AST size don't agree: the maximum AST size is {ast_size:?}, but the maximum expected size is {expected_size:?}"),
                 };
                 match (ast_size, expected_size) {
@@ -82,7 +82,7 @@ macro_rules! test_impls_for {
             fn uninstantiable_if_claimed() {
                 let mut rng = $crate::pseudorandom::default_rng();
 
-                if matches!(<$t as $crate::ast_size::AstSize>::MAX_AST_SIZE, MaybeDecidable::Decidable($crate::max::Max::Uninstantiable))
+                if matches!(<$t as $crate::ast_size::AstSize>::MAX_AST_SIZE, $crate::max::MaybeDecidable::Decidable($crate::max::Max::Uninstantiable))
                     && let Some(generated) = $crate::exhaust::exhaust::<$t>().next().or_else(|| $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).next())
                 {
                     panic!("Allegedly uninstantiable type was instantiated: {generated:#?}");
@@ -109,7 +109,7 @@ macro_rules! test_impls_for {
                     let Ok(exhaust) = <$t as $crate::exhaust::Exhaust>::exhaust(value_size) else {
                         return;
                     };
-                    let ideal = MaybeOverflow::Contained(value_size);
+                    let ideal = $crate::max::MaybeOverflow::Contained(value_size);
                     for value in exhaust {
                         let actual = <$t as $crate::value_size::ValueSize>::value_size(&value);
                         assert_eq!(actual, ideal, "Expected a term of value size {ideal:?} but found {value:#?} (of value size {actual:?})");
@@ -139,14 +139,14 @@ macro_rules! test_impls_for {
             fn ast_size_always_zero_if_trivial() {
                 let mut rng = $crate::pseudorandom::default_rng();
 
-                if let MaybeDecidable::Decidable(max) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE
+                if let $crate::max::MaybeDecidable::Decidable(max) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE
                     && max.is_trivial()
                 {
                     for generated in $crate::exhaust::exhaust::<$t>().take(MANY) {
-                        assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), MaybeOverflow::Contained(0));
+                        assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
                     for generated in $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).take(MANY) {
-                        assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), MaybeOverflow::Contained(0));
+                        assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
                 }
             }
@@ -157,20 +157,20 @@ macro_rules! test_impls_for {
 
                 // Exhaust the largest *value* size, if any,
                 // checking the *AST* size of each:
-                if let MaybeDecidable::Decidable($crate::max::Max::Finite(MaybeOverflow::Contained(max))) = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE
+                if let $crate::max::MaybeDecidable::Decidable($crate::max::Max::Finite(MaybeOverflow::Contained(max))) = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE
                     && let Ok(exhaust) = <$t as $crate::exhaust::Exhaust>::exhaust(max)
                 {
                     for generated in exhaust.take(MANY) {
                         let ast_size = <$t as $crate::ast_size::AstSize>::ast_size(&generated);
                         assert!(
-                            ast_size <= MaybeOverflow::Contained(max),
+                            ast_size <= $crate::max::MaybeOverflow::Contained(max),
                             "Generated term has an AST size larger than the alleged maximum: {generated:#?} has size {ast_size:?}, but the alleged maximum is {max:?}",
                         );
                     }
                 }
 
                 // Pseudorandomly generate the largest AST size, if any:
-                if let MaybeDecidable::Decidable($crate::max::Max::Finite(MaybeOverflow::Contained(max))) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE {
+                if let $crate::max::MaybeDecidable::Decidable($crate::max::Max::Finite($crate::max::MaybeOverflow::Contained(max))) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE {
                     #[expect(
                         clippy::as_conversions,
                         clippy::cast_precision_loss,
@@ -181,7 +181,7 @@ macro_rules! test_impls_for {
                         if let Ok(generated) = <$t as $crate::pseudorandom::Pseudorandom>::pseudorandom(max_f32, &mut rng) {
                             let ast_size = <$t as $crate::ast_size::AstSize>::ast_size(&generated);
                             assert!(
-                                ast_size <= MaybeOverflow::Contained(max),
+                                ast_size <= $crate::max::MaybeOverflow::Contained(max),
                                 "Generated term has an AST size larger than the alleged maximum: {generated:#?} has size {ast_size:?}, but the alleged maximum is {max:?}",
                             );
                         }
@@ -192,7 +192,7 @@ macro_rules! test_impls_for {
             #[test]
             fn max_value_size_is_accurate() {
                 // Get the largest finite value size, if any:
-                let MaybeDecidable::Decidable($crate::max::Max::Finite(MaybeOverflow::Contained(max))) = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE else {
+                let $crate::max::MaybeDecidable::Decidable($crate::max::Max::Finite($crate::max::MaybeOverflow::Contained(max))) = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE else {
                     return;
                 };
 
@@ -214,7 +214,7 @@ macro_rules! test_impls_for {
                     for generated in exhaust.take(MANY) {
                         let ast_size = <$t as $crate::ast_size::AstSize>::ast_size(&generated);
                         assert!(
-                            ast_size <= MaybeOverflow::Contained(max),
+                            ast_size <= $crate::max::MaybeOverflow::Contained(max),
                             "Generated term has an AST size larger than the alleged maximum: {generated:#?} has size {ast_size:?}, but the alleged maximum is {max:?}",
                         );
                     }
@@ -277,7 +277,7 @@ macro_rules! test_impls_for {
                 const SIZES: &[usize] = &[1, 10, 100, 1_000];
                 const TOLERANCE: f32 = 0.01;
 
-                let MaybeDecidable::Decidable(max_expected) = <$t as $crate::ast_size::AstSize>::MAX_EXPECTED_AST_SIZE else {
+                let $crate::max::MaybeDecidable::Decidable(max_expected) = <$t as $crate::ast_size::AstSize>::MAX_EXPECTED_AST_SIZE else {
                     return;
                 };
                 if matches!(max_expected, $crate::max::Max::Uninstantiable) {
@@ -297,7 +297,7 @@ macro_rules! test_impls_for {
 
                     let mut rng = $crate::pseudorandom::default_rng();
 
-                    let mut acc = MaybeOverflow::Contained(0_usize);
+                    let mut acc = $crate::max::MaybeOverflow::Contained(0_usize);
                     for _ in 0..MANY {
                         if let Ok(generated) = <$t as $crate::pseudorandom::Pseudorandom>::pseudorandom(size, &mut rng) {
                             let ast_size = <$t as $crate::ast_size::AstSize>::ast_size(&generated);
@@ -305,7 +305,7 @@ macro_rules! test_impls_for {
                         }
                     }
 
-                    if let MaybeOverflow::Contained(acc) = acc {
+                    if let $crate::max::MaybeOverflow::Contained(acc) = acc {
                         #[expect(
                             clippy::as_conversions,
                             clippy::cast_precision_loss,

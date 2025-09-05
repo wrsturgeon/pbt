@@ -45,6 +45,53 @@ macro_rules! impl_int_in_between {
                         None
                     }
                 }
+
+                #[inline]
+                pub const fn new_unchecked(full: [< u $full >]) -> Self {
+                    #[cfg(test)]
+                    {
+                        assert!(
+                            full <= Self::[< MAX_U $full >],
+                            // "`new_unchecked({full:?})` out of range: should satisfy {full:?} <= {:?}",
+                            // Self::[< MAX_U $full >],
+                        );
+                    }
+                    Self(full)
+                }
+
+                #[inline]
+                pub const fn new_masking(full: [< u $full >]) -> Self {
+                    Self::new_unchecked(full & Self::[< MAX_U $full >])
+                }
+
+                #[inline]
+                pub const fn as_signed(self) -> [< i $partial >] {
+                    let Self(u) = self;
+                    let i = u as [< i $full >];
+                    [< i $partial >]::new_unchecked(i)
+                }
+
+                #[inline]
+                pub const fn reverse_bits(self) -> Self {
+                    let Self(u) = self;
+                    let r = u.reverse_bits();
+                    let shr = r >> const { [< $full _u32 >] - [< $partial _u32 >] };
+                    Self::new_unchecked(shr)
+                }
+
+                #[inline]
+                pub const fn wrapping_sub(self, Self(rhs): Self) -> Self {
+                    let Self(lhs) = self;
+                    let diff = lhs.wrapping_sub(rhs);
+                    Self::new_masking(diff)
+                }
+
+                #[inline]
+                pub const fn wrapping_add(self, Self(rhs): Self) -> Self {
+                    let Self(lhs) = self;
+                    let sum = lhs.wrapping_add(rhs);
+                    Self::new_masking(sum)
+                }
             }
 
             impl [< i $partial >] {
@@ -89,6 +136,13 @@ macro_rules! impl_int_in_between {
                         );
                     }
                     Self(full)
+                }
+
+                #[inline]
+                pub const fn as_unsigned(self) -> [< u $partial >] {
+                    let Self(i) = self;
+                    let u = i as [< u $full >];
+                    [< u $partial >]::new_unchecked(u)
                 }
             }
 
