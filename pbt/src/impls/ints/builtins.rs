@@ -251,6 +251,32 @@ macro_rules! impl_unsigned {
                 })
             }
         }
+
+        impl MaybeOverflow<usize> {
+            paste! {
+                #[inline]
+                pub const fn [< saturating_from_ $ty >](value: $ty) -> Self {
+                    #[expect(
+                        clippy::allow_attributes,
+                        clippy::as_conversions,
+                        reason = "Relevant only after a platform-dependent bit width."
+                    )]
+                    #[allow(clippy::cast_possible_truncation, reason = "still `0b11111...`")]
+                    if value <= const { usize::MAX as $ty } {
+                        Self::Contained(value as usize)
+                    } else {
+                        Self::Overflow
+                    }
+                }
+            }
+        }
+
+        impl From<$ty> for MaybeOverflow<usize> {
+            #[inline]
+            fn from(value: $ty) -> Self {
+                paste! { Self::[< saturating_from_ $ty >](value) }
+            }
+        }
     };
 }
 
@@ -262,17 +288,23 @@ macro_rules! impl_signed {
         impl ValueSize for $ty {
             const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
                 MaybeDecidable::Decidable(Max::Finite({
-                    #[expect(
-                        clippy::allow_attributes,
-                        clippy::as_conversions,
-                        reason = "Relevant only after a platform-dependent bit width."
-                    )]
-                    #[allow(clippy::cast_possible_truncation, reason = "Roundtrip checked.")]
-                    let cast = <$ty>::MIN.unsigned_abs() as usize;
-                    if cast == 0 {
-                        MaybeOverflow::Overflow
+                    if let Some(value_size_of_most_negative) =
+                        <$ty>::MIN.unsigned_abs().checked_add(1)
+                    {
+                        #[expect(
+                            clippy::allow_attributes,
+                            clippy::as_conversions,
+                            reason = "Relevant only after a platform-dependent bit width."
+                        )]
+                        #[allow(clippy::cast_possible_truncation, reason = "Roundtrip checked.")]
+                        let cast = value_size_of_most_negative as usize;
+                        if cast > 1 {
+                            MaybeOverflow::Contained(cast)
+                        } else {
+                            MaybeOverflow::Overflow
+                        }
                     } else {
-                        MaybeOverflow::Contained(cast)
+                        MaybeOverflow::Overflow
                     }
                 }));
 
@@ -287,29 +319,28 @@ macro_rules! impl_signed {
             fn exhaust(
                 value_size: usize,
             ) -> Result<impl Iterator<Item = Self>, error::UnreachableSize> {
+                const MAX_VALUE_SIZE: &MaybeOverflow<usize> =
+                    <$ty>::MAX_VALUE_SIZE.unwrap_ref().unwrap_finite_ref();
                 const ONE: $ty = 1;
-                match Self::try_from(value_size) {
-                    Ok(pos) => {
-                        // SAFETY: There's one more negative value than there are positive values,
-                        // and the negative value we're computing is one fewer in absolute value.
-                        let neg = unsafe { ONE.unchecked_sub(pos) };
-                        Ok([pos, neg].into_iter().take(if neg < 0 { 2 } else { 1 }))
+                if let Ok(pos) = Self::try_from(value_size) {
+                    // SAFETY: There's one more negative value than there are positive values,
+                    // and the negative value we're computing is one fewer in absolute value.
+                    let neg = unsafe { ONE.unchecked_sub(pos) };
+                    Ok(if neg < 0 {
+                        [neg, pos].into_iter().take(2)
+                    } else {
+                        [pos; 2].into_iter().take(1)
+                    })
+                } else {
+                    if let MaybeOverflow::Contained(max_value_size) = *MAX_VALUE_SIZE
+                        && value_size > max_value_size
+                    {
+                        return Err(error::UnreachableSize);
                     }
-                    Err(_) => {
-                        // SAFETY: If `value_size` were zero, the above would have succeeded.
-                        let value_size = unsafe { value_size.unchecked_sub(1) };
-                        #[expect(
-                            clippy::allow_attributes,
-                            clippy::as_conversions,
-                            reason = "Relevant only after a platform-dependent bit width."
-                        )]
-                        #[allow(clippy::cast_possible_truncation, reason = "Roundtrip checked.")]
-                        if value_size == const { Self::MIN.unsigned_abs() as usize } {
-                            Ok([Self::MIN, Self::MIN].into_iter().take(1))
-                        } else {
-                            Err(error::UnreachableSize)
-                        }
-                    }
+                    // SAFETY:
+                    // Checked above, assuming `MAX_VALUE_SIZE` is correct (which is tested).
+                    let neg_value_size_minus_one = unsafe { (!value_size).unchecked_add(2) };
+                    Ok([neg_value_size_minus_one as _; 2].into_iter().take(1))
                 }
             }
         }
@@ -367,3 +398,52 @@ impl_int!(32);
 impl_int!(64);
 impl_int!(128);
 impl_int!(size);
+
+#[cfg(test)]
+mod test {
+    use {
+        crate::exhaust::{Exhaust, exhaust},
+        alloc::{vec, vec::Vec},
+    };
+
+    extern crate alloc;
+
+    #[test]
+    fn exhaust_i8_128() {
+        let exhaust: Vec<_> = i8::exhaust(128).unwrap().collect();
+        assert_eq!(exhaust, vec![-127]);
+    }
+
+    #[test]
+    fn exhaust_i8_129() {
+        let exhaust: Vec<_> = i8::exhaust(129).unwrap().collect();
+        assert_eq!(exhaust, vec![-128]);
+    }
+
+    #[test]
+    fn exhaust_i8_130() {
+        if let Ok(exhaust) = i8::exhaust(130) {
+            let exhaust: Vec<_> = exhaust.collect();
+            panic!("{exhaust:#?}");
+        };
+    }
+
+    #[test]
+    fn exhaust_i8() {
+        let exhaust: Vec<i8> = exhaust().collect();
+        assert_eq!(exhaust[..10], vec![0, 1, -1, 2, -2, 3, -3, 4, -4, 5]);
+        assert_eq!(exhaust[250..], vec![-125, 126, -126, 127, -127, -128]);
+    }
+
+    /*
+    #[test]
+    fn exhaust_i16() {
+        let exhaust: Vec<i16> = exhaust().collect();
+        assert_eq!(exhaust[..10], vec![0, 1, -1, 2, -2, 3, -3, 4, -4, 5]);
+        assert_eq!(
+            exhaust[65_530..],
+            vec![-32_765, 32_766, -32_766, 32_767, -32_767, -32_768],
+        );
+    }
+    */
+}

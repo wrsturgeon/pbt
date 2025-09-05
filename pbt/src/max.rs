@@ -45,6 +45,14 @@ impl<Finite: PartialOrd> Max<Finite> {
     pub const fn is_trivial(&self) -> bool {
         matches!(*self, Self::Uninstantiable | Self::Finite(_))
     }
+
+    #[inline]
+    pub const fn unwrap_finite_ref(&self) -> &Finite {
+        match *self {
+            Self::Finite(ref finite) => finite,
+            Self::Uninstantiable | Self::Infinite => panic!(),
+        }
+    }
 }
 
 #[expect(clippy::missing_trait_methods, reason = "intentional")]
@@ -112,6 +120,16 @@ impl<Finite: PartialOrd> PartialOrd for Max<Finite> {
     }
 }
 
+impl<T> MaybeDecidable<T> {
+    #[inline]
+    pub const fn unwrap_ref(&self) -> &T {
+        match *self {
+            Self::Decidable(ref t) => t,
+            Self::Undecidable => panic!(),
+        }
+    }
+}
+
 #[expect(clippy::missing_trait_methods, reason = "intentional")]
 impl<T: PartialEq> PartialEq for MaybeDecidable<T> {
     #[inline]
@@ -137,6 +155,16 @@ impl<T: PartialOrd> PartialOrd for MaybeDecidable<T> {
             return None;
         };
         lhs.partial_cmp(rhs)
+    }
+}
+
+impl<T> MaybeOverflow<T> {
+    #[inline]
+    pub const fn unwrap_ref(&self) -> &T {
+        match *self {
+            Self::Contained(ref t) => t,
+            Self::Overflow => panic!(),
+        }
     }
 }
 

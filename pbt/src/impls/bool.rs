@@ -45,7 +45,7 @@ impl Pseudorandom for bool {
 }
 impl ValueSize for bool {
     const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
-        MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0)));
+        MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(1)));
 
     #[inline]
     fn value_size(&self) -> MaybeOverflow<usize> {

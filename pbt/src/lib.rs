@@ -1,4 +1,8 @@
 #![no_std]
+#![expect(
+    clippy::pub_use,
+    reason = "toplevel is not the right place for complex definitions"
+)]
 
 //! Property-based testing plus `#[derive(..)]`, no-std, automatic edge cases, and exhaustive breadth-first search over arbitrary types.
 
@@ -9,6 +13,8 @@ mod impls;
 pub mod max;
 pub mod pseudorandom;
 pub mod value_size;
+
+pub use impls::ints::in_between::*;
 
 #[macro_export]
 macro_rules! test_impls_for {
@@ -179,6 +185,38 @@ macro_rules! test_impls_for {
                                 "Generated term has an AST size larger than the alleged maximum: {generated:#?} has size {ast_size:?}, but the alleged maximum is {max:?}",
                             );
                         }
+                    }
+                }
+            }
+
+            #[test]
+            fn max_value_size_is_accurate() {
+                // Get the largest finite value size, if any:
+                let MaybeDecidable::Decidable($crate::max::Max::Finite(MaybeOverflow::Contained(max))) = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE else {
+                    return;
+                };
+
+                // Check that exceeding that size will not produce any values:
+                if let Some(excessive) = max.checked_add(1) {
+                    if let Ok(mut exhaust) = <$t as $crate::exhaust::Exhaust>::exhaust(excessive) {
+                        if let Some(first) = exhaust.next() {
+                            panic!("Maximum value size ({max:?}) is too small: {excessive:?} succeeded, producing e.g. {first:#?}.");
+                        } else {
+                            panic!("Maximum value size ({max:?}) is too small: {excessive:?} succeeded BUT DID NOT PRODUCE ANY VALUES.");
+                        }
+                    }
+                }
+
+                let Ok(exhaust) = <$t as $crate::exhaust::Exhaust>::exhaust(max) else {
+                    panic!("Maximum value size ({max:?}) is too large: couldn't exhaust it.");
+                };
+                {
+                    for generated in exhaust.take(MANY) {
+                        let ast_size = <$t as $crate::ast_size::AstSize>::ast_size(&generated);
+                        assert!(
+                            ast_size <= MaybeOverflow::Contained(max),
+                            "Generated term has an AST size larger than the alleged maximum: {generated:#?} has size {ast_size:?}, but the alleged maximum is {max:?}",
+                        );
                     }
                 }
             }
