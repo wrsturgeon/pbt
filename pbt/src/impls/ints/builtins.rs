@@ -124,8 +124,8 @@ macro_rules! impl_nonzero {
         impl ValueSize for NonZero<$ty> {
             const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
                 match <$ty as ValueSize>::MAX_VALUE_SIZE {
-                    MaybeDecidable::Undecidable => MaybeDecidable::Undecidable,
                     MaybeDecidable::Decidable(max) => MaybeDecidable::Decidable(max.minus(1)),
+                    MaybeDecidable::AtMost(max) => MaybeDecidable::AtMost(max.minus(1)),
                 };
 
             #[inline]

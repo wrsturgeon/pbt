@@ -3,3 +3,4 @@
 mod bool;
 mod floats;
 pub mod ints;
+mod tuples;

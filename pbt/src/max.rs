@@ -19,17 +19,17 @@ pub enum Max<Finite: PartialOrd> {
     clippy::exhaustive_enums,
     reason = "yes, *cue Peggy Lee* that is all there is"
 )]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum MaybeDecidable<T> {
     Decidable(T),
-    Undecidable,
+    AtMost(T),
 }
 
 #[expect(
     clippy::exhaustive_enums,
     reason = "yes, *cue Peggy Lee* that is all there is"
 )]
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum MaybeOverflow<T> {
     Contained(T),
     Overflow,
@@ -51,6 +51,48 @@ impl<Finite: PartialOrd> Max<Finite> {
         match *self {
             Self::Finite(ref finite) => finite,
             Self::Uninstantiable | Self::Infinite => panic!(),
+        }
+    }
+}
+
+impl Max<MaybeOverflow<usize>> {
+    #[inline]
+    pub const fn product(&self, rhs: &Self) -> Self {
+        match (self, rhs) {
+            (Self::Uninstantiable, _) | (_, Self::Uninstantiable) => Self::Uninstantiable,
+            (Self::Infinite, _) | (_, Self::Infinite) => Self::Infinite,
+            (Self::Finite(lhs), &Self::Finite(rhs)) => Self::Finite(lhs.plus_self(rhs)),
+        }
+    }
+}
+
+impl MaybeDecidable<Max<MaybeOverflow<usize>>> {
+    #[inline]
+    pub const fn product(&self, rhs: &Self) -> Self {
+        match (self, rhs) {
+            (Self::Decidable(lhs), Self::Decidable(rhs)) => Self::Decidable(lhs.product(rhs)),
+            _ => Self::AtMost(self.at_most().product(rhs.at_most())),
+        }
+    }
+}
+
+impl Max<f32> {
+    #[inline]
+    pub const fn product(&self, rhs: &Self) -> Self {
+        match (self, rhs) {
+            (Self::Uninstantiable, _) | (_, Self::Uninstantiable) => Self::Uninstantiable,
+            (Self::Infinite, _) | (_, Self::Infinite) => Self::Infinite,
+            (&Self::Finite(lhs), &Self::Finite(rhs)) => Self::Finite(lhs + rhs),
+        }
+    }
+}
+
+impl MaybeDecidable<Max<f32>> {
+    #[inline]
+    pub const fn product(&self, rhs: &Self) -> Self {
+        match (self, rhs) {
+            (Self::Decidable(lhs), Self::Decidable(rhs)) => Self::Decidable(lhs.product(rhs)),
+            _ => Self::AtMost(self.at_most().product(rhs.at_most())),
         }
     }
 }
@@ -125,7 +167,15 @@ impl<T> MaybeDecidable<T> {
     pub const fn unwrap_ref(&self) -> &T {
         match *self {
             Self::Decidable(ref t) => t,
-            Self::Undecidable => panic!(),
+            Self::AtMost(_) => panic!(),
+        }
+    }
+
+    #[inline]
+    pub const fn at_most(&self) -> &T {
+        match *self {
+            Self::Decidable(ref t) => t,
+            Self::AtMost(ref t) => t,
         }
     }
 }

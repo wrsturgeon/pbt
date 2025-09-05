@@ -34,7 +34,7 @@ macro_rules! test_impls_for {
                 let value_size = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE;
                 let (ast_size, value_size) = match (&ast_size, &value_size) {
                     (&$crate::max::MaybeDecidable::Decidable(ref ast_size), &$crate::max::MaybeDecidable::Decidable(ref value_size)) => (ast_size, value_size),
-                    (&$crate::max::MaybeDecidable::Undecidable, &$crate::max::MaybeDecidable::Undecidable) => return,
+                    (&$crate::max::MaybeDecidable::AtMost(_), &$crate::max::MaybeDecidable::AtMost(_)) => return,
                     _ => panic!("Maximum sizes for ASTs and values don't agree: the maximum AST size is {ast_size:?}, but the maximum value size is {value_size:?}"),
                 };
                 match (ast_size, value_size) {
@@ -52,7 +52,7 @@ macro_rules! test_impls_for {
                 let expected_size = <$t as $crate::ast_size::AstSize>::MAX_EXPECTED_AST_SIZE;
                 let (ast_size, expected_size) = match (&ast_size, &expected_size) {
                     (&$crate::max::MaybeDecidable::Decidable(ref ast_size), &$crate::max::MaybeDecidable::Decidable(ref expected_size)) => (ast_size, expected_size),
-                    (&$crate::max::MaybeDecidable::Undecidable, &$crate::max::MaybeDecidable::Undecidable) => return,
+                    (&$crate::max::MaybeDecidable::AtMost(_), &$crate::max::MaybeDecidable::AtMost(_)) => return,
                     _ => panic!("Maximum AST size and maximum expected AST size don't agree: the maximum AST size is {ast_size:?}, but the maximum expected size is {expected_size:?}"),
                 };
                 match (ast_size, expected_size) {

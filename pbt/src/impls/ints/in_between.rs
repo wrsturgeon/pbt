@@ -75,7 +75,7 @@ macro_rules! impl_int_in_between {
                 pub const fn reverse_bits(self) -> Self {
                     let Self(u) = self;
                     let r = u.reverse_bits();
-                    let shr = r >> const { [< $full _u32 >] - [< $partial _u32 >] };
+                    let shr = r.unbounded_shr(const { [< $full _u32 >] - [< $partial _u32 >] });
                     Self::new_unchecked(shr)
                 }
 
