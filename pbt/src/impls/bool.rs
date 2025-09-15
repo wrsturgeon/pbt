@@ -25,8 +25,9 @@ impl AstSize for bool {
     }
 }
 impl Exhaust for bool {
+    type Exhaust = iter::Once<Self>;
     #[inline]
-    fn exhaust(value_size: usize) -> Result<impl Iterator<Item = Self>, error::UnreachableSize> {
+    fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
         match value_size {
             0 => Ok(iter::once(false)),
             1 => Ok(iter::once(true)),

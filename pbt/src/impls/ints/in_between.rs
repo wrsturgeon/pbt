@@ -11,6 +11,7 @@ use {
         test_impls_for,
         value_size::ValueSize,
     },
+    core::{array, fmt, iter},
     paste::paste,
     rand_core::RngCore,
 };
@@ -21,16 +22,22 @@ macro_rules! impl_int_in_between {
     ($partial:tt, $full:tt) => {
         paste! {
             #[expect(non_camel_case_types, reason = "To match built-in integers.")]
-            #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+            #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
             pub struct [< u $partial >]([< u $full >]);
 
             #[expect(non_camel_case_types, reason = "To match built-in integers.")]
-            #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
-            pub struct [< i $partial >]([< i $full >]);
+            #[derive(Clone, Copy, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
+            pub struct [< i $partial >]([< u $full >]);
 
             impl [< u $partial >] {
                 pub const MAX: Self = Self(Self::[< MAX_U $full >]);
                 pub const [< MAX_U $full >]: [< u $full >] = (1 << $partial) - 1;
+
+                #[inline]
+                pub const fn as_signed(self) -> [< i $partial >] {
+                    #[expect(clippy::as_conversions, clippy::cast_possible_wrap, reason = "intentional")]
+                    [< i $partial >]::new_unchecked(self.0 as [< i $full >])
+                }
 
                 #[inline]
                 pub const fn get(self) -> [< u $full >] {
@@ -47,6 +54,11 @@ macro_rules! impl_int_in_between {
                 }
 
                 #[inline]
+                pub const fn new_masking(full: [< u $full >]) -> Self {
+                    Self::new_unchecked(full & Self::[< MAX_U $full >])
+                }
+
+                #[inline]
                 pub const fn new_unchecked(full: [< u $full >]) -> Self {
                     #[cfg(test)]
                     {
@@ -60,89 +72,127 @@ macro_rules! impl_int_in_between {
                 }
 
                 #[inline]
-                pub const fn new_masking(full: [< u $full >]) -> Self {
-                    Self::new_unchecked(full & Self::[< MAX_U $full >])
-                }
-
-                #[inline]
-                pub const fn as_signed(self) -> [< i $partial >] {
-                    let Self(u) = self;
-                    let i = u as [< i $full >];
-                    [< i $partial >]::new_unchecked(i)
-                }
-
-                #[inline]
+                #[must_use]
                 pub const fn reverse_bits(self) -> Self {
-                    let Self(u) = self;
-                    let r = u.reverse_bits();
-                    let shr = r.unbounded_shr(const { [< $full _u32 >] - [< $partial _u32 >] });
+                    let Self(fwd) = self;
+                    let bwd = fwd.reverse_bits();
+                    let shr = bwd.unbounded_shr(const { [< $full _u32 >] - [< $partial _u32 >] });
                     Self::new_unchecked(shr)
                 }
 
                 #[inline]
-                pub const fn wrapping_sub(self, Self(rhs): Self) -> Self {
-                    let Self(lhs) = self;
-                    let diff = lhs.wrapping_sub(rhs);
-                    Self::new_masking(diff)
-                }
-
-                #[inline]
+                #[must_use]
                 pub const fn wrapping_add(self, Self(rhs): Self) -> Self {
                     let Self(lhs) = self;
                     let sum = lhs.wrapping_add(rhs);
                     Self::new_masking(sum)
                 }
+
+                #[inline]
+                #[must_use]
+                pub const fn wrapping_sub(self, Self(rhs): Self) -> Self {
+                    let Self(lhs) = self;
+                    let diff = lhs.wrapping_sub(rhs);
+                    Self::new_masking(diff)
+                }
             }
 
             impl [< i $partial >] {
-                pub const MAX: Self = Self(Self::[< MAX_I $full >]);
-                pub const [< MAX_I $full >]: [< i $full >] =
-                    if let Some(bits) = [< $partial _u32 >].checked_sub(1) {
-                        (1 << bits) - 1
-                    } else {
-                        0
-                    };
-                pub const MIN: Self = Self(Self::[< MIN_I $full >]);
-                pub const [< MIN_I $full >]: [< i $full >] =
-                    if let Some(bits) = [< $partial _u32 >].checked_sub(1) {
-                        -(1 << bits)
-                    } else {
-                        0
-                    };
+                pub const BITMASK: [< u $full >] = [< u $full >]::MAX.unbounded_shr([< $full _u32 >] - [< $partial _u32 >]);
+                pub const MAX: Self = Self(Self::[< MAX_U $full >]);
+                #[expect(clippy::as_conversions, clippy::cast_possible_wrap, reason = "intentional")]
+                pub const [< MAX_I $full >]: [< i $full >] = Self::[< MAX_U $full >] as [< i $full >];
+                pub const [< MAX_U $full >]: [< u $full >] = if let Some(bits) = [< $partial _u32 >].checked_sub(1) {
+                    let bit_tricks /* 0b...000111... */ = [< u $full >]::MAX.unbounded_shr($full - bits);
+                    #[expect(clippy::as_conversions, clippy::cast_possible_wrap, reason = "intentional")]
+                    { debug_assert!((bit_tricks as [< i $full >]) >= [< 0_i $full >]); }
+                    bit_tricks
+                } else {
+                    0
+                };
+                pub const MIN: Self = Self(Self::[< MIN_U $full >]);
+                #[expect(clippy::as_conversions, clippy::cast_possible_wrap, reason = "intentional")]
+                pub const [< MIN_I $full >]: [< i $full >] = Self::[< MIN_U $full >] as [< i $full >];
+                pub const [< MIN_U $full >]: [< u $full >] = if let Some(bits) = [< $partial _u32 >].checked_sub(1) {
+                    let bit_tricks /* 0b...111000... */ = ([< u $full >]::MAX << bits);
+                    #[expect(clippy::as_conversions, clippy::cast_possible_wrap, reason = "intentional")]
+                    { debug_assert!((bit_tricks as [< i $full >]) < [< 0_i $full >]); }
+                    bit_tricks
+                } else {
+                    0
+                };
+                pub const SIGN_BIT: [< u $full >] = if let Some(shl) = [< $partial _u32 >].checked_sub(1) { [< 1_u $full >] << shl } else { 0 };
+                pub const UPPER_BITS: [< u $full >] = [< u $full >]::MAX.unbounded_shl([< $partial _u32 >]);
+
+                #[inline]
+                pub const fn as_unsigned(self) -> [< u $partial >] {
+                    let Self(unsigned) = self;
+                    [< u $partial >]::new_masking(unsigned)
+                }
+
+                #[inline]
+                pub const fn check_invariant(self) -> bool {
+                    Self::[< MIN_I $full >] <= self.get() && self.get() <= Self::[< MAX_I $full >]
+                }
 
                 #[inline]
                 pub const fn get(self) -> [< i $full >] {
-                    self.0
+                    let Self(unsigned) = self;
+                    #[allow(clippy::bad_bit_mask, reason = "`i0` will have no sign bit")]
+                    #[expect(clippy::allow_attributes, reason = "... but *only* `i0`")]
+                    let unsigned = if (unsigned & Self::SIGN_BIT) == 0 {
+                        unsigned
+                    } else {
+                        unsigned | Self::UPPER_BITS
+                    };
+                    #[expect(clippy::as_conversions, clippy::cast_possible_wrap, reason = "intentional")]
+                    (unsigned as [< i $full >])
                 }
 
                 #[inline]
                 pub const fn new(full: [< i $full >]) -> Option<Self> {
-                    if Self::[< MIN_I $full >] <= full && full <= Self::[< MAX_I $full >] {
-                        Some(Self(full))
-                    } else {
-                        None
+                    if Self::[< MIN_I $full >] > full || full > Self::[< MAX_I $full >] {
+                        return None;
                     }
+                    #[expect(clippy::as_conversions, clippy::cast_sign_loss, reason = "intentional")]
+                    let candidate = Self(full as [< u $full >]);
+                    debug_assert!(candidate.check_invariant());
+                    Some(candidate)
+                }
+
+                #[inline]
+                pub const fn new_masking(full: [< u $full >]) -> Self {
+                    #[expect(clippy::as_conversions, clippy::cast_possible_wrap, reason = "intentional")]
+                    Self::new_unchecked((full & Self::BITMASK) as [< i $full >])
                 }
 
                 #[inline]
                 pub const fn new_unchecked(full: [< i $full >]) -> Self {
-                    #[cfg(test)]
-                    {
-                        assert!(
-                            Self::[< MIN_I $full >] <= full && full <= Self::[< MAX_I $full >],
-                            // "`new_unchecked({full:?})` out of range: should satisfy {:?} <= {full:?} <= {:?}",
-                            // Self::[< MIN_I $full >],
-                            // Self::[< MAX_I $full >],
-                        );
-                    }
-                    Self(full)
+                    #[expect(clippy::as_conversions, clippy::cast_sign_loss, reason = "intentional")]
+                    let candidate = Self(full as [< u $full >]);
+                    // TODO: REMOVE
+                    debug_assert!(
+                        candidate.check_invariant(),
+                        // "`new_unchecked({full:?})` out of range: should satisfy {:?} <= {:?} <= {:?}",
+                        // Self::[< MIN_I $full >],
+                        // candidate.get(),
+                        // Self::[< MAX_I $full >],
+                    );
+                    candidate
                 }
+            }
 
+            impl fmt::Debug for [< u $partial >] {
                 #[inline]
-                pub const fn as_unsigned(self) -> [< u $partial >] {
-                    let Self(i) = self;
-                    let u = i as [< u $full >];
-                    [< u $partial >]::new_unchecked(u)
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    write!(f, "{:?}_u{}", self.get(), $partial)
+                }
+            }
+
+            impl fmt::Debug for [< i $partial >] {
+                #[inline]
+                fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                    write!(f, "{:?}_i{}", self.get(), $partial)
                 }
             }
 
@@ -182,7 +232,7 @@ macro_rules! impl_int_in_between {
 
                 #[inline]
                 fn value_size(&self) -> MaybeOverflow<usize> {
-                    self.0.value_size()
+                    self.get().value_size()
                 }
             }
 
@@ -202,13 +252,14 @@ macro_rules! impl_int_in_between {
 
                 #[inline]
                 fn value_size(&self) -> MaybeOverflow<usize> {
-                    self.0.value_size()
+                    self.get().value_size()
                 }
             }
 
             impl Exhaust for [< u $partial >] {
+                type Exhaust = iter::Map<<[< u $full >] as Exhaust>::Exhaust, fn([< u $full >]) -> Self>;
                 #[inline]
-                fn exhaust(value_size: usize) -> Result<impl Iterator<Item = Self>, error::UnreachableSize> {
+                fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
                     #[expect(
                         clippy::allow_attributes,
                         clippy::as_conversions,
@@ -230,22 +281,27 @@ macro_rules! impl_int_in_between {
             }
 
             impl Exhaust for [< i $partial >] {
+                type Exhaust = iter::Take<array::IntoIter<Self, 2>>;
                 #[inline]
-                fn exhaust(value_size: usize) -> Result<impl Iterator<Item = Self>, error::UnreachableSize> {
+                fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
                     const MAX_VALUE_SIZE: &MaybeOverflow<usize> =
-                        <[< i $partial >]>::MAX_VALUE_SIZE.unwrap_ref().unwrap_finite_ref();
-                    if value_size <= const { Self::[< MAX_I $full >] as usize } {
-                        let pos = Self::new_unchecked(value_size as [< i $full >]);
+                        <[< i $partial >]>::MAX_VALUE_SIZE.at_most().unwrap_finite_ref();
+                    let value_size_usize = value_size;
+                    let Ok(value_size) = [< u $full >]::try_from(value_size) else {
+                        return Err(error::UnreachableSize);
+                    };
+                    #[expect(clippy::as_conversions, clippy::cast_possible_wrap, reason = "intentional")]
+                    if let Some(pos) = Self::new(value_size as [< i $full >]) {
                         // SAFETY: There's one more negative value than there are positive values,
                         // and the negative value we're computing is one fewer in absolute value.
-                        let neg = unsafe { [< 1_i $full >].unchecked_sub(pos.0) };
+                        let neg = unsafe { [< 1_i $full >].unchecked_sub(pos.get()) };
                         Ok(if neg < 0 {
                             [Self::new_unchecked(neg), pos].into_iter().take(2)
                         } else {
                             [pos; 2].into_iter().take(1)
                         })
                     } else if let MaybeOverflow::Contained(max_value_size) = *MAX_VALUE_SIZE
-                        && value_size > max_value_size
+                        && value_size_usize > max_value_size
                     {
                         Err(error::UnreachableSize)
                     } else {
@@ -266,8 +322,10 @@ macro_rules! impl_int_in_between {
                     expected_ast_size: f32,
                     rng: &mut Rng,
                 ) -> Result<Self, error::Uninstantiable> {
+                    // SAFETY:
+                    // Integers are instantiable.
                     let full = unsafe { <[< u $full >] as Pseudorandom>::pseudorandom(expected_ast_size, rng).unwrap_unchecked() };
-                    Ok(unsafe { Self::new(full & Self::[< MAX_U $full >]).unwrap_unchecked() })
+                    Ok(Self::new_masking(full))
                 }
             }
 
@@ -279,22 +337,53 @@ macro_rules! impl_int_in_between {
                 ) -> Result<Self, error::Uninstantiable> {
                     // SAFETY:
                     // Integers are instantiable.
-                    let full = unsafe { <[< i $full >] as Pseudorandom>::pseudorandom(expected_ast_size, rng).unwrap_unchecked() };
-                    let internal = if full < [< 0_i $full >] {
-                        if const { [< $full _u32 >] == 0_u32 } {
-                            full | Self::[< MIN_I $full >]
-                        } else {
-                            [< 0_i $full >]
-                        }
-                    } else {
-                        full & Self::[< MAX_I $full >]
-                    };
-                    Ok(unsafe { Self::new(internal).unwrap_unchecked() })
+                    let full = unsafe { <[< u $full >] as Pseudorandom>::pseudorandom(expected_ast_size, rng).unwrap_unchecked() };
+                    Ok(Self::new_masking(full))
                 }
             }
 
             test_impls_for!([< u $partial >], [< u_ $partial >]);
             test_impls_for!([< i $partial >], [< i_ $partial >]);
+
+            #[cfg(test)]
+            mod [< test_ $partial b_integers >] {
+                use super::*;
+
+                #[test]
+                fn roundtrip_u() {
+                    for input in [0, 1, 10, 100, 1_000].into_iter().filter_map(|i| usize::try_into(i).ok()) {
+                        let Some(tmp) = [< u $partial >]::new(input) else { continue; };
+                        let roundtrip = tmp.get();
+                        assert_eq!(roundtrip, input, "{input:?} --{{new}}-> {tmp:?} --{{get}}-> {roundtrip:?} =/= {input:?}");
+
+                        let tmp = [< u $partial >]::new_masking(input);
+                        let roundtrip = tmp.get();
+                        assert_eq!(roundtrip, input, "{input:?} --{{new_masking}}-> {tmp:?} --{{get}}-> {roundtrip:?} =/= {input:?}");
+
+                        let tmp = [< u $partial >]::new_unchecked(input);
+                        let roundtrip = tmp.get();
+                        assert_eq!(roundtrip, input, "{input:?} --{{new_unchecked}}-> {tmp:?} --{{get}}-> {roundtrip:?} =/= {input:?}");
+                    }
+                }
+
+                #[test]
+                fn roundtrip_i() {
+                    for input in [-1_000, -100, -10, -1, 0, 1, 10, 100, 1_000].into_iter().filter_map(|i| isize::try_into(i).ok()) {
+                        let Some(tmp) = [< i $partial >]::new(input) else { continue; };
+                        let roundtrip = tmp.get();
+                        assert_eq!(roundtrip, input, "{input:?} --{{new}}-> {tmp:?} --{{get}}-> {roundtrip:?} =/= {input:?}");
+
+                        #[expect(clippy::as_conversions, clippy::cast_sign_loss, reason = "intentional")]
+                        let tmp = [< i $partial >]::new_masking(input as [< u $full >]);
+                        let roundtrip = tmp.get();
+                        assert_eq!(roundtrip, input, "{input:?} --{{new_masking}}-> {tmp:?} --{{get}}-> {roundtrip:?} =/= {input:?}");
+
+                        let tmp = [< i $partial >]::new_unchecked(input);
+                        let roundtrip = tmp.get();
+                        assert_eq!(roundtrip, input, "{input:?} --{{new_unchecked}}-> {tmp:?} --{{get}}-> {roundtrip:?} =/= {input:?}");
+                    }
+                }
+            }
         }
     };
 }
@@ -427,82 +516,86 @@ impl_int_in_between!(127, 128);
 */
 
 #[cfg(test)]
+#[expect(
+    clippy::indexing_slicing,
+    reason = "Tests are supposed to fail if they don't behave as expected."
+)]
 mod test {
+    extern crate alloc;
+
     use {
         super::*,
         crate::exhaust::exhaust,
         alloc::{vec, vec::Vec},
     };
 
-    extern crate alloc;
-
     #[test]
     fn exhaust_u0() {
         let exhaust: Vec<_> = exhaust().map(u0::get).collect();
-        assert_eq!(exhaust.len(), 1 << 0);
+        assert_eq!(exhaust.len(), 1_usize << 0_u32);
         assert_eq!(exhaust, vec![0]);
     }
 
     #[test]
     fn exhaust_i0() {
         let exhaust: Vec<_> = exhaust().map(i0::get).collect();
-        assert_eq!(exhaust.len(), 1 << 0);
+        assert_eq!(exhaust.len(), 1_usize << 0_u32);
         assert_eq!(exhaust, vec![0]);
     }
 
     #[test]
     fn exhaust_u1() {
         let exhaust: Vec<_> = exhaust().map(u1::get).collect();
-        assert_eq!(exhaust.len(), 1 << 1);
+        assert_eq!(exhaust.len(), 1_usize << 1_u32);
         assert_eq!(exhaust, vec![0, 1]);
     }
 
     #[test]
     fn exhaust_i1() {
         let exhaust: Vec<_> = exhaust().map(i1::get).collect();
-        assert_eq!(exhaust.len(), 1 << 1);
+        assert_eq!(exhaust.len(), 1_usize << 1_u32);
         assert_eq!(exhaust, vec![0, -1]);
     }
 
     #[test]
     fn exhaust_u2() {
         let exhaust: Vec<_> = exhaust().map(u2::get).collect();
-        assert_eq!(exhaust.len(), 1 << 2);
+        assert_eq!(exhaust.len(), 1_usize << 2_u32);
         assert_eq!(exhaust, vec![0, 1, 2, 3]);
     }
 
     #[test]
     fn exhaust_i2() {
         let exhaust: Vec<_> = exhaust().map(i2::get).collect();
-        assert_eq!(exhaust.len(), 1 << 2);
+        assert_eq!(exhaust.len(), 1_usize << 2_u32);
         assert_eq!(exhaust, vec![0, 1, -1, -2]);
     }
 
     #[test]
     fn exhaust_u3() {
         let exhaust: Vec<_> = exhaust().map(u3::get).collect();
-        assert_eq!(exhaust.len(), 1 << 3);
+        assert_eq!(exhaust.len(), 1_usize << 3_u32);
         assert_eq!(exhaust, vec![0, 1, 2, 3, 4, 5, 6, 7]);
     }
 
     #[test]
     fn exhaust_i3() {
         let exhaust: Vec<_> = exhaust().map(i3::get).collect();
-        assert_eq!(exhaust.len(), 1 << 3);
+        assert_eq!(exhaust.len(), 1_usize << 3_u32);
         assert_eq!(exhaust, vec![0, 1, -1, 2, -2, 3, -3, -4]);
     }
 
     #[test]
     fn exhaust_u7() {
         let exhaust: Vec<_> = exhaust().map(u7::get).collect();
-        assert_eq!(exhaust.len(), 1 << 7);
+        assert_eq!(exhaust.len(), 1_usize << 7_u32);
         assert_eq!(exhaust, (0..=127).collect::<Vec<_>>());
     }
 
     #[test]
     fn exhaust_i7() {
         let exhaust: Vec<_> = exhaust().map(i7::get).collect();
-        assert_eq!(exhaust.len(), 1 << 7);
+        assert_eq!(exhaust.len(), 1_usize << 7_u32);
         assert_eq!(exhaust[..10], vec![0, 1, -1, 2, -2, 3, -3, 4, -4, 5]);
         assert_eq!(exhaust[120..], vec![-60, 61, -61, 62, -62, 63, -63, -64]);
     }
@@ -510,14 +603,154 @@ mod test {
     #[test]
     fn exhaust_u9() {
         let exhaust: Vec<_> = exhaust().map(u9::get).collect();
-        assert_eq!(exhaust.len(), 1 << 9);
+        assert_eq!(exhaust.len(), 1_usize << 9_u32);
         assert_eq!(exhaust, (0..=511).collect::<Vec<_>>());
+    }
+
+    #[test]
+    fn constants_u0() {
+        type T = u0;
+        assert_eq!(T::MAX_U8, 0);
+        assert_eq!(
+            T::MAX_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0))),
+        );
+        assert_eq!(
+            T::MAX_EXPECTED_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(0.)),
+        );
+        assert_eq!(
+            T::MAX_VALUE_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0))),
+        );
+    }
+
+    #[test]
+    fn constants_u1() {
+        type T = u1;
+        assert_eq!(T::MAX_U8, 1);
+        assert_eq!(
+            T::MAX_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0))),
+        );
+        assert_eq!(
+            T::MAX_EXPECTED_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(0.)),
+        );
+        assert_eq!(
+            T::MAX_VALUE_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(1))),
+        );
+    }
+
+    #[test]
+    fn constants_u2() {
+        type T = u2;
+        assert_eq!(T::MAX_U8, 3);
+        assert_eq!(
+            T::MAX_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0))),
+        );
+        assert_eq!(
+            T::MAX_EXPECTED_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(0.)),
+        );
+        assert_eq!(
+            T::MAX_VALUE_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(3))),
+        );
+    }
+
+    #[test]
+    fn constants_u3() {
+        type T = u3;
+        assert_eq!(T::MAX_U8, 7);
+        assert_eq!(
+            T::MAX_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0))),
+        );
+        assert_eq!(
+            T::MAX_EXPECTED_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(0.)),
+        );
+        assert_eq!(
+            T::MAX_VALUE_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(7))),
+        );
+    }
+
+    #[test]
+    fn constants_u4() {
+        type T = u4;
+        assert_eq!(T::MAX_U8, 15);
+        assert_eq!(
+            T::MAX_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(0))),
+        );
+        assert_eq!(
+            T::MAX_EXPECTED_AST_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(0.)),
+        );
+        assert_eq!(
+            T::MAX_VALUE_SIZE,
+            MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(15))),
+        );
+    }
+
+    #[test]
+    fn constants_i0() {
+        type T = i0;
+        assert_eq!(T::MAX_I8, 0);
+        assert_eq!(T::MIN_I8, 0);
+        assert_eq!(T::SIGN_BIT, 0b0);
+        assert_eq!(T::BITMASK, 0b0);
+        assert_eq!(T::UPPER_BITS, 0b_1111_1111);
+    }
+
+    #[test]
+    fn constants_i1() {
+        type T = i1;
+        assert_eq!(T::MAX_I8, 0);
+        assert_eq!(T::MIN_I8, -1);
+        assert_eq!(T::SIGN_BIT, 0b1);
+        assert_eq!(T::BITMASK, 0b1);
+        assert_eq!(T::UPPER_BITS, 0b_1111_1110);
+    }
+
+    #[test]
+    fn constants_i2() {
+        type T = i2;
+        assert_eq!(T::MAX_I8, 1);
+        assert_eq!(T::MIN_I8, -2);
+        assert_eq!(T::SIGN_BIT, 0b10);
+        assert_eq!(T::BITMASK, 0b11);
+        assert_eq!(T::UPPER_BITS, 0b_1111_1100);
+    }
+
+    #[test]
+    fn constants_i3() {
+        type T = i3;
+        assert_eq!(T::MAX_I8, 3);
+        assert_eq!(T::MIN_I8, -4);
+        assert_eq!(T::SIGN_BIT, 0b100);
+        assert_eq!(T::BITMASK, 0b111);
+        assert_eq!(T::UPPER_BITS, 0b_1111_1000);
+    }
+
+    #[test]
+    fn constants_i4() {
+        type T = i4;
+        assert_eq!(T::MAX_I8, 7);
+        assert_eq!(T::MIN_I8, -8);
+        assert_eq!(T::SIGN_BIT, 0b1000);
+        assert_eq!(T::BITMASK, 0b1111);
+        assert_eq!(T::UPPER_BITS, 0b_1111_0000);
     }
 
     #[test]
     fn exhaust_i9() {
         let exhaust: Vec<_> = exhaust().map(i9::get).collect();
-        assert_eq!(exhaust.len(), 1 << 9);
+        assert_eq!(exhaust.len(), 1_usize << 9_u32);
         assert_eq!(exhaust[..10], vec![0, 1, -1, 2, -2, 3, -3, 4, -4, 5]);
         assert_eq!(exhaust[510..], vec![-255, -256]);
     }

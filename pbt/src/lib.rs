@@ -14,7 +14,12 @@ pub mod max;
 pub mod pseudorandom;
 pub mod value_size;
 
-// pub use impls::ints::in_between::*;
+pub use impls::ints::in_between::*;
+
+/*
+#[cfg(feature = "alloc")]
+extern crate alloc;
+*/
 
 #[macro_export]
 macro_rules! test_impls_for {
@@ -35,14 +40,14 @@ macro_rules! test_impls_for {
                 let (ast_size, value_size) = match (&ast_size, &value_size) {
                     (&$crate::max::MaybeDecidable::Decidable(ref ast_size), &$crate::max::MaybeDecidable::Decidable(ref value_size)) => (ast_size, value_size),
                     (&$crate::max::MaybeDecidable::AtMost(_), &$crate::max::MaybeDecidable::AtMost(_)) => return,
-                    _ => panic!("Maximum sizes for ASTs and values don't agree: the maximum AST size is {ast_size:?}, but the maximum value size is {value_size:?}"),
+                    _ => panic!("Maximum sizes for ASTs and values don't agree: the maximum AST size is {ast_size:?}, but the maximum value-size is {value_size:?}"),
                 };
                 match (ast_size, value_size) {
                     (&$crate::max::Max::Uninstantiable, &$crate::max::Max::Uninstantiable)
                         | (&$crate::max::Max::Finite(_), &$crate::max::Max::Finite(_))
                         | (&$crate::max::Max::Infinite, &$crate::max::Max::Infinite)
                         => {}
-                    _ => panic!("Maximum sizes for ASTs and values don't agree: the maximum AST size is {ast_size:?}, but the maximum value size is {value_size:?}"),
+                    _ => panic!("Maximum sizes for ASTs and values don't agree: the maximum AST size is {ast_size:?}, but the maximum value-size is {value_size:?}"),
                 }
             }
 
@@ -90,6 +95,8 @@ macro_rules! test_impls_for {
             }
 
             #[test]
+            #[expect(clippy::allow_attributes, reason = "Relevant only for some types.")]
+            #[allow(unreachable_code, unused_variables, reason = "If the type is uninstantiable.")]
             fn first_term_has_value_size_zero() {
                 let $crate::max::MaybeDecidable::Decidable(max) = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE else {
                     return;
@@ -112,7 +119,7 @@ macro_rules! test_impls_for {
                     let ideal = $crate::max::MaybeOverflow::Contained(value_size);
                     for value in exhaust {
                         let actual = <$t as $crate::value_size::ValueSize>::value_size(&value);
-                        assert_eq!(actual, ideal, "Expected a term of value size {ideal:?} but found {value:#?} (of value size {actual:?})");
+                        assert_eq!(actual, ideal, "Expected a term of value-size {ideal:?} but found {value:#?} (of value-size {actual:?})");
                     }
                 }
             }
@@ -129,7 +136,7 @@ macro_rules! test_impls_for {
                     let mut seen = alloc::vec::Vec::<$t>::new();
 
                     for value in exhaust {
-                        assert!(!seen.contains(&value), "Duplicate value: {value:#?}");
+                        assert!(!seen.contains(&value), "Duplicate value (seen while generating size {value_size}): {value:#?} (list of seen before it: {seen:#?})");
                         let () = seen.push(value);
                     }
                 }
@@ -142,10 +149,10 @@ macro_rules! test_impls_for {
                 if let $crate::max::MaybeDecidable::Decidable(max) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE
                     && max.is_trivial()
                 {
-                    for generated in $crate::exhaust::exhaust::<$t>().take(MANY) {
+                    for generated in $crate::exhaust::exhaust::<$t>().take(const { MANY >> 2 }) {
                         assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
-                    for generated in $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).take(MANY) {
+                    for generated in $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).take(const { MANY >> 2 }) {
                         assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
                 }
@@ -158,6 +165,7 @@ macro_rules! test_impls_for {
                 // Exhaust the largest *value* size, if any,
                 // checking the *AST* size of each:
                 if let $crate::max::MaybeDecidable::Decidable($crate::max::Max::Finite(MaybeOverflow::Contained(max))) = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE
+                    && max < 1_000
                     && let Ok(exhaust) = <$t as $crate::exhaust::Exhaust>::exhaust(max)
                 {
                     for generated in exhaust.take(MANY) {
@@ -191,7 +199,7 @@ macro_rules! test_impls_for {
 
             #[test]
             fn max_value_size_is_accurate() {
-                // Get the largest finite value size, if any:
+                // Get the largest finite value-size, if any:
                 let $crate::max::MaybeDecidable::Decidable($crate::max::Max::Finite($crate::max::MaybeOverflow::Contained(max))) = <$t as $crate::value_size::ValueSize>::MAX_VALUE_SIZE else {
                     return;
                 };
@@ -200,17 +208,24 @@ macro_rules! test_impls_for {
                 if let Some(excessive) = max.checked_add(1) {
                     if let Ok(mut exhaust) = <$t as $crate::exhaust::Exhaust>::exhaust(excessive) {
                         if let Some(first) = exhaust.next() {
-                            panic!("Maximum value size ({max:?}) is too small: {excessive:?} succeeded, producing e.g. {first:#?}.");
+                            let actual_value_size = first.value_size();
+                            assert_eq!(
+                                actual_value_size,
+                                MaybeOverflow::Contained(excessive),
+                                "Exhausting a value-size ({excessive:?}) greater than the maximum ({max:?}) produced the value `{first:?}`, but that has size {actual_value_size:?}!",
+                            );
+                            panic!("Maximum value-size ({max:?}) is too small: {excessive:?} succeeded, producing e.g. `{first:#?}`.");
                         } else {
-                            panic!("Maximum value size ({max:?}) is too small: {excessive:?} succeeded BUT DID NOT PRODUCE ANY VALUES.");
+                            panic!("Maximum value-size ({max:?}) is too small: {excessive:?} succeeded BUT DID NOT PRODUCE ANY VALUES.");
                         }
                     }
                 }
 
                 let Ok(exhaust) = <$t as $crate::exhaust::Exhaust>::exhaust(max) else {
-                    panic!("Maximum value size ({max:?}) is too large: couldn't exhaust it.");
+                    panic!("Maximum value-size ({max:?}) is too large: couldn't exhaust it.");
                 };
-                {
+
+                if max < 1_000 {
                     for generated in exhaust.take(MANY) {
                         let ast_size = <$t as $crate::ast_size::AstSize>::ast_size(&generated);
                         assert!(

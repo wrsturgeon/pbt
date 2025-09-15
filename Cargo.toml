@@ -49,6 +49,7 @@ cargo = { level = "warn", priority = -1 }
 nursery = { level = "warn", priority = -1 }
 
 blanket-clippy-restriction-lints = "allow" # start with all and disallow some, s.t. we get new ones for free
+float-arithmetic = "allow"
 implicit-return = "allow"
 mod-module-files = "allow"
 needless-borrowed-reference = "allow"

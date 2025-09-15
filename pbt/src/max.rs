@@ -21,8 +21,8 @@ pub enum Max<Finite: PartialOrd> {
 )]
 #[derive(Clone, Copy, Debug)]
 pub enum MaybeDecidable<T> {
-    Decidable(T),
     AtMost(T),
+    Decidable(T),
 }
 
 #[expect(
@@ -36,52 +36,107 @@ pub enum MaybeOverflow<T> {
 }
 
 impl<Finite: PartialOrd> Max<Finite> {
+    /// Check if this type is instantiable.
+    /// Not a paradox since this is wrapped in `MaybeDecidable`,
+    /// so complex-enough types will never be able to call this in the first place.
     #[inline]
     pub const fn is_instantiable(&self) -> bool {
         !matches!(*self, Self::Uninstantiable)
     }
 
+    /// Check if the size of this type is finite (or uninstantiable).
     #[inline]
     pub const fn is_trivial(&self) -> bool {
         matches!(*self, Self::Uninstantiable | Self::Finite(_))
     }
 
+    /// Assume that this is `Max::Finite(..)` and
+    /// extract the finite value if so, panicking otherwise.
+    /// # Panics
+    /// If this value is not `Max::Finite(..)`.
     #[inline]
+    #[expect(clippy::panic, reason = "intentional")]
     pub const fn unwrap_finite_ref(&self) -> &Finite {
         match *self {
             Self::Finite(ref finite) => finite,
-            Self::Uninstantiable | Self::Infinite => panic!(),
+            Self::Uninstantiable | Self::Infinite => {
+                panic!(
+                    "Expected `Max::Finite(..)` but found another variant (which can't be printed in a `const fn`)"
+                )
+            }
         }
     }
 }
 
 impl Max<MaybeOverflow<usize>> {
+    /// Maximum size of `(Self, Other)`, where `rhs` is the (finite) maximum size of `Other`.
     #[inline]
-    pub const fn product(&self, rhs: &Self) -> Self {
+    #[must_use]
+    pub const fn cartesian_product(&self, rhs: usize) -> Self {
+        match *self {
+            Self::Uninstantiable => Self::Uninstantiable,
+            Self::Infinite => Self::Infinite,
+            Self::Finite(lhs) => Self::Finite(lhs.plus(rhs)),
+        }
+    }
+
+    /// Maximum size of `(Self, Other)`, where `rhs` is the maximum size of `Other`.
+    #[inline]
+    #[must_use]
+    pub const fn cartesian_product_with_self(&self, rhs: &Self) -> Self {
         match (self, rhs) {
-            (Self::Uninstantiable, _) | (_, Self::Uninstantiable) => Self::Uninstantiable,
-            (Self::Infinite, _) | (_, Self::Infinite) => Self::Infinite,
-            (Self::Finite(lhs), &Self::Finite(rhs)) => Self::Finite(lhs.plus_self(rhs)),
+            (&Self::Uninstantiable, _) | (_, &Self::Uninstantiable) => Self::Uninstantiable,
+            (&Self::Infinite, _) | (_, &Self::Infinite) => Self::Infinite,
+            (&Self::Finite(ref lhs), &Self::Finite(rhs)) => Self::Finite(lhs.plus_self(rhs)),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn subtract_from(&self, lhs: usize) -> usize {
+        match *self {
+            Self::Uninstantiable => lhs,
+            Self::Infinite => 0,
+            Self::Finite(rhs) => rhs.subtract_from(lhs),
         }
     }
 }
 
 impl MaybeDecidable<Max<MaybeOverflow<usize>>> {
     #[inline]
-    pub const fn product(&self, rhs: &Self) -> Self {
-        match (self, rhs) {
-            (Self::Decidable(lhs), Self::Decidable(rhs)) => Self::Decidable(lhs.product(rhs)),
-            _ => Self::AtMost(self.at_most().product(rhs.at_most())),
+    #[must_use]
+    pub const fn cartesian_product(&self, rhs: usize) -> Self {
+        match *self {
+            Self::Decidable(ref lhs) => Self::Decidable(lhs.cartesian_product(rhs)),
+            Self::AtMost(ref lhs) => Self::AtMost(lhs.cartesian_product(rhs)),
         }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn cartesian_product_with_self(&self, rhs: &Self) -> Self {
+        match (self, rhs) {
+            (&Self::Decidable(ref lhs), &Self::Decidable(ref rhs)) => {
+                Self::Decidable(lhs.cartesian_product_with_self(rhs))
+            }
+            _ => Self::AtMost(self.at_most().cartesian_product_with_self(rhs.at_most())),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn subtract_from(&self, lhs: usize) -> usize {
+        self.at_most().subtract_from(lhs)
     }
 }
 
 impl Max<f32> {
     #[inline]
-    pub const fn product(&self, rhs: &Self) -> Self {
+    #[must_use]
+    pub const fn cartesian_product_with_self(&self, rhs: &Self) -> Self {
         match (self, rhs) {
-            (Self::Uninstantiable, _) | (_, Self::Uninstantiable) => Self::Uninstantiable,
-            (Self::Infinite, _) | (_, Self::Infinite) => Self::Infinite,
+            (&Self::Uninstantiable, _) | (_, &Self::Uninstantiable) => Self::Uninstantiable,
+            (&Self::Infinite, _) | (_, &Self::Infinite) => Self::Infinite,
             (&Self::Finite(lhs), &Self::Finite(rhs)) => Self::Finite(lhs + rhs),
         }
     }
@@ -89,18 +144,21 @@ impl Max<f32> {
 
 impl MaybeDecidable<Max<f32>> {
     #[inline]
-    pub const fn product(&self, rhs: &Self) -> Self {
+    #[must_use]
+    pub const fn cartesian_product_with_self(&self, rhs: &Self) -> Self {
         match (self, rhs) {
-            (Self::Decidable(lhs), Self::Decidable(rhs)) => Self::Decidable(lhs.product(rhs)),
-            _ => Self::AtMost(self.at_most().product(rhs.at_most())),
+            (&Self::Decidable(ref lhs), &Self::Decidable(ref rhs)) => {
+                Self::Decidable(lhs.cartesian_product_with_self(rhs))
+            }
+            _ => Self::AtMost(self.at_most().cartesian_product_with_self(rhs.at_most())),
         }
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentional")]
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<Finite: PartialOrd> Eq for Max<Finite> {}
 
-#[expect(clippy::missing_trait_methods, reason = "intentional")]
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<Finite: PartialOrd> PartialEq for Max<Finite> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -118,7 +176,7 @@ impl<Finite: PartialOrd> PartialEq for Max<Finite> {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentional")]
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<Finite: Ord> Ord for Max<Finite> {
     #[inline]
     fn cmp(&self, other: &Self) -> cmp::Ordering {
@@ -140,7 +198,7 @@ impl<Finite: Ord> Ord for Max<Finite> {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentional")]
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<Finite: PartialOrd> PartialOrd for Max<Finite> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -163,24 +221,17 @@ impl<Finite: PartialOrd> PartialOrd for Max<Finite> {
 }
 
 impl<T> MaybeDecidable<T> {
-    #[inline]
-    pub const fn unwrap_ref(&self) -> &T {
-        match *self {
-            Self::Decidable(ref t) => t,
-            Self::AtMost(_) => panic!(),
-        }
-    }
-
+    /// If this turned out to be decidable, return the decided value;
+    /// if not, return the maximum possible value.
     #[inline]
     pub const fn at_most(&self) -> &T {
         match *self {
-            Self::Decidable(ref t) => t,
-            Self::AtMost(ref t) => t,
+            Self::Decidable(ref at_most) | Self::AtMost(ref at_most) => at_most,
         }
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentional")]
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<T: PartialEq> PartialEq for MaybeDecidable<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -194,7 +245,7 @@ impl<T: PartialEq> PartialEq for MaybeDecidable<T> {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentional")]
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<T: PartialOrd> PartialOrd for MaybeDecidable<T> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
@@ -208,17 +259,7 @@ impl<T: PartialOrd> PartialOrd for MaybeDecidable<T> {
     }
 }
 
-impl<T> MaybeOverflow<T> {
-    #[inline]
-    pub const fn unwrap_ref(&self) -> &T {
-        match *self {
-            Self::Contained(ref t) => t,
-            Self::Overflow => panic!(),
-        }
-    }
-}
-
-#[expect(clippy::missing_trait_methods, reason = "intentional")]
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<T: PartialEq> PartialEq for MaybeOverflow<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -232,7 +273,7 @@ impl<T: PartialEq> PartialEq for MaybeOverflow<T> {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentional")]
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<T: PartialOrd> PartialOrd for MaybeOverflow<T> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {

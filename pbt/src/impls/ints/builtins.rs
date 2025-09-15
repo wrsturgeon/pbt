@@ -10,7 +10,7 @@ use {
         test_impls_for,
         value_size::ValueSize,
     },
-    core::{iter, num::NonZero},
+    core::{array, iter, num::NonZero},
     paste::paste,
     rand_core::RngCore,
 };
@@ -45,6 +45,14 @@ macro_rules! impl_maybe_overflow {
             }
 
             #[inline]
+            pub const fn or_max(&self) -> $ty {
+                match *self {
+                    Self::Contained(contained) => contained,
+                    Self::Overflow => <$ty>::MAX,
+                }
+            }
+
+            #[inline]
             #[must_use]
             pub const fn plus(self, rhs: $ty) -> Self {
                 match self {
@@ -66,6 +74,14 @@ macro_rules! impl_maybe_overflow {
                     }
                 } else {
                     Self::Overflow
+                }
+            }
+
+            #[inline]
+            pub const fn subtract_from(&self, lhs: $ty) -> $ty {
+                match *self {
+                    Self::Overflow => 0,
+                    Self::Contained(rhs) => lhs.saturating_sub(rhs),
                 }
             }
         }
@@ -135,14 +151,21 @@ macro_rules! impl_nonzero {
         }
 
         impl Exhaust for NonZero<$ty> {
+            type Exhaust = iter::FilterMap<<$ty as Exhaust>::Exhaust, fn($ty) -> Option<Self>>;
             #[inline]
-            fn exhaust(
-                value_size: usize,
-            ) -> Result<impl Iterator<Item = Self>, error::UnreachableSize> {
+            fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
                 let Some(value_size) = value_size.checked_add(1) else {
                     return Err(error::UnreachableSize);
                 };
-                <$ty as Exhaust>::exhaust(value_size).map(|iter| iter.filter_map(Self::new))
+                <$ty as Exhaust>::exhaust(value_size).map(|iter| {
+                    iter.filter_map({
+                        #[expect(
+                            clippy::as_conversions,
+                            reason = "More stringently checked for function-pointer types"
+                        )]
+                        (Self::new as fn(_) -> _)
+                    })
+                })
             }
         }
 
@@ -207,10 +230,9 @@ macro_rules! impl_unsigned {
         }
 
         impl Exhaust for $ty {
+            type Exhaust = iter::Once<Self>;
             #[inline]
-            fn exhaust(
-                value_size: usize,
-            ) -> Result<impl Iterator<Item = Self>, error::UnreachableSize> {
+            fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
                 match Self::try_from(value_size) {
                     Ok(ok) => Ok(iter::once(ok)),
                     Err(_) => Err(error::UnreachableSize),
@@ -315,12 +337,11 @@ macro_rules! impl_signed {
         }
 
         impl Exhaust for $ty {
+            type Exhaust = iter::Take<array::IntoIter<Self, 2>>;
             #[inline]
-            fn exhaust(
-                value_size: usize,
-            ) -> Result<impl Iterator<Item = Self>, error::UnreachableSize> {
+            fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
                 const MAX_VALUE_SIZE: &MaybeOverflow<usize> =
-                    <$ty>::MAX_VALUE_SIZE.unwrap_ref().unwrap_finite_ref();
+                    <$ty>::MAX_VALUE_SIZE.at_most().unwrap_finite_ref();
                 const ONE: $ty = 1;
                 if let Ok(pos) = Self::try_from(value_size) {
                     // SAFETY: There's one more negative value than there are positive values,
@@ -340,7 +361,14 @@ macro_rules! impl_signed {
                     // SAFETY:
                     // Checked above, assuming `MAX_VALUE_SIZE` is correct (which is tested).
                     let neg_value_size_minus_one = unsafe { (!value_size).unchecked_add(2) };
-                    Ok([neg_value_size_minus_one as _; 2].into_iter().take(1))
+                    #[expect(clippy::allow_attributes, reason = "Depends on `$ty`.")]
+                    #[allow(
+                        clippy::as_conversions,
+                        clippy::cast_possible_wrap,
+                        clippy::cast_possible_truncation,
+                        reason = "Intentional."
+                    )]
+                    Ok([neg_value_size_minus_one as $ty; 2].into_iter().take(1))
                 }
             }
         }
@@ -400,13 +428,19 @@ impl_int!(128);
 impl_int!(size);
 
 #[cfg(test)]
+#[expect(
+    clippy::panic,
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    reason = "Tests are supposed to fail if they don't behave as expected."
+)]
 mod test {
+    extern crate alloc;
+
     use {
-        crate::exhaust::{Exhaust, exhaust},
+        crate::exhaust::{Exhaust as _, exhaust},
         alloc::{vec, vec::Vec},
     };
-
-    extern crate alloc;
 
     #[test]
     fn exhaust_i8_128() {
@@ -425,7 +459,7 @@ mod test {
         if let Ok(exhaust) = i8::exhaust(130) {
             let exhaust: Vec<_> = exhaust.collect();
             panic!("{exhaust:#?}");
-        };
+        }
     }
 
     #[test]
