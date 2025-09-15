@@ -608,6 +608,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_u0() {
         type T = u0;
         assert_eq!(T::MAX_U8, 0);
@@ -626,6 +627,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_u1() {
         type T = u1;
         assert_eq!(T::MAX_U8, 1);
@@ -644,6 +646,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_u2() {
         type T = u2;
         assert_eq!(T::MAX_U8, 3);
@@ -662,6 +665,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_u3() {
         type T = u3;
         assert_eq!(T::MAX_U8, 7);
@@ -680,6 +684,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_u4() {
         type T = u4;
         assert_eq!(T::MAX_U8, 15);
@@ -698,6 +703,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_i0() {
         type T = i0;
         assert_eq!(T::MAX_I8, 0);
@@ -708,6 +714,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_i1() {
         type T = i1;
         assert_eq!(T::MAX_I8, 0);
@@ -718,6 +725,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_i2() {
         type T = i2;
         assert_eq!(T::MAX_I8, 1);
@@ -728,6 +736,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_i3() {
         type T = i3;
         assert_eq!(T::MAX_I8, 3);
@@ -738,6 +747,7 @@ mod test {
     }
 
     #[test]
+    #[expect(clippy::min_ident_chars, reason = "`T` is standard for a type.")]
     fn constants_i4() {
         type T = i4;
         assert_eq!(T::MAX_I8, 7);

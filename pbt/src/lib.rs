@@ -3,6 +3,10 @@
     clippy::pub_use,
     reason = "toplevel is not the right place for complex definitions"
 )]
+#![cfg_attr(
+    test,
+    expect(clippy::large_stack_arrays, reason = "Only while testing.")
+)]
 
 //! Property-based testing plus `#[derive(..)]`, no-std, automatic edge cases, and exhaustive breadth-first search over arbitrary types.
 
@@ -149,10 +153,10 @@ macro_rules! test_impls_for {
                 if let $crate::max::MaybeDecidable::Decidable(max) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE
                     && max.is_trivial()
                 {
-                    for generated in $crate::exhaust::exhaust::<$t>().take(const { MANY >> 2 }) {
+                    for generated in $crate::exhaust::exhaust::<$t>().take(const { MANY >> 2_u32 }) {
                         assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
-                    for generated in $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).take(const { MANY >> 2 }) {
+                    for generated in $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).take(const { MANY >> 2_u32 }) {
                         assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
                 }

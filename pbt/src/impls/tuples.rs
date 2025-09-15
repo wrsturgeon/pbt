@@ -66,12 +66,14 @@ pub struct FlattenNestedIterator<N: NestedIterator> {
 pub trait NestedIterator {
     /// The nested tuple type to be produced.
     type Item;
-    /// Produce the next nested tuple of a given size.
-    /// TODO: move `remaining_size` to `self` instead! It shouldn't change until exhausted!
-    fn nested_next(&mut self, remaining_size: usize) -> Option<Self::Item>;
+
     /// Assert that all downstream iterators are inactive (e.g. from having been restarted).
     #[cfg(debug_assertions)]
     fn debug_assert_all_inactive(&self);
+
+    /// Produce the next nested tuple of a given size.
+    /// TODO: move `remaining_size` to `self` instead! It shouldn't change until exhausted!
+    fn nested_next(&mut self, remaining_size: usize) -> Option<Self::Item>;
 }
 
 impl<T: Exhaust> MaybeIterator<T> {
@@ -109,13 +111,10 @@ impl<T: Exhaust> MaybeIterator<T> {
 
 impl<T: Exhaust> NestedIterator for MaybeIterator<T> {
     type Item = T;
-    #[inline]
-    fn nested_next(&mut self, remaining_size: usize) -> Option<Self::Item> {
-        self.next_or_new(remaining_size)
-    }
 
     #[inline]
     #[cfg(debug_assertions)]
+    #[expect(clippy::panic, reason = "intentional: this is an assertion")]
     fn debug_assert_all_inactive(&self) {
         match *self {
             Self::Inactive => {}
@@ -125,6 +124,11 @@ impl<T: Exhaust> NestedIterator for MaybeIterator<T> {
                 )
             }
         }
+    }
+
+    #[inline]
+    fn nested_next(&mut self, remaining_size: usize) -> Option<Self::Item> {
+        self.next_or_new(remaining_size)
     }
 }
 
@@ -195,6 +199,22 @@ impl<T: Clone + Exhaust> CachingIterator<T> {
 
 impl<T: Clone + Exhaust, Tail: NestedIterator> NestedIterator for (CachingIterator<T>, Tail) {
     type Item = (T, Tail::Item);
+
+    #[inline]
+    #[cfg(debug_assertions)]
+    #[expect(clippy::panic, reason = "intentional: this is an assertion")]
+    fn debug_assert_all_inactive(&self) {
+        let (ref head, ref tail) = *self;
+        match *head {
+            CachingIterator::Active {
+                size, ref cache, ..
+            } => panic!(
+                "Expected all downstream iterators to be inactive, but a caching iterator was active with size {size:?} and cache {cache:?}",
+            ),
+            CachingIterator::Inactive => tail.debug_assert_all_inactive(),
+        }
+    }
+
     #[inline]
     fn nested_next(&mut self, remaining_size: usize) -> Option<Self::Item> {
         // Syntactic operation only: split `self` into `head` and `tail`:
@@ -220,14 +240,20 @@ impl<T: Clone + Exhaust, Tail: NestedIterator> NestedIterator for (CachingIterat
             let () = head_iter.fill_cache_with_next_value(Some(remaining_size))?;
         }
         // Duh, but worth checking anyway (at least until v1.0):
-        debug_assert!(head_iter.has_value_cached());
+        debug_assert!(
+            head_iter.has_value_cached(),
+            "Failed to produce a cached value.",
+        );
 
         // LOOP INVARIANT (established above):
         // `head_iter` is `Active` with a value in its `cache` (as `Some(..)`).
         // If this fails at any point, this function returns `None`.
         loop {
             // Check the loop invariant (in debug builds only):
-            debug_assert!(head_iter.has_value_cached());
+            debug_assert!(
+                head_iter.has_value_cached(),
+                "Loop invariant violated: no value cached.",
+            );
 
             // Get the cached head value, which we know exists b/c of the loop invariant above:
             let CachingIterator::Active {
@@ -261,20 +287,6 @@ impl<T: Clone + Exhaust, Tail: NestedIterator> NestedIterator for (CachingIterat
             // Then update the cache with the next value for this index of the tuple,
             // implicitly restarting all downstream iterators (checked above):
             let () = head_iter.fill_cache_with_next_value(head_size.checked_sub(1))?;
-        }
-    }
-
-    #[inline]
-    #[cfg(debug_assertions)]
-    fn debug_assert_all_inactive(&self) {
-        let (ref head, ref tail) = *self;
-        match *head {
-            CachingIterator::Active {
-                size, ref cache, ..
-            } => panic!(
-                "Expected all downstream iterators to be inactive, but a caching iterator was active with size {size:?} and cache {cache:?}",
-            ),
-            CachingIterator::Inactive => tail.debug_assert_all_inactive(),
         }
     }
 }
@@ -562,13 +574,13 @@ test_impls_for!((u8, u8, u8, u8, u8), quintuple_u8);
     reason = "Tests are supposed to fail if they don't behave as expected."
 )]
 mod test {
+    extern crate alloc;
+
     use {
         super::*,
         crate::exhaust::{Exhaust, exhaust},
         alloc::{vec, vec::Vec},
     };
-
-    extern crate alloc;
 
     #[test]
     fn maybe_iterator_invariant_when_inactive() {
@@ -599,7 +611,7 @@ mod test {
         for remaining_size in exhaust::<Option<usize>>().take(1_000) {
             let mut input = CachingIterator::<u8>::Inactive;
             match input.fill_cache_with_next_value(remaining_size) {
-                Some(_) => assert!(input.has_value_cached()),
+                Some(()) => assert!(input.has_value_cached()),
                 None => assert!(matches!(input, CachingIterator::Inactive)),
             }
         }
@@ -616,7 +628,7 @@ mod test {
                 iter: iter::once(once_active),
             };
             match input.fill_cache_with_next_value(remaining_size) {
-                Some(_) => assert!(input.has_value_cached()),
+                Some(()) => assert!(input.has_value_cached()),
                 None => assert!(matches!(input, CachingIterator::Inactive)),
             }
         }
