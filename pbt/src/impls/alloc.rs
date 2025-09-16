@@ -1,6 +1,7 @@
 //! Implementations for types from Rust's `alloc` crate.
 
-/*
+extern crate alloc;
+
 use {
     crate::{
         ast_size::AstSize,
@@ -15,100 +16,188 @@ use {
         test_impls_for,
         value_size::ValueSize,
     },
-    alloc::vec::Vec,
-    core::{iter, ops::Range},
+    alloc::{boxed::Box, vec::Vec},
+    core::hint::unreachable_unchecked,
 };
 
 #[cfg(test)]
 use core::convert::Infallible;
 
-pub enum ExhaustVec<T: Clone + Exhaust> {
-    Exhausted,
-    EmptyVec,
-    NonEmpty {
-        non_last: Vec<CachingIterator<T>>,
-        last: MaybeIterator<T>,
-        total_size: usize,
+/// Non-empty list of iterators,
+/// with a `MaybeIterator<T>` at the end
+/// and all `CachingIterator<T>`s before it.
+pub enum NonEmptyIterList<T: Clone + Exhaust> {
+    /// At least one `CachingIterator<T>`, then eventually a `MaybeIterator<T>`.
+    Cons {
+        /// The first iterator (a `CachingIterator<T>`).
+        head: CachingIterator<T>,
+        /// All iterators after the first, ending with a `MaybeIterator<T>`.
+        tail: Box<Self>,
     },
+    /// Exactly one iterator (`MaybeIterator<T>`).
+    Singleton(MaybeIterator<T>),
 }
 
-impl<T: Clone + Exhaust> ExhaustVec<T> {
+/// Non-empty list of values, all but the last of which are cached.
+pub enum NonEmptyCacheList<T> {
+    /// More than one value.
+    Cons {
+        /// The first value.
+        head: T,
+        /// All values after the first.
+        tail: Box<Self>,
+    },
+    /// Exactly one value.
+    Singleton(T),
+}
+
+/// Exhaustively iterate over all vectors of a given value-size.
+pub struct ExhaustVec<T: Clone + Exhaust> {
+    /// An iterator producing linked lists.
+    linked_list_iterator: Option<NonEmptyIterList<T>>,
+    /// The total value-size of each vector as a whole.
+    total_size: usize,
+}
+
+impl<T> From<NonEmptyCacheList<T>> for Vec<T> {
     #[inline]
-    fn new(total_size: usize, len: usize) -> Self {
-        if let Some(non_last_len) = len.checked_sub(1) {
-            Self::NonEmpty {
-                non_last: {
-                    let mut acc = Vec::with_capacity(non_last_len);
-                    for _ in 0..non_last_len {
-                        let () = acc.push(CachingIterator::Inactive);
-                    }
-                    acc
-                },
-                last: MaybeIterator::Inactive,
-                total_size,
+    fn from(mut value: NonEmptyCacheList<T>) -> Self {
+        let mut acc: Self = alloc::vec![];
+        loop {
+            match value {
+                NonEmptyCacheList::Singleton(last) => {
+                    let () = acc.push(last);
+                    return acc;
+                }
+                NonEmptyCacheList::Cons { head, tail } => {
+                    let () = acc.push(head);
+                    value = *tail;
+                }
             }
-        } else {
-            Self::EmptyVec
         }
     }
 }
 
-// TODO: Either return an iterator or use an accmulator argument
-// rather than returning vectors, since the latter requires
-// appending vectors N times for a vector of length N.
-#[inline]
-fn next_vec<T: Clone + Exhaust>(
-    non_last: &mut [CachingIterator<T>],
-    last: &mut MaybeIterator<T>,
-    remaining_size: usize,
-) -> Option<Vec<T>> {
-    let [ref mut head_iter, ref mut tail_iter @ ..] = *non_last else {
-        return last
-            .nested_next(remaining_size)
-            .map(|singleton| alloc::vec![singleton]);
-    };
+impl<T: Clone + Exhaust> NestedIterator for NonEmptyIterList<T> {
+    type Item = NonEmptyCacheList<T>;
 
-    // Get the cached head value, or try to create it if not cached, exiting if that fails:
-    let (head_size, mut head) = head_iter.cached_or_new(remaining_size)?;
+    #[inline]
+    #[cfg(debug_assertions)]
+    #[expect(clippy::panic, reason = "intentional: this is an assertion")]
+    fn debug_assert_all_inactive(&self) {
+        match *self {
+            Self::Singleton(ref maybe_iterator) => maybe_iterator.debug_assert_all_inactive(),
+            Self::Cons { ref head, ref tail } => {
+                match *head {
+                    CachingIterator::Active {
+                        size, ref cache, ..
+                    } => panic!(
+                        "Expected all downstream iterators to be inactive, but a caching iterator was active with size {size:?} and cache {cache:?}",
+                    ),
+                    CachingIterator::Inactive => tail.debug_assert_all_inactive(),
+                }
+                let () = tail.debug_assert_all_inactive();
+            }
+        }
+    }
 
-    // Subtract the head size from the remaining size (for the tail):
-    // Note that this isn't using `checked_sub`, since _a priori_
-    // the head can never be larger than `remaining_size`.
-    // However, if this invariant were to be violated,
-    // tests would pick it up, since Rust's `-` panics on overflow in debug builds.
-    #[expect(clippy::arithmetic_side_effects, reason = "Intentional: see above.")]
-    let remaining_size = remaining_size - head_size;
-
-    loop {
-        if let Some(mut tail) = next_vec(tail_iter, last, remaining_size) {
-            let mut acc = alloc::vec![head.clone()];
-            let () = acc.append(&mut tail);
-            return Some(acc);
+    #[inline]
+    fn nested_next(&mut self, remaining_size: usize) -> Option<Self::Item> {
+        // Try to produce a singleton as long as possible,
+        // then extend to a multi-element list only after
+        // all singletons have been exhausted.
+        if let Self::Singleton(ref mut last) = *self {
+            if let Some(last) = last.next_or_new(remaining_size) {
+                return Some(NonEmptyCacheList::Singleton(last));
+            }
+            let head_size = remaining_size.checked_sub(1)?;
+            let mut head = CachingIterator::Inactive;
+            let () = head.fill_cache_with_next_value(Some(head_size))?;
+            let tail = Box::new(Self::Singleton(MaybeIterator::Inactive));
+            *self = Self::Cons { head, tail };
         }
 
-        let () = head_iter.step()?;
-        head = head_iter.unwrap_ref();
+        // Subtract one to compensate for the value-size penalty for extending the vector.
+        // Note that this isn't using `checked_sub`, since
+        // the above would have exited if `remaining_size` were 0.
+        // However, if this invariant were to be violated,
+        // tests would pick it up, since Rust's `-` panics on overflow in debug builds.
+        #[expect(clippy::arithmetic_side_effects, reason = "Intentional: see above.")]
+        let remaining_size = remaining_size - 1;
+
+        // LOOP INVARIANT (established above):
+        // `head_iter` is `Cons` with an `Active` head with a value in its `cache` (as `Some(..)`).
+        // If this fails at any point, this function returns `None`.
+        loop {
+            // Get the cached head value, which we know exists b/c of the loop invariant above:
+            let Self::Cons {
+                head: ref mut head_iter,
+                tail: ref mut tail_iter,
+            } = *self
+            else {
+                // SAFETY:
+                // Just established above (before the loop),
+                // and the end of the loop re-establishes the invariant as well.
+                unsafe { unreachable_unchecked() }
+            };
+
+            let CachingIterator::Active {
+                size: head_size,
+                cache: Some(ref head_cached),
+                ..
+            } = *head_iter
+            else {
+                // SAFETY:
+                // Just established above (before the loop),
+                // and the end of the loop re-establishes the invariant as well.
+                unsafe { unreachable_unchecked() }
+            };
+
+            // Subtract the head size from the remaining size (for the tail):
+            // Note that this isn't using `checked_sub`, since _a priori_
+            // the head can never be larger than `remaining_size`.
+            // However, if this invariant were to be violated,
+            // tests would pick it up, since Rust's `-` panics on overflow in debug builds.
+            #[expect(clippy::arithmetic_side_effects, reason = "Intentional: see above.")]
+            let tail_size = remaining_size - head_size;
+
+            if let Some(tail) = tail_iter.nested_next(tail_size) {
+                return Some(NonEmptyCacheList::Cons {
+                    head: head_cached.clone(),
+                    tail: Box::new(tail),
+                });
+            }
+
+            // Check that all downstream iterators are inactive and ready to be restarted:
+            #[cfg(debug_assertions)]
+            let () = tail_iter.debug_assert_all_inactive();
+
+            // Then update the cache with the next value for this index of the tuple,
+            // implicitly restarting all downstream iterators (checked above):
+            let Some(()) = head_iter.fill_cache_with_next_value(head_size.checked_sub(1)) else {
+                *self = Self::Singleton(MaybeIterator::Inactive);
+                return None;
+            };
+        }
     }
 }
 
+#[expect(clippy::missing_trait_methods, reason = "would take years")]
 impl<T: Clone + Exhaust> Iterator for ExhaustVec<T> {
     type Item = Vec<T>;
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        match *self {
-            Self::Exhausted => None,
-            Self::EmptyVec => {
-                *self = Self::Exhausted;
-                Some(alloc::vec![])
-            }
-            Self::NonEmpty {
-                ref mut non_last,
-                ref mut last,
-                total_size,
-            } => next_vec(non_last, last, total_size).or_else(|| {
-                *self = Self::Exhausted;
-                None
-            }),
+        if let Some(remaining_size) = self.total_size.checked_sub(1) {
+            self.linked_list_iterator
+                .as_mut()
+                .and_then(|iter| iter.nested_next(remaining_size))
+                .map(Into::into)
+                .or_else(|| {
+                    self.linked_list_iterator = None;
+                    None
+                })
+        } else {
+            self.linked_list_iterator.take().map(|_| alloc::vec![])
         }
     }
 }
@@ -160,16 +249,19 @@ impl<T: ValueSize> ValueSize for Vec<T> {
 }
 
 impl<T: Clone + Exhaust> Exhaust for Vec<T> {
-    type Exhaust = iter::FlatMap<
-        iter::Zip<iter::Repeat<usize>, Range<usize>>,
-        ExhaustVec<T>,
-        fn((usize, usize)) -> ExhaustVec<T>,
-    >;
+    type Exhaust = ExhaustVec<T>;
     #[inline]
     fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
-        Ok(iter::repeat(value_size)
-            .zip(0..value_size)
-            .flat_map((move |(total_size, len)| ExhaustVec::new(total_size, len)) as fn(_) -> _))
+        if MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(value_size)))
+            > Self::MAX_VALUE_SIZE
+        {
+            Err(error::UnreachableSize)
+        } else {
+            Ok(ExhaustVec {
+                linked_list_iterator: Some(NonEmptyIterList::Singleton(MaybeIterator::Inactive)),
+                total_size: value_size,
+            })
+        }
     }
 }
 
@@ -179,7 +271,17 @@ impl<T: Pseudorandom> Pseudorandom for Vec<T> {
         expected_ast_size: f32,
         rng: &mut Rng,
     ) -> Result<Self, error::Uninstantiable> {
-        // TODO: Big-picture, this isn't worth it, is it?
+        // It's useful to split the total expected AST size into
+        // the AST size of individual elements and the length of the vector itself.
+        // If we have a random variable `L` (length) and an expected element size `E`,
+        // then the total AST size is `L + (L * E)`.
+        // Let's let `T` be the total. Then we want to solve `T = L + (L * E)`.
+        // Pulling out an `L`, that's `T = L(1 + E)`.
+        // Dividing, that's `L = T / (1 + E)`.
+        // We don't want either factor (length or element size) to overtake the other too quickly
+        // (e.g. very long vectors of tiny elements or singletons of massive elements),
+        // and `L` and `E` are independent, so let's set `E` to at most the square root of the total.
+        // TODO: Big-picture, is this `sqrt` call worth it?
 
         let expected_item_ast_size = match *const { T::MAX_EXPECTED_AST_SIZE.at_most() } {
             Max::Uninstantiable => return Ok(alloc::vec![]),
@@ -188,15 +290,18 @@ impl<T: Pseudorandom> Pseudorandom for Vec<T> {
         };
 
         #[expect(
+            clippy::arithmetic_side_effects,
             clippy::as_conversions,
             clippy::cast_possible_truncation,
-            clippy::cast_precision_loss,
             clippy::cast_sign_loss,
-            clippy::modulo_arithmetic,
+            clippy::integer_division_remainder_used,
             reason = "intentional"
         )]
-        let len = ((rng.next_u32() as f32 % (2.0 * expected_ast_size / expected_item_ast_size))
-            + 0.5) as usize;
+        let len = {
+            let expected_ast_size_from_len = expected_ast_size / (1. + expected_item_ast_size);
+            let modulo_cap = (2. * expected_ast_size_from_len + 1.5) as usize;
+            (rng.next_u32() as usize) % modulo_cap
+        };
 
         let mut acc = Self::with_capacity(len);
         for _ in 0..len {
@@ -213,4 +318,108 @@ impl<T: Pseudorandom> Pseudorandom for Vec<T> {
 test_impls_for!(Vec<Infallible>, vec_infallible);
 test_impls_for!(Vec<()>, vec_unit);
 test_impls_for!(Vec<u8>, vec_u8);
-*/
+
+#[cfg(test)]
+#[expect(
+    clippy::unwrap_used,
+    reason = "Tests are supposed to fail if they don't behave as expected."
+)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn vec_infallible_size_0() {
+        let mut iter = Vec::<Infallible>::exhaust(0).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_infallible_size_1() {
+        assert!(
+            Vec::<Infallible>::exhaust(1).is_err(),
+            "No `Vec<Infallible>` of size 1 should be possible, but `Vec::<Infallible>::exhaust(1)` returned `Ok(..)`",
+        );
+    }
+
+    #[test]
+    fn vec_unit_size_0() {
+        let mut iter = Vec::<()>::exhaust(0).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_unit_size_1() {
+        let mut iter = Vec::<()>::exhaust(1).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![()]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_unit_size_2() {
+        let mut iter = Vec::<()>::exhaust(2).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![(), ()]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_unit_size_3() {
+        let mut iter = Vec::<()>::exhaust(3).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![(), (), ()]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_unit_size_4() {
+        let mut iter = Vec::<()>::exhaust(4).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![(), (), (), ()]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_u8_size_0() {
+        let mut iter = Vec::<u8>::exhaust(0).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_u8_size_1() {
+        let mut iter = Vec::<u8>::exhaust(1).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![0]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_u8_size_2() {
+        let mut iter = Vec::<u8>::exhaust(2).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![1]));
+        assert_eq!(iter.next(), Some(alloc::vec![0, 0]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_u8_size_3() {
+        let mut iter = Vec::<u8>::exhaust(3).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![2]));
+        assert_eq!(iter.next(), Some(alloc::vec![1, 0]));
+        assert_eq!(iter.next(), Some(alloc::vec![0, 1]));
+        assert_eq!(iter.next(), Some(alloc::vec![0, 0, 0]));
+        assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn vec_u8_size_4() {
+        let mut iter = Vec::<u8>::exhaust(4).unwrap();
+        assert_eq!(iter.next(), Some(alloc::vec![3]));
+        assert_eq!(iter.next(), Some(alloc::vec![2, 0]));
+        assert_eq!(iter.next(), Some(alloc::vec![1, 1]));
+        assert_eq!(iter.next(), Some(alloc::vec![1, 0, 0]));
+        assert_eq!(iter.next(), Some(alloc::vec![0, 2]));
+        assert_eq!(iter.next(), Some(alloc::vec![0, 1, 0]));
+        assert_eq!(iter.next(), Some(alloc::vec![0, 0, 1]));
+        assert_eq!(iter.next(), Some(alloc::vec![0, 0, 0, 0]));
+        assert_eq!(iter.next(), None);
+    }
+}

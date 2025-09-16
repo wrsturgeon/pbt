@@ -10,6 +10,9 @@ mod void;
 #[cfg(feature = "alloc")]
 mod alloc;
 
+#[cfg(feature = "alloc")]
+use crate::{ast_size::AstSize, max::MaybeOverflow, value_size::ValueSize};
+
 /// One of two types, as an `enum` that tags which one is active.
 /// Usually used to return one of two different iterator structures.
 #[expect(
@@ -35,7 +38,6 @@ impl<A: Iterator, B: Iterator<Item = A::Item>> Iterator for Either<A, B> {
     }
 }
 
-/*
 /// AST size of a slice.
 #[inline]
 #[cfg(feature = "alloc")]
@@ -77,4 +79,3 @@ fn slice_value_size<T: ValueSize>(slice: &[T]) -> MaybeOverflow<usize> {
         }
     }
 }
-*/

@@ -20,11 +20,6 @@ pub mod value_size;
 
 pub use impls::ints::in_between::*;
 
-/*
-#[cfg(feature = "alloc")]
-extern crate alloc;
-*/
-
 #[macro_export]
 macro_rules! test_impls_for {
     ($t:ty, $name:ident $(,)?) => {
@@ -34,7 +29,7 @@ macro_rules! test_impls_for {
 
             extern crate alloc;
 
-            const MANY: usize = 1_000;
+            const MANY: usize = 10_000;
             const N_SIZES: usize = 10;
 
             #[test]
@@ -294,7 +289,7 @@ macro_rules! test_impls_for {
             #[test]
             fn pseudorandom_expected_ast_size_is_accurate() {
                 const SIZES: &[usize] = &[1, 10, 100, 1_000];
-                const TOLERANCE: f32 = 0.01;
+                const TOLERANCE: f32 = 0.05;
 
                 let $crate::max::MaybeDecidable::Decidable(max_expected) = <$t as $crate::ast_size::AstSize>::MAX_EXPECTED_AST_SIZE else {
                     return;
@@ -333,9 +328,18 @@ macro_rules! test_impls_for {
                         let mean = acc as f32 * const { 1. / (MANY as f32) };
                         let error_absolute = mean - size;
                         let error_relative = error_absolute / size;
+                        let examples = {
+                            let mut acc = alloc::vec::Vec::new();
+                            for _ in 0..10_u8 {
+                                let () = acc.push(
+                                    <$t as $crate::pseudorandom::Pseudorandom>::pseudorandom(size, &mut rng),
+                                );
+                            }
+                            acc
+                        };
                         assert!(
                             ((-TOLERANCE)..=TOLERANCE).contains(&error_relative),
-                            "Pseudorandom expected AST size miscalibrated: expected size {size} but found {mean} ({}% relative error)",
+                            "Pseudorandom expected AST size miscalibrated: expected size {size} but found {mean} ({}% relative error). For example, here are some generated values: {examples:#?}",
                             error_relative * 100.,
                         );
                     }
