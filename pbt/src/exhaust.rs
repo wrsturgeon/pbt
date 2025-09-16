@@ -1,9 +1,12 @@
-use crate::{error, value_size::ValueSize};
+use {
+    crate::{error, value_size::ValueSize},
+    core::fmt,
+};
 
 /// Exhaustively generate all values
 /// of this type of a given value-size,
 /// or report that the size was unreachable.
-pub trait Exhaust: 'static + ValueSize + Sized {
+pub trait Exhaust: 'static + fmt::Debug + Sized + ValueSize {
     type Exhaust: 'static + Iterator<Item = Self>;
     /// Exhaustively generate all values
     /// of this type of a given value-size,

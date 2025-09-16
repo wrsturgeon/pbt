@@ -4,6 +4,7 @@
 use {
     crate::{
         ast_size::AstSize,
+        edge_cases::EdgeCases,
         error,
         exhaust::Exhaust,
         max::{Max, MaybeDecidable, MaybeOverflow},
@@ -253,6 +254,22 @@ macro_rules! impl_int_in_between {
                 #[inline]
                 fn value_size(&self) -> MaybeOverflow<usize> {
                     self.get().value_size()
+                }
+            }
+
+            impl EdgeCases for [< u $partial >] {
+                type EdgeCases = iter::FilterMap<<[< u $full >] as EdgeCases>::EdgeCases, fn([< u $full >]) -> Option<Self>>;
+                #[inline]
+                fn edge_cases() -> Self::EdgeCases {
+                    <[< u $full >] as EdgeCases>::edge_cases().filter_map(Self::new)
+                }
+            }
+
+            impl EdgeCases for [< i $partial >] {
+                type EdgeCases = iter::FilterMap<<[< i $full >] as EdgeCases>::EdgeCases, fn([< i $full >]) -> Option<Self>>;
+                #[inline]
+                fn edge_cases() -> Self::EdgeCases {
+                    <[< i $full >] as EdgeCases>::edge_cases().filter_map(Self::new)
                 }
             }
 

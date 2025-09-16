@@ -3,6 +3,7 @@
 use {
     crate::{
         ast_size::AstSize,
+        edge_cases::EdgeCases,
         error,
         exhaust::Exhaust,
         max::{Max, MaybeDecidable, MaybeOverflow},
@@ -150,6 +151,21 @@ macro_rules! impl_nonzero {
             }
         }
 
+        impl EdgeCases for NonZero<$ty> {
+            type EdgeCases =
+                iter::FilterMap<<$ty as EdgeCases>::EdgeCases, fn($ty) -> Option<Self>>;
+            #[inline]
+            fn edge_cases() -> Self::EdgeCases {
+                <$ty as EdgeCases>::edge_cases().filter_map({
+                    #[expect(
+                        clippy::as_conversions,
+                        reason = "More stringently checked for function-pointer types"
+                    )]
+                    (Self::new as fn($ty) -> Option<Self>)
+                })
+            }
+        }
+
         impl Exhaust for NonZero<$ty> {
             type Exhaust = iter::FilterMap<<$ty as Exhaust>::Exhaust, fn($ty) -> Option<Self>>;
             #[inline]
@@ -226,6 +242,47 @@ macro_rules! impl_unsigned {
             #[inline]
             fn value_size(&self) -> MaybeOverflow<usize> {
                 usize::try_from(*self).into()
+            }
+        }
+
+        /*
+        impl EdgeCases for $ty {
+            type EdgeCases = iter::Chain<
+                <[Self; 4] as IntoIterator>::IntoIter,
+                iter::Flatten<iter::MapWhile<RangeFrom<u32>, fn(u32) -> Option<[Self; 2]>>>,
+            >;
+            #[inline]
+            fn edge_cases() -> Self::EdgeCases {
+                [0, 1, Self::MAX, 2].into_iter().chain(
+                    (2_u32..)
+                        .map_while(
+                            #[expect(
+                                clippy::arithmetic_side_effects,
+                                clippy::as_conversions,
+                                reason = "nope, since this starts at `1 << 2` and `fn` casts are checked"
+                            )]
+                            ((|shl| Self::checked_shl(1, shl).map(|shl| [shl - 1, shl])) as fn(_) -> _),
+                        )
+                        .flatten(),
+                )
+            }
+        }
+        */
+
+        impl EdgeCases for $ty {
+            type EdgeCases = <[Self; 5] as IntoIterator>::IntoIter;
+            #[inline]
+            fn edge_cases() -> Self::EdgeCases {
+                const {
+                    [
+                        0,
+                        1,
+                        Self::MAX >> 1_u32,       // e.g. 127_u8
+                        (Self::MAX >> 1_u32) + 1, // e.g. 128_u8
+                        Self::MAX,                // e.g. 255_u8
+                    ]
+                }
+                .into_iter()
             }
         }
 
@@ -336,6 +393,60 @@ macro_rules! impl_signed {
             }
         }
 
+        /*
+        impl EdgeCases for $ty {
+            type EdgeCases = iter::Chain<
+                <[Self; 7] as IntoIterator>::IntoIter,
+                iter::Flatten<iter::MapWhile<RangeFrom<u32>, fn(u32) -> Option<[Self; 4]>>>,
+            >;
+            #[inline]
+            fn edge_cases() -> Self::EdgeCases {
+                [0, 1, -1, Self::MAX, Self::MIN, 2, -2].into_iter().chain(
+                    (2_u32..)
+                        .map_while(
+                            #[expect(
+                                clippy::arithmetic_side_effects,
+                                clippy::as_conversions,
+                                reason = "nope, since this starts at `1 << 2` and `fn` casts are checked"
+                            )]
+                            ((|shl| {
+                                let shl = paste! { [< 1_ $ty >] }.checked_shl(shl)?;
+                                (shl >= paste! { [< 0_ $ty >] }).then(|| [
+                                    shl - paste! { [< 1_ $ty >] },
+                                    paste! { [< 1_ $ty >] } - shl,
+                                    shl,
+                                    -shl,
+                                ])
+                            }) as fn(_) -> _),
+                        )
+                        .flatten(),
+                )
+            }
+        }
+        */
+
+        impl EdgeCases for $ty {
+            type EdgeCases = <[Self; 8] as IntoIterator>::IntoIter;
+            #[inline]
+            fn edge_cases() -> Self::EdgeCases {
+                const {
+                    paste! {
+                        [
+                            [< 0_ $ty >],
+                            [< 1_ $ty >],
+                            -[< 1_ $ty >],
+                            (Self::MAX >> 1_u32) + [< 1_ $ty >], // e.g. 64_i8
+                            Self::MIN >> [< 1_ $ty >],           // e.g. -64_i8
+                            Self::MAX,                           // e.g. 127_i8
+                            Self::MIN + [< 1_ $ty >],            // e.g. -127_i8
+                            Self::MIN,                           // e.g. -128_i8
+                        ]
+                    }
+                }
+                .into_iter()
+            }
+        }
+
         impl Exhaust for $ty {
             type Exhaust = iter::Take<array::IntoIter<Self, 2>>;
             #[inline]
@@ -438,7 +549,10 @@ mod test {
     extern crate alloc;
 
     use {
-        crate::exhaust::{Exhaust as _, exhaust},
+        crate::{
+            edge_cases::edge_cases,
+            exhaust::{Exhaust as _, exhaust},
+        },
         alloc::{vec, vec::Vec},
     };
 
@@ -469,15 +583,32 @@ mod test {
         assert_eq!(exhaust[250..], vec![-125, 126, -126, 127, -127, -128]);
     }
 
-    /*
     #[test]
     fn exhaust_i16() {
         let exhaust: Vec<i16> = exhaust().collect();
         assert_eq!(exhaust[..10], vec![0, 1, -1, 2, -2, 3, -3, 4, -4, 5]);
         assert_eq!(
-            exhaust[65_530..],
-            vec![-32_765, 32_766, -32_766, 32_767, -32_767, -32_768],
+            exhaust[0xFFFA..],
+            vec![
+                -0x7FFD, // -32_765,
+                0x7FFE,  //  32_766,
+                -0x7FFE, // -32_766,
+                0x7FFF,  //  32_767,
+                -0x7FFF, // -32_767,
+                -0x8000, // -32_768,
+            ],
         );
     }
-    */
+
+    #[test]
+    fn edge_cases_u8() {
+        let edge_cases: Vec<u8> = edge_cases().collect();
+        assert_eq!(edge_cases, vec![0, 1, 127, 128, 255]);
+    }
+
+    #[test]
+    fn edge_cases_i8() {
+        let edge_cases: Vec<i8> = edge_cases().collect();
+        assert_eq!(edge_cases, vec![0, 1, -1, 64, -64, 127, -127, -128]);
+    }
 }

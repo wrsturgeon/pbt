@@ -3,6 +3,7 @@
 use {
     crate::{
         ast_size::AstSize,
+        edge_cases::EdgeCases,
         error,
         exhaust::Exhaust,
         max::{Max, MaybeDecidable, MaybeOverflow},
@@ -24,6 +25,15 @@ impl AstSize for bool {
         MaybeOverflow::Contained(0)
     }
 }
+
+impl EdgeCases for bool {
+    type EdgeCases = <[Self; 2] as IntoIterator>::IntoIter;
+    #[inline]
+    fn edge_cases() -> Self::EdgeCases {
+        [false, true].into_iter()
+    }
+}
+
 impl Exhaust for bool {
     type Exhaust = iter::Once<Self>;
     #[inline]
@@ -35,6 +45,7 @@ impl Exhaust for bool {
         }
     }
 }
+
 impl Pseudorandom for bool {
     #[inline]
     fn pseudorandom<Rng: rand_core::RngCore>(
@@ -44,6 +55,7 @@ impl Pseudorandom for bool {
         Ok(rng.next_u32() & 1 != 0)
     }
 }
+
 impl ValueSize for bool {
     const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
         MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(1)));
@@ -53,4 +65,5 @@ impl ValueSize for bool {
         MaybeOverflow::Contained(usize::from(*self))
     }
 }
+
 test_impls_for!(bool, bool);

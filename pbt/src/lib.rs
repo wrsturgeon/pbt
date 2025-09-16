@@ -11,6 +11,7 @@
 //! Property-based testing plus `#[derive(..)]`, no-std, automatic edge cases, and exhaustive breadth-first search over arbitrary types.
 
 pub mod ast_size;
+pub mod edge_cases;
 pub mod error;
 pub mod exhaust;
 mod impls;
@@ -142,12 +143,29 @@ macro_rules! test_impls_for {
             }
 
             #[test]
+            fn no_duplicates_in_edge_cases() {
+                let edge_cases = <$t as $crate::edge_cases::EdgeCases>::edge_cases();
+
+                // Unfortunately, we have to use a `Vec`,
+                // since we can't require `Ord` or `Hash`.
+                let mut seen = alloc::vec::Vec::<$t>::new();
+
+                for value in edge_cases {
+                    assert!(!seen.contains(&value), "Duplicate value (seen while generating edge cases): {value:#?} (list of seen before it: {seen:#?})");
+                    let () = seen.push(value);
+                }
+            }
+
+            #[test]
             fn ast_size_always_zero_if_trivial() {
                 let mut rng = $crate::pseudorandom::default_rng();
 
                 if let $crate::max::MaybeDecidable::Decidable(max) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE
                     && max.is_trivial()
                 {
+                    for generated in $crate::edge_cases::edge_cases::<$t>() {
+                        assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
+                    }
                     for generated in $crate::exhaust::exhaust::<$t>().take(const { MANY >> 2_u32 }) {
                         assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
@@ -234,57 +252,6 @@ macro_rules! test_impls_for {
                     }
                 }
             }
-
-            /*
-            #[test]
-            fn pseudorandom_exhaustive() {
-                const FIRST_N: usize = 16;
-                const HAYSTACK_SIZE: usize = MANY.saturating_mul(10);
-
-                let mut size = 0;
-                let mut seen: alloc::vec::Vec<($t, bool)> = alloc::vec![];
-                'seen: loop {
-                    let Ok(iter) = <$t as $crate::exhaust::Exhaust>::exhaust(size) else {
-                        break 'seen;
-                    };
-                    for key in iter {
-                        let () = seen.push((key, false));
-                        if seen.len() == FIRST_N {
-                            break 'seen
-                        }
-                    }
-                    let Some(new_size) = size.checked_add(1) else {
-                        break 'seen;
-                    };
-                    size = new_size;
-                }
-
-                #[expect(
-                    clippy::as_conversions,
-                    clippy::cast_precision_loss,
-                    reason = "not meant to be precise"
-                )]
-                let size = size as f32;
-
-                let mut rng = $crate::pseudorandom::default_rng();
-                for _ in 0..HAYSTACK_SIZE {
-                    if let Ok(generated) = <$t as $crate::pseudorandom::Pseudorandom>::pseudorandom(size, &mut rng) {
-                        'seen: for &mut (ref key, ref mut value) in seen.iter_mut() {
-                            if *key == generated {
-                                *value = true;
-                                if seen.iter().all(|&(_key, value)| value) {
-                                    return;
-                                }
-                                break 'seen;
-                            }
-                        }
-                    }
-                }
-
-                let unseen: alloc::vec::Vec<$t> = seen.into_iter().filter_map(|(key, value)| (!value).then_some(key)).collect();
-                panic!("The following terms were not produced by `pseudorandom`: {unseen:#?}");
-            }
-            */
 
             #[test]
             fn pseudorandom_expected_ast_size_is_accurate() {

@@ -5,11 +5,12 @@ extern crate alloc;
 use {
     crate::{
         ast_size::AstSize,
+        edge_cases::EdgeCases,
         error,
         exhaust::Exhaust,
         impls::{
             slice_ast_size, slice_value_size,
-            tuples::{CachingIterator, MaybeIterator, NestedIterator},
+            tuples::{CachingIterator, MakeExhaust, MaybeIterator, NestedIterator},
         },
         max::{Max, MaybeDecidable, MaybeOverflow},
         pseudorandom::Pseudorandom,
@@ -17,7 +18,7 @@ use {
         value_size::ValueSize,
     },
     alloc::{boxed::Box, vec::Vec},
-    core::hint::unreachable_unchecked,
+    core::{hint::unreachable_unchecked, iter},
 };
 
 #[cfg(test)]
@@ -30,12 +31,12 @@ pub enum NonEmptyIterList<T: Clone + Exhaust> {
     /// At least one `CachingIterator<T>`, then eventually a `MaybeIterator<T>`.
     Cons {
         /// The first iterator (a `CachingIterator<T>`).
-        head: CachingIterator<T>,
+        head: CachingIterator<MakeExhaust<T>>,
         /// All iterators after the first, ending with a `MaybeIterator<T>`.
         tail: Box<Self>,
     },
     /// Exactly one iterator (`MaybeIterator<T>`).
-    Singleton(MaybeIterator<T>),
+    Singleton(MaybeIterator<MakeExhaust<T>>),
 }
 
 /// Non-empty list of values, all but the last of which are cached.
@@ -245,6 +246,19 @@ impl<T: ValueSize> ValueSize for Vec<T> {
     #[inline]
     fn value_size(&self) -> MaybeOverflow<usize> {
         slice_value_size(self)
+    }
+}
+
+impl<T: Clone + EdgeCases> EdgeCases for Vec<T> {
+    type EdgeCases = iter::Chain<iter::Once<Self>, iter::Map<T::EdgeCases, fn(T) -> Self>>;
+    #[inline]
+    fn edge_cases() -> Self::EdgeCases {
+        #[expect(
+            clippy::as_conversions,
+            reason = "More stringently checked for function-pointer types"
+        )]
+        iter::once(alloc::vec![])
+            .chain(T::edge_cases().map((|singleton| alloc::vec![singleton]) as fn(_) -> _))
     }
 }
 

@@ -3,6 +3,7 @@
 use {
     crate::{
         ast_size::AstSize,
+        edge_cases::EdgeCases,
         error,
         exhaust::Exhaust,
         max::{Max, MaybeDecidable, MaybeOverflow},
@@ -33,6 +34,14 @@ impl ValueSize for Infallible {
         // SAFETY:
         // Uninhabited type.
         unsafe { unreachable_unchecked() }
+    }
+}
+
+impl EdgeCases for Infallible {
+    type EdgeCases = iter::Empty<Self>;
+    #[inline]
+    fn edge_cases() -> Self::EdgeCases {
+        iter::empty()
     }
 }
 

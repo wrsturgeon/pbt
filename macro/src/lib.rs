@@ -43,11 +43,20 @@ pub fn impl_non_empty_tuples(_: proc_macro::TokenStream) -> proc_macro::TokenStr
             acc
         };
 
-        let nested_iterator_types = {
-            let mut acc = quote! { MaybeIterator<#final_ty> };
+        let nested_edge_case_types = {
+            let mut acc = quote! { MaybeIterator<MakeEdgeCases<#final_ty>> };
             for i in (0..final_index).rev() {
                 let ty = format_ident!("T{i}");
-                acc = quote! { (CachingIterator<#ty>, #acc) };
+                acc = quote! { (CachingIterator<MakeEdgeCases<#ty>>, #acc) };
+            }
+            acc
+        };
+
+        let nested_exhaust_types = {
+            let mut acc = quote! { MaybeIterator<MakeExhaust<#final_ty>> };
+            for i in (0..final_index).rev() {
+                let ty = format_ident!("T{i}");
+                acc = quote! { (CachingIterator<MakeExhaust<#ty>>, #acc) };
             }
             acc
         };
@@ -97,8 +106,22 @@ pub fn impl_non_empty_tuples(_: proc_macro::TokenStream) -> proc_macro::TokenStr
                 }
             }
 
+            impl<#(#ty: Clone + EdgeCases),*> EdgeCases for (#(#ty,)*) {
+                type EdgeCases = iter::Map<FlattenNestedIterator<#nested_edge_case_types>, fn(#nested_types) -> Self>;
+                #[inline]
+                fn edge_cases() -> Self::EdgeCases {
+                    Iterator::map(
+                        FlattenNestedIterator {
+                            total_size: 0,
+                            nested_iterator: #nested_iterator_values,
+                        },
+                        move |#nested_values| (#(#val,)*),
+                    )
+                }
+            }
+
             impl<#(#ty: Clone + Exhaust),*> Exhaust for (#(#ty,)*) {
-                type Exhaust = iter::Map<FlattenNestedIterator<#nested_iterator_types>, fn(#nested_types) -> Self>;
+                type Exhaust = iter::Map<FlattenNestedIterator<#nested_exhaust_types>, fn(#nested_types) -> Self>;
                 #[inline]
                 fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
                     if const { Self::MAX_VALUE_SIZE.at_most() } < &Max::Finite(MaybeOverflow::Contained(value_size)) {

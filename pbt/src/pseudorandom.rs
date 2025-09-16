@@ -1,5 +1,6 @@
 use {
     crate::{ast_size::AstSize, error},
+    core::fmt,
     rand_core::{RngCore, SeedableRng},
 };
 
@@ -13,7 +14,7 @@ pub type DefaultRng = rand_xoshiro::Xoshiro256Plus;
 /// Generate a pseudorandom instance of this type,
 /// exhaustively covering all possible values in the limit,
 /// with a precise statistical expectation of an AST size.
-pub trait Pseudorandom: AstSize + Sized {
+pub trait Pseudorandom: AstSize + fmt::Debug + Sized {
     /// Generate a pseudorandom instance of this type,
     /// exhaustively covering all possible values in the limit,
     /// with a precise statistically expected AST size.

@@ -3,6 +3,7 @@
 use {
     crate::{
         ast_size::AstSize,
+        edge_cases::EdgeCases,
         error,
         exhaust::Exhaust,
         impls::Either,
@@ -85,6 +86,19 @@ impl<T: ValueSize> ValueSize for Option<T> {
         self.as_ref().map_or(MaybeOverflow::Contained(0), |some| {
             some.value_size().plus(1)
         })
+    }
+}
+
+impl<T: EdgeCases> EdgeCases for Option<T> {
+    type EdgeCases =
+        iter::Chain<iter::Once<Self>, iter::Map<<T as EdgeCases>::EdgeCases, fn(T) -> Self>>;
+    #[inline]
+    fn edge_cases() -> Self::EdgeCases {
+        #[expect(
+            clippy::as_conversions,
+            reason = "More stringently checked for function-pointer types"
+        )]
+        iter::once(None).chain(<T as EdgeCases>::edge_cases().map(Some as fn(_) -> _))
     }
 }
 

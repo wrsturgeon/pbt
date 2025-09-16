@@ -4,6 +4,7 @@ use core::iter;
 
 use crate::{
     ast_size::AstSize,
+    edge_cases::EdgeCases,
     error,
     exhaust::Exhaust,
     impls::ints::in_between::{i11, u11, u23, u52},
@@ -62,6 +63,46 @@ impl ValueSize for f64 {
     #[inline]
     fn value_size(&self) -> MaybeOverflow<usize> {
         parts_from_f64(*self).value_size()
+    }
+}
+
+impl EdgeCases for f32 {
+    type EdgeCases = <[Self; 10] as IntoIterator>::IntoIter;
+    #[inline]
+    fn edge_cases() -> Self::EdgeCases {
+        [
+            0.,
+            1.,
+            Self::INFINITY,
+            Self::NEG_INFINITY,
+            Self::NAN,
+            Self::MAX,
+            Self::MIN,
+            Self::EPSILON,
+            Self::MIN_POSITIVE,
+            -Self::MIN_POSITIVE,
+        ]
+        .into_iter()
+    }
+}
+
+impl EdgeCases for f64 {
+    type EdgeCases = <[Self; 10] as IntoIterator>::IntoIter;
+    #[inline]
+    fn edge_cases() -> Self::EdgeCases {
+        [
+            0.,
+            1.,
+            Self::INFINITY,
+            Self::NEG_INFINITY,
+            Self::NAN,
+            Self::MAX,
+            Self::MIN,
+            Self::EPSILON,
+            Self::MIN_POSITIVE,
+            -Self::MIN_POSITIVE,
+        ]
+        .into_iter()
     }
 }
 
