@@ -10,13 +10,17 @@
 
 //! Property-based testing plus `#[derive(..)]`, no-std, automatic edge cases, and exhaustive breadth-first search over arbitrary types.
 
+extern crate alloc; // Maybe unnecessary in the future...
+
 pub mod ast_size;
 pub mod edge_cases;
+pub mod either;
 pub mod error;
 pub mod exhaust;
 mod impls;
 pub mod max;
 pub mod pseudorandom;
+pub mod shrink;
 pub mod value_size;
 
 pub use impls::ints::in_between::*;
@@ -71,12 +75,10 @@ macro_rules! test_impls_for {
 
             #[test]
             fn instantiable_if_claimed() {
-                let mut rng = $crate::pseudorandom::default_rng();
-
                 if let MaybeDecidable::Decidable(max) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE
                     && max.is_instantiable() && (
                         $crate::exhaust::exhaust::<$t>().next().is_none()
-                            || $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).next().is_none()
+                            || $crate::pseudorandom::pseudorandom::<$t>().next().is_none()
                     )
                 {
                     panic!("Allegedly instantiable type was uninstantiable");
@@ -85,10 +87,8 @@ macro_rules! test_impls_for {
 
             #[test]
             fn uninstantiable_if_claimed() {
-                let mut rng = $crate::pseudorandom::default_rng();
-
                 if matches!(<$t as $crate::ast_size::AstSize>::MAX_AST_SIZE, $crate::max::MaybeDecidable::Decidable($crate::max::Max::Uninstantiable))
-                    && let Some(generated) = $crate::exhaust::exhaust::<$t>().next().or_else(|| $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).next())
+                    && let Some(generated) = $crate::exhaust::exhaust::<$t>().next().or_else(|| $crate::pseudorandom::pseudorandom::<$t>().next())
                 {
                     panic!("Allegedly uninstantiable type was instantiated: {generated:#?}");
                 }
@@ -156,10 +156,27 @@ macro_rules! test_impls_for {
                 }
             }
 
+            // TODO: RE-ENABLE
+            /*
+            #[test]
+            fn no_duplicates_in_shrink() {
+                for pseudorandom in $crate::pseudorandom::pseudorandom::<$t, _>().take(const { MANY.isqrt() }) {
+                    let shrink = <$t as $crate::shrink::Shrink>::shrink(&pseudorandom);
+
+                    // Unfortunately, we have to use a `Vec`,
+                    // since we can't require `Ord` or `Hash`.
+                    let mut seen = alloc::vec::Vec::<$t>::new();
+
+                    for value in shrink {
+                        assert!(!seen.contains(&value), "Duplicate value (seen while shrinking): {value:#?} (list of seen before it: {seen:#?})");
+                        let () = seen.push(value);
+                    }
+                }
+            }
+            */
+
             #[test]
             fn ast_size_always_zero_if_trivial() {
-                let mut rng = $crate::pseudorandom::default_rng();
-
                 if let $crate::max::MaybeDecidable::Decidable(max) = <$t as $crate::ast_size::AstSize>::MAX_AST_SIZE
                     && max.is_trivial()
                 {
@@ -169,7 +186,7 @@ macro_rules! test_impls_for {
                     for generated in $crate::exhaust::exhaust::<$t>().take(const { MANY >> 2_u32 }) {
                         assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
-                    for generated in $crate::pseudorandom::pseudorandom::<$t, _>(&mut rng).take(const { MANY >> 2_u32 }) {
+                    for generated in $crate::pseudorandom::pseudorandom::<$t>().take(const { MANY >> 2_u32 }) {
                         assert_eq!(<$t as $crate::ast_size::AstSize>::ast_size(&generated), $crate::max::MaybeOverflow::Contained(0));
                     }
                 }
@@ -314,4 +331,10 @@ macro_rules! test_impls_for {
             }
         }
     };
+}
+
+#[inline]
+pub fn edge_cases_then_pseudorandom<T: edge_cases::EdgeCases + pseudorandom::Pseudorandom>()
+-> impl 'static + Iterator<Item = T> {
+    edge_cases::edge_cases().chain(pseudorandom::pseudorandom())
 }

@@ -40,15 +40,16 @@ pub trait Pseudorandom: AstSize + fmt::Debug + Sized {
 /// so if you would like a finite number of values,
 /// please use `.take(N)`.
 #[inline]
-pub fn pseudorandom<P: Pseudorandom, Rng: RngCore>(rng: &mut Rng) -> impl Iterator<Item = P> {
-    (0..).map_while(|expected_ast_size: usize| {
+pub fn pseudorandom<P: Pseudorandom>() -> impl Iterator<Item = P> {
+    let mut rng = default_rng();
+    (0..).map_while(move |expected_ast_size: usize| {
         #[expect(
             clippy::as_conversions,
             clippy::cast_precision_loss,
             reason = "not meant to be precise"
         )]
         let expected_ast_size = expected_ast_size as f32;
-        <P as Pseudorandom>::pseudorandom(expected_ast_size, rng).ok()
+        <P as Pseudorandom>::pseudorandom(expected_ast_size, &mut rng).ok()
     })
 }
 

@@ -11,6 +11,7 @@ use {
         test_impls_for,
         value_size::ValueSize,
     },
+    alloc::vec::Vec,
     core::{array, iter, num::NonZero},
     paste::paste,
     rand_core::RngCore,
@@ -200,6 +201,17 @@ macro_rules! impl_nonzero {
             }
         }
 
+        // TODO: RE-ENABLE
+        /*
+        impl Shrink for NonZero<$ty> {
+            type Shrink = iter::FilterMap<<$ty as Shrink>::Shrink, fn($ty) -> Option<Self>>;
+            #[inline]
+            fn shrink() -> Self::Shrink {
+                <$ty as Shrink>::shrink().filter_map(Self::new)
+            }
+        }
+        */
+
         paste! { test_impls_for!(NonZero<$ty>, [< nonzero_ $ty >]); }
     };
 }
@@ -331,6 +343,29 @@ macro_rules! impl_unsigned {
             }
         }
 
+        // TODO: RE-ENABLE
+        /*
+        impl Shrink for $ty {
+            type Shrink =
+                Either<iter::Map<LowerBits::Shrink, fn(LowerBits) -> Self>, iter::Empty<Self>>;
+            #[inline]
+            fn shrink(&self) -> Self::Shrink {
+                let Some(nz) = NonZero::new(*self) else {
+                    return Either::B(iter::empty());
+                };
+                let lower_bits: LowerBits = nz.into();
+                Either::A(
+                    <LowerBits as Shrink>::shrink(&lower_bits).map(|lower_bits| {
+                        // SAFETY:
+                        // Guaranteed to be shrunk: that is, less than the original input,
+                        // so if the original input didn't overflow (by definition), then this won't.
+                        unsafe { lower_bits.try_into().unwrap_unchecked() }
+                    }),
+                )
+            }
+        }
+        */
+
         impl MaybeOverflow<usize> {
             paste! {
                 #[inline]
@@ -354,6 +389,62 @@ macro_rules! impl_unsigned {
             #[inline]
             fn from(value: $ty) -> Self {
                 paste! { Self::[< saturating_from_ $ty >](value) }
+            }
+        }
+
+        impl From<NonZero<$ty>> for LowerBits {
+            #[inline]
+            fn from(value: NonZero<$ty>) -> Self {
+                let mut value: $ty = value.get();
+                let mut bits = Vec::new();
+                while value > 1 {
+                    let () = bits.push((value & 1) != 0);
+                    value >>= 1_u32;
+                }
+                Self { bits }
+            }
+        }
+
+        impl TryFrom<LowerBits> for NonZero<$ty> {
+            type Error = error::Overflow;
+            #[inline]
+            fn try_from(LowerBits { bits }: LowerBits) -> Result<Self, Self::Error> {
+                let mut acc = paste! { [< 1_ $ty >] };
+                for bit in bits.into_iter().rev() {
+                    if (acc & const { (paste! { [< 1_ $ty >] }) << (<$ty>::BITS - 1) }) != 0 {
+                        return Err(error::Overflow);
+                    }
+                    acc <<= 1_u32;
+                    acc |= (bit as $ty);
+                }
+                // SAFETY:
+                // Starts with 1, then left-shifted, checking for overflow, so always at least one.
+                Ok(unsafe { Self::new_unchecked(acc) })
+            }
+        }
+
+        paste! {
+            #[cfg(test)]
+            mod [< test_ $ty >] {
+                use super::*;
+
+                #[test]
+                fn [< roundtrip_lower_bits_nz_ $ty >]() {
+                    for lower_bits in $crate::exhaust::exhaust::<LowerBits>().take(10_000) {
+                        let Ok(nz) = NonZero::<$ty>::try_from(lower_bits.clone()) else { continue };
+                        let roundtrip = LowerBits::from(nz);
+                        assert_eq!(roundtrip, lower_bits, "{lower_bits:?} -> {nz:?} -> {roundtrip:?} =/= {lower_bits:?}");
+                    }
+                }
+
+                #[test]
+                fn [< roundtrip_nz_ $ty _lower_bits >]() {
+                    for nz in $crate::exhaust::exhaust::<NonZero<$ty>>().take(10_000) {
+                        let lower_bits = LowerBits::from(nz);
+                        let roundtrip = NonZero::<$ty>::try_from(lower_bits.clone());
+                        assert_eq!(roundtrip, Ok(nz), "{nz:?} -> {lower_bits:?} -> {roundtrip:?} =/= {nz:?}");
+                    }
+                }
             }
         }
     };
@@ -537,6 +628,72 @@ impl_int!(32);
 impl_int!(64);
 impl_int!(128);
 impl_int!(size);
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct LowerBits {
+    /// All the bits below the most significant 1,
+    /// with the least significant bit first.
+    bits: Vec<bool>,
+}
+
+impl AstSize for LowerBits {
+    const MAX_AST_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> = Vec::<bool>::MAX_AST_SIZE;
+    const MAX_EXPECTED_AST_SIZE: MaybeDecidable<Max<f32>> = Vec::<bool>::MAX_EXPECTED_AST_SIZE;
+    #[inline]
+    fn ast_size(&self) -> MaybeOverflow<usize> {
+        let Self { ref bits } = *self;
+        bits.ast_size()
+    }
+}
+
+impl ValueSize for LowerBits {
+    const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> = Vec::<bool>::MAX_VALUE_SIZE;
+    #[inline]
+    fn value_size(&self) -> MaybeOverflow<usize> {
+        let Self { ref bits } = *self;
+        bits.value_size()
+    }
+}
+
+impl EdgeCases for LowerBits {
+    type EdgeCases = iter::Map<<Vec<bool> as EdgeCases>::EdgeCases, fn(Vec<bool>) -> Self>;
+    #[inline]
+    fn edge_cases() -> Self::EdgeCases {
+        Vec::edge_cases().map(|bits| Self { bits })
+    }
+}
+
+impl Exhaust for LowerBits {
+    type Exhaust = iter::Map<<Vec<bool> as Exhaust>::Exhaust, fn(Vec<bool>) -> Self>;
+    #[inline]
+    fn exhaust(value_size: usize) -> Result<Self::Exhaust, error::UnreachableSize> {
+        Ok(Vec::exhaust(value_size)?.map(|bits| Self { bits }))
+    }
+}
+
+impl Pseudorandom for LowerBits {
+    #[inline]
+    fn pseudorandom<Rng: RngCore>(
+        expected_ast_size: f32,
+        rng: &mut Rng,
+    ) -> Result<Self, error::Uninstantiable> {
+        Vec::pseudorandom(expected_ast_size, rng).map(|bits| Self { bits })
+    }
+}
+
+// TODO: RE-ENABLE
+/*
+impl Shrink for LowerBits {
+    type Shrink = iter::Map<<Vec<bool> as Shrink>::Shrink, fn(Vec<bool>) -> Self>;
+    #[inline]
+    fn shrink(&self) -> Self::Shrink {
+        let Self { ref bits } = *self;
+        <Vec<bool> as Shrink>::shrink(bits).map(|bits| Self { bits })
+    }
+}
+
+test_impls_for!(LowerBits, lower_bits);
+*/
 
 #[cfg(test)]
 #[expect(

@@ -676,7 +676,7 @@ mod test {
 
     #[test]
     fn maybe_iterator_invariant_when_active() {
-        for (once_active, remaining_size) in exhaust::<(u8, usize)>().take(1_000) {
+        for (once_active, remaining_size) in exhaust::<(u8, usize)>().take(10_000) {
             let mut input = MaybeIterator::<MakeExhaust<u8>>::Active {
                 iter: iter::once(once_active),
             };
@@ -689,7 +689,7 @@ mod test {
 
     #[test]
     fn caching_iterator_invariant_when_inactive() {
-        for remaining_size in exhaust::<Option<usize>>().take(1_000) {
+        for remaining_size in exhaust::<Option<usize>>().take(10_000) {
             let mut input = CachingIterator::<MakeExhaust<u8>>::Inactive;
             match input.fill_cache_with_next_value(remaining_size) {
                 Some(()) => assert!(input.has_value_cached()),

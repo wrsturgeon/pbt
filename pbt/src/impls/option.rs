@@ -4,9 +4,9 @@ use {
     crate::{
         ast_size::AstSize,
         edge_cases::EdgeCases,
+        either::Either,
         error,
         exhaust::Exhaust,
-        impls::Either,
         max::{Max, MaybeDecidable, MaybeOverflow},
         pseudorandom::Pseudorandom,
         test_impls_for,

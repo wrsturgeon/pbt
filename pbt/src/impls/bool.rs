@@ -8,6 +8,7 @@ use {
         exhaust::Exhaust,
         max::{Max, MaybeDecidable, MaybeOverflow},
         pseudorandom::Pseudorandom,
+        shrink::Shrink,
         test_impls_for,
         value_size::ValueSize,
     },
@@ -23,6 +24,16 @@ impl AstSize for bool {
     #[inline]
     fn ast_size(&self) -> MaybeOverflow<usize> {
         MaybeOverflow::Contained(0)
+    }
+}
+
+impl ValueSize for bool {
+    const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
+        MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(1)));
+
+    #[inline]
+    fn value_size(&self) -> MaybeOverflow<usize> {
+        MaybeOverflow::Contained(usize::from(*self))
     }
 }
 
@@ -56,13 +67,11 @@ impl Pseudorandom for bool {
     }
 }
 
-impl ValueSize for bool {
-    const MAX_VALUE_SIZE: MaybeDecidable<Max<MaybeOverflow<usize>>> =
-        MaybeDecidable::Decidable(Max::Finite(MaybeOverflow::Contained(1)));
-
+impl Shrink for bool {
+    type Shrink = <Option<Self> as IntoIterator>::IntoIter;
     #[inline]
-    fn value_size(&self) -> MaybeOverflow<usize> {
-        MaybeOverflow::Contained(usize::from(*self))
+    fn shrink(&self) -> Self::Shrink {
+        self.then_some(false).into_iter()
     }
 }
 

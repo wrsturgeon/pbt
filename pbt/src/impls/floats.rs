@@ -242,10 +242,7 @@ mod test {
 
     use {
         super::*,
-        crate::{
-            exhaust::exhaust,
-            pseudorandom::{default_rng, pseudorandom},
-        },
+        crate::{exhaust::exhaust, pseudorandom::pseudorandom},
         alloc::{vec, vec::Vec},
     };
 
@@ -492,8 +489,7 @@ mod test {
 
     #[test]
     fn f32_parts_roundtrip() {
-        let mut rng = default_rng();
-        for parts in pseudorandom(&mut rng).take(10_000) {
+        for parts in pseudorandom().take(10_000) {
             let float = f32_from_parts(parts);
             let roundtrip = parts_from_f32(float);
             assert_eq!(
@@ -505,8 +501,7 @@ mod test {
 
     #[test]
     fn f64_parts_roundtrip() {
-        let mut rng = default_rng();
-        for parts in pseudorandom(&mut rng).take(10_000) {
+        for parts in pseudorandom().take(10_000) {
             let float = f64_from_parts(parts);
             let roundtrip = parts_from_f64(float);
             assert_eq!(
