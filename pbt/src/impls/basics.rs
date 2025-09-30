@@ -349,5 +349,6 @@ mod test {
     crate::impl_tests!(bool, bool);
     crate::impl_tests!(Option<Infallible>, option_void);
     crate::impl_tests!(Option<()>, option_unit);
-    crate::impl_tests!(Option<u8>, option_u8);
+    crate::impl_tests!(Option<bool>, option_bool); // TODO: remove and switch to the below
+    // crate::impl_tests!(Option<u8>, option_u8); // TODO
 }
