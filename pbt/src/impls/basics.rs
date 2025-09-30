@@ -129,16 +129,30 @@ impl<T: Size> Size for Option<T> {
     };
     #[inline]
     fn size(&self) -> MaybeOverflow<usize> {
-        MaybeOverflow::Contained(0)
+        self.as_ref()
+            .map_or(MaybeOverflow::Contained(0), |some| some.size().plus(1))
     }
 }
 
 impl<T: Weight> Weight for Option<T> {
-    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> =
-        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0));
+    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> = match T::MAX_WEIGHT {
+        MaybeInstantiable::Uninstantiable => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0))
+        }
+        MaybeInstantiable::Instantiable(MaybeInfinite::Infinite) => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Infinite)
+        }
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(finite)) => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Finite(finite + 1))
+        }
+    };
     #[inline]
     fn weight(&self) -> usize {
-        0
+        self.as_ref().map_or(0, |some| {
+            // SAFETY: Any memory location can fit in a `usize`, and
+            // `Weight` measures only size that takes up memory.
+            unsafe { some.weight().unchecked_add(1) }
+        })
     }
 }
 
@@ -177,43 +191,47 @@ impl<T: Rnd> Rnd for Option<T> {
 }
 
 impl<T: Decimate> Decimate for Option<T> {
-    type Decimate = iter::Chain<
-        iter::Once<Self>,
+    type Decimate = Either<
         iter::Flatten<option::IntoIter<iter::Map<T::Decimate, fn(T) -> Self>>>,
+        iter::Once<Self>,
     >;
     #[inline]
     fn decimate(&self, weight: usize) -> Self::Decimate {
-        iter::once(None).chain(
-            self.as_ref()
-                .and_then(|some| {
-                    weight.checked_sub(1).map(|weight| {
-                        some.decimate(weight).map(
-                            #[expect(
-                                clippy::as_conversions,
-                                reason = "Function pointer conversions are checked more thoroughly"
-                            )]
-                            {
-                                Some as fn(_) -> _
-                            },
-                        )
-                    })
-                })
-                .into_iter()
-                .flatten(),
-        )
+        weight
+            .checked_sub(1)
+            .map_or_else(
+                || Either::B(iter::once(None)),
+                |weight| {
+                    Either::A(
+                        self.as_ref()
+                            .map(|some| {
+                                some.decimate(weight).map(
+                                    #[expect(
+                                        clippy::as_conversions,
+                                        reason = "Function pointer conversions are checked more thoroughly"
+                                    )]
+                                    {
+                                        Some as fn(_) -> _
+                                    },
+                                )
+                            })
+                            .into_iter()
+                            .flatten(),
+                    )
+                },
+            )
     }
 }
 
 impl<T: Refine> Refine for Option<T> {
-    type Refine =
-        Either<iter::Map<T::Refine, fn(T) -> Self>, Either<iter::Once<Self>, iter::Empty<Self>>>;
+    type Refine = Either<iter::Map<T::Refine, fn(T) -> Self>, option::IntoIter<Self>>;
     #[inline]
     fn refine(&self, size: usize) -> Self::Refine {
         self.as_ref().map_or_else(
-            || Either::B(Either::A(iter::once(None))),
+            || Either::B(Some(None).into_iter()),
             |some| {
                 size.checked_sub(1).map_or_else(
-                    || Either::B(Either::B(iter::empty())),
+                    || Either::B(None.into_iter()),
                     |size| {
                         Either::A(some.refine(size).map(
                             #[expect(
@@ -237,4 +255,6 @@ mod test {
 
     crate::impl_tests!((), unit);
     crate::impl_tests!(Infallible, void);
+    crate::impl_tests!(Option<Infallible>, option_void);
+    crate::impl_tests!(Option<()>, option_unit);
 }
