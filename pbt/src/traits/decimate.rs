@@ -10,12 +10,12 @@ macro_rules! impl_decimate_tests {
                 let mut decimate = <$ty as $crate::traits::decimate::Decimate>::decimate(&corner);
                 while let Some(decimated) = decimate.next() {
                     let weight = <$ty as $crate::traits::weight::Weight>::weight(&decimated);
-                    match weight.cmp(orig_weight) {
-                        core::cmp::Ordering::Less => continue,
-                        core::cmp::Ordering::Greater => panic!(
+                    match PartialOrd::partial_cmp(&weight, &orig_weight) {
+                        None | Some(core::cmp::Ordering::Less) => continue,
+                        Some(core::cmp::Ordering::Greater) => panic!(
                             "Decimation produced a value heavier than the original! Weight of the decimated value (`{decimated:#?}`) was {weight:?}, but the weight of the original (`{corner:#?}`) was only {orig_weight:?}",
                         ),
-                        core::cmp::Ordering::Eq => {
+                        Some(core::cmp::Ordering::Equal) => {
                             assert_eq!(
                                 decimated,
                                 corner,

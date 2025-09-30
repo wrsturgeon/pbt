@@ -7,7 +7,14 @@ macro_rules! impl_size_tests {
     ($ty:ty, $name:ident) => {
         #[test]
         fn max_size() {
-            let finite = match <$ty as $crate::traits::size::Size>::MAX_SIZE {
+            // Make sure, as a baseline, it at least doesn't panic:
+            for corner in <$ty as $crate::traits::corner::Corner>::corners() {
+                let _: $crate::size::MaybeOverflow<usize> =
+                    <$ty as $crate::traits::size::Size>::size(&corner);
+            }
+
+            // Then enforce consistency with stated maxima:
+            match <$ty as $crate::traits::size::Size>::MAX_SIZE {
                 $crate::size::MaybeInstantiable::Uninstantiable => {
                     assert!(
                         matches!(
@@ -56,7 +63,7 @@ macro_rules! impl_size_tests {
                         assert!(size <= max, "Expected a maximum size of {max:?}, but the corner-case `{corner:#?}` has size {size:?}");
                     }
                 }
-            };
+            }
         }
     };
 }

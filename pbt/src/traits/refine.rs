@@ -17,12 +17,12 @@ macro_rules! impl_refine_tests {
                         "Refinement produced a value of a different weight than the original! Weight of the refined value (`{refined:#?}`) was {weight:?}, but the weight of the original (`{corner:#?}`) was {orig_weight:?}",
                     );
                     let size = <$ty as $crate::traits::size::Size>::size(&refined);
-                    match size.cmp(orig_size) {
-                        core::cmp::Ordering::Less => continue,
-                        core::cmp::Ordering::Greater => panic!(
+                    match PartialOrd::partial_cmp(&size, &orig_size) {
+                        None | Some(core::cmp::Ordering::Less) => continue,
+                        Some(core::cmp::Ordering::Greater) => panic!(
                             "Refinement produced a value larger than the original! Size of the refined value (`{refined:#?}`) was {size:?}, but the size of the original (`{corner:#?}`) was only {orig_size:?}",
                         ),
-                        core::cmp::Ordering::Eq => {
+                        Some(core::cmp::Ordering::Equal) => {
                             assert_eq!(
                                 refined,
                                 corner,

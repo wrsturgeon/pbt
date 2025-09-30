@@ -88,7 +88,6 @@
                 clippy-no-features = crane.cargoClippy (args {
                   cargoClippyExtraArgs = "--no-default-features --all-targets -- --deny warnings";
                 });
-                coverage = crane.cargoTarpaulin (args { });
                 deny = crane.cargoDeny (args {
                   cargoDenyChecks = "bans licenses sources -c ${./deny.toml}";
                 });

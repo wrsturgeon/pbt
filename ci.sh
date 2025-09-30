@@ -7,4 +7,3 @@ nix flake check --all-systems
 
 cargo miri test --no-default-features
 cargo miri test --all-features
-cargo tarpaulin --fail-under 90

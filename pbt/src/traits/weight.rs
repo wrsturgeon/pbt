@@ -7,7 +7,13 @@ macro_rules! impl_weight_tests {
     ($ty:ty, $name:ident) => {
         #[test]
         fn max_weight() {
-            let finite = match <$ty as $crate::traits::weight::Weight>::MAX_WEIGHT {
+            // Make sure, as a baseline, it at least doesn't panic:
+            for corner in <$ty as $crate::traits::corner::Corner>::corners() {
+                let _: usize = <$ty as $crate::traits::weight::Weight>::weight(&corner);
+            }
+
+            // Then enforce consistency with stated maxima:
+            match <$ty as $crate::traits::weight::Weight>::MAX_WEIGHT {
                 $crate::size::MaybeInstantiable::Uninstantiable => {
                     if let Some(corner) = <$ty as $crate::traits::corner::Corner>::corners().next() {
                         panic!("Expected an uninstantiable type but found a corner case: {corner:#?}");
@@ -25,14 +31,14 @@ macro_rules! impl_weight_tests {
                         "Expected a finitely instantiable type but found no corner cases",
                     );
                     for corner in <$ty as $crate::traits::corner::Corner>::corners() {
-                        let weight = <$ty as $crate::traits::size::Weight>::weight(&corner);
+                        let weight = <$ty as $crate::traits::weight::Weight>::weight(&corner);
                         assert!(
                             weight <= max,
                             "Expected a maximum weight of {max:?}, but the corner-case `{corner:#?}` has weight {weight:?}",
                         );
                     }
                 }
-            };
+            }
         }
     };
 }
