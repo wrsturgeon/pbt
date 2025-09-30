@@ -7,58 +7,17 @@ use {
             weight::Weight,
         },
     },
-    core::{convert::Infallible, hint::unreachable_unchecked, iter, option},
+    core::{array, convert::Infallible, hint::unreachable_unchecked, iter, option, slice},
 };
 
-impl Size for () {
-    const MAX_SIZE: MaybeInstantiable<MaybeInfinite<MaybeOverflow<usize>>> =
-        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(MaybeOverflow::Contained(0)));
-    #[inline]
-    fn size(&self) -> MaybeOverflow<usize> {
-        MaybeOverflow::Contained(0)
-    }
-}
-
-impl Weight for () {
-    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> =
-        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0));
+impl Weight for Infallible {
+    const MAX_EXPECTED_WEIGHT: MaybeInstantiable<MaybeInfinite<f32>> =
+        MaybeInstantiable::Uninstantiable;
+    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> = MaybeInstantiable::Uninstantiable;
     #[inline]
     fn weight(&self) -> usize {
-        0
-    }
-}
-
-impl Corner for () {
-    type Corners = iter::Once<Self>;
-    #[inline]
-    fn corners() -> Self::Corners {
-        iter::once(())
-    }
-}
-
-impl Rnd for () {
-    #[inline]
-    fn rnd<Rng: rand_core::RngCore>(
-        _rng: &mut Rng,
-        _expected_weight: usize,
-    ) -> MaybeInstantiable<Self> {
-        MaybeInstantiable::Instantiable(())
-    }
-}
-
-impl Decimate for () {
-    type Decimate = option::IntoIter<Self>;
-    #[inline]
-    fn decimate(&self, weight: usize) -> Self::Decimate {
-        (weight == 0).then_some(()).into_iter()
-    }
-}
-
-impl Refine for () {
-    type Refine = option::IntoIter<Self>;
-    #[inline]
-    fn refine(&self, size: usize) -> Self::Refine {
-        (size == 0).then_some(()).into_iter()
+        // SAFETY: Uninstantiable type.
+        unsafe { unreachable_unchecked() }
     }
 }
 
@@ -67,15 +26,6 @@ impl Size for Infallible {
         MaybeInstantiable::Uninstantiable;
     #[inline]
     fn size(&self) -> MaybeOverflow<usize> {
-        // SAFETY: Uninstantiable type.
-        unsafe { unreachable_unchecked() }
-    }
-}
-
-impl Weight for Infallible {
-    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> = MaybeInstantiable::Uninstantiable;
-    #[inline]
-    fn weight(&self) -> usize {
         // SAFETY: Uninstantiable type.
         unsafe { unreachable_unchecked() }
     }
@@ -93,7 +43,7 @@ impl Rnd for Infallible {
     #[inline]
     fn rnd<Rng: rand_core::RngCore>(
         _rng: &mut Rng,
-        _expected_weight: usize,
+        _expected_weight: f32,
     ) -> MaybeInstantiable<Self> {
         MaybeInstantiable::Uninstantiable
     }
@@ -115,6 +65,164 @@ impl Refine for Infallible {
     }
 }
 
+impl Weight for () {
+    const MAX_EXPECTED_WEIGHT: MaybeInstantiable<MaybeInfinite<f32>> =
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0.));
+    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> =
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0));
+    #[inline]
+    fn weight(&self) -> usize {
+        0
+    }
+}
+
+impl Size for () {
+    const MAX_SIZE: MaybeInstantiable<MaybeInfinite<MaybeOverflow<usize>>> =
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(MaybeOverflow::Contained(0)));
+    #[inline]
+    fn size(&self) -> MaybeOverflow<usize> {
+        MaybeOverflow::Contained(0)
+    }
+}
+
+impl Corner for () {
+    type Corners = iter::Once<Self>;
+    #[inline]
+    fn corners() -> Self::Corners {
+        iter::once(())
+    }
+}
+
+impl Rnd for () {
+    #[inline]
+    fn rnd<Rng: rand_core::RngCore>(
+        _rng: &mut Rng,
+        _expected_weight: f32,
+    ) -> MaybeInstantiable<Self> {
+        MaybeInstantiable::Instantiable(())
+    }
+}
+
+impl Decimate for () {
+    type Decimate = option::IntoIter<Self>;
+    #[inline]
+    fn decimate(&self, weight: usize) -> Self::Decimate {
+        (weight == 0).then_some(()).into_iter()
+    }
+}
+
+impl Refine for () {
+    type Refine = option::IntoIter<Self>;
+    #[inline]
+    fn refine(&self, size: usize) -> Self::Refine {
+        (size == 0).then_some(()).into_iter()
+    }
+}
+
+impl Weight for bool {
+    const MAX_EXPECTED_WEIGHT: MaybeInstantiable<MaybeInfinite<f32>> =
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0.));
+    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> =
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0));
+    #[inline]
+    fn weight(&self) -> usize {
+        0
+    }
+}
+
+impl Size for bool {
+    const MAX_SIZE: MaybeInstantiable<MaybeInfinite<MaybeOverflow<usize>>> =
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(MaybeOverflow::Contained(0)));
+    #[inline]
+    fn size(&self) -> MaybeOverflow<usize> {
+        MaybeOverflow::Contained(0)
+    }
+}
+
+impl Corner for bool {
+    type Corners = array::IntoIter<Self, 2>;
+    #[inline]
+    fn corners() -> Self::Corners {
+        [false, true].into_iter()
+    }
+}
+
+impl Rnd for bool {
+    #[inline]
+    fn rnd<Rng: rand_core::RngCore>(
+        rng: &mut Rng,
+        _expected_weight: f32,
+    ) -> MaybeInstantiable<Self> {
+        MaybeInstantiable::Instantiable((rng.next_u32() & 1) != 0)
+    }
+}
+
+impl Decimate for bool {
+    type Decimate = iter::Copied<slice::Iter<'static, Self>>;
+    #[inline]
+    fn decimate(&self, weight: usize) -> Self::Decimate {
+        let len = if weight == 0 {
+            if *self { 2 } else { 1 }
+        } else {
+            0
+        };
+        #[expect(
+            clippy::indexing_slicing,
+            reason = "this is a slam-dunk for the compiler"
+        )]
+        [false, true][..len].iter().copied()
+    }
+}
+
+impl Refine for bool {
+    type Refine = option::IntoIter<Self>;
+    #[inline]
+    fn refine(&self, size: usize) -> Self::Refine {
+        match size {
+            0 => Some(false),
+            1 => self.then_some(true),
+            _ => None,
+        }
+        .into_iter()
+    }
+}
+
+impl<T: Weight> Weight for Option<T> {
+    const MAX_EXPECTED_WEIGHT: MaybeInstantiable<MaybeInfinite<f32>> = match T::MAX_EXPECTED_WEIGHT
+    {
+        MaybeInstantiable::Uninstantiable => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0.))
+        }
+        MaybeInstantiable::Instantiable(MaybeInfinite::Infinite) => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Infinite)
+        }
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(finite)) => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Finite(finite + 1.))
+        }
+    };
+    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> = match T::MAX_WEIGHT {
+        MaybeInstantiable::Uninstantiable => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0))
+        }
+        MaybeInstantiable::Instantiable(MaybeInfinite::Infinite) => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Infinite)
+        }
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(finite)) => {
+            MaybeInstantiable::Instantiable(MaybeInfinite::Finite(finite + 1))
+        }
+    };
+    #[inline]
+    fn weight(&self) -> usize {
+        self.as_ref().map_or(0, |some| {
+            // SAFETY: Any memory location can fit in a `usize`, and
+            // `Weight` measures only size that takes up memory,
+            // so since the original value was representable in memory,
+            // its weight will fit in a `usize`.
+            unsafe { some.weight().unchecked_add(1) }
+        })
+    }
+}
+
 impl<T: Size> Size for Option<T> {
     const MAX_SIZE: MaybeInstantiable<MaybeInfinite<MaybeOverflow<usize>>> = match T::MAX_SIZE {
         MaybeInstantiable::Uninstantiable => {
@@ -131,28 +239,6 @@ impl<T: Size> Size for Option<T> {
     fn size(&self) -> MaybeOverflow<usize> {
         self.as_ref()
             .map_or(MaybeOverflow::Contained(0), |some| some.size().plus(1))
-    }
-}
-
-impl<T: Weight> Weight for Option<T> {
-    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> = match T::MAX_WEIGHT {
-        MaybeInstantiable::Uninstantiable => {
-            MaybeInstantiable::Instantiable(MaybeInfinite::Finite(0))
-        }
-        MaybeInstantiable::Instantiable(MaybeInfinite::Infinite) => {
-            MaybeInstantiable::Instantiable(MaybeInfinite::Infinite)
-        }
-        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(finite)) => {
-            MaybeInstantiable::Instantiable(MaybeInfinite::Finite(finite + 1))
-        }
-    };
-    #[inline]
-    fn weight(&self) -> usize {
-        self.as_ref().map_or(0, |some| {
-            // SAFETY: Any memory location can fit in a `usize`, and
-            // `Weight` measures only size that takes up memory.
-            unsafe { some.weight().unchecked_add(1) }
-        })
     }
 }
 
@@ -176,10 +262,15 @@ impl<T: Rnd> Rnd for Option<T> {
     #[inline]
     fn rnd<Rng: rand_core::RngCore>(
         rng: &mut Rng,
-        expected_weight: usize,
+        expected_weight: f32,
     ) -> MaybeInstantiable<Self> {
+        #[expect(clippy::modulo_arithmetic, reason = "intentional")]
+        let variant_selector = {
+            let rnd = f32::from_bits(rng.next_u32());
+            rnd % (expected_weight + 1.)
+        };
         MaybeInstantiable::Instantiable(
-            if let Some(expected_weight) = expected_weight.checked_sub(1)
+            if variant_selector >= 1.
                 && let MaybeInstantiable::Instantiable(some) = T::rnd(rng, expected_weight)
             {
                 Some(some)
@@ -253,8 +344,10 @@ impl<T: Refine> Refine for Option<T> {
 mod test {
     use super::*;
 
-    crate::impl_tests!((), unit);
     crate::impl_tests!(Infallible, void);
+    crate::impl_tests!((), unit);
+    crate::impl_tests!(bool, bool);
     crate::impl_tests!(Option<Infallible>, option_void);
     crate::impl_tests!(Option<()>, option_unit);
+    crate::impl_tests!(Option<u8>, option_u8);
 }
