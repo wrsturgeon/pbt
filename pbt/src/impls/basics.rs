@@ -1,7 +1,10 @@
 use {
     crate::{
         size::{MaybeInfinite, MaybeInstantiable, MaybeOverflow},
-        traits::{corner::Corner, decimate::Decimate, refine::Refine, size::Size, weight::Weight},
+        traits::{
+            corner::Corner, decimate::Decimate, refine::Refine, rnd::Rnd, size::Size,
+            weight::Weight,
+        },
     },
     core::iter,
 };
@@ -29,6 +32,16 @@ impl Corner for () {
     #[inline]
     fn corners() -> Self::Corners {
         iter::once(())
+    }
+}
+
+impl Rnd for () {
+    #[inline]
+    fn rnd<Rng: rand_core::RngCore>(
+        _rng: &mut Rng,
+        _expected_weight: usize,
+    ) -> MaybeInstantiable<Self> {
+        MaybeInstantiable::Instantiable(())
     }
 }
 

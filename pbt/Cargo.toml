@@ -18,6 +18,8 @@ categories = [
 
 
 [dependencies]
+rand_core = "~0.9"
+rand_xoshiro = "~0.7"
 
 
 # https://doc.rust-lang.org/rustc/lints/groups.html

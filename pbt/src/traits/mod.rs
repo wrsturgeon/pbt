@@ -15,6 +15,7 @@ macro_rules! impl_tests {
             use super::*;
             $crate::impl_weight_tests!($ty, $name);
             $crate::impl_size_tests!($ty, $name);
+            $crate::impl_rnd_tests!($ty, $name);
             $crate::impl_decimate_tests!($ty, $name);
             $crate::impl_refine_tests!($ty, $name);
         }

@@ -9,8 +9,9 @@ macro_rules! impl_size_tests {
         fn max_size() {
             // Make sure, as a baseline, it at least doesn't panic:
             for corner in <$ty as $crate::traits::corner::Corner>::corners() {
-                let _: $crate::size::MaybeOverflow<usize> =
-                    <$ty as $crate::traits::size::Size>::size(&corner);
+                match <$ty as $crate::traits::size::Size>::size(&corner) {
+                    _ => {}
+                }
             }
 
             // Then enforce consistency with stated maxima:
