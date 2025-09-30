@@ -6,7 +6,8 @@ use {
             weight::Weight,
         },
     },
-    core::iter,
+    core::{convert::Infallible, iter},
+    std::hint::unreachable_unchecked,
 };
 
 impl Size for () {
@@ -61,9 +62,63 @@ impl Refine for () {
     }
 }
 
+impl Size for Infallible {
+    const MAX_SIZE: MaybeInstantiable<MaybeInfinite<MaybeOverflow<usize>>> =
+        MaybeInstantiable::Uninstantiable;
+    #[inline]
+    fn size(&self) -> MaybeOverflow<usize> {
+        // SAFETY: Uninstantiable type.
+        unsafe { unreachable_unchecked() }
+    }
+}
+
+impl Weight for Infallible {
+    const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>> = MaybeInstantiable::Uninstantiable;
+    #[inline]
+    fn weight(&self) -> usize {
+        // SAFETY: Uninstantiable type.
+        unsafe { unreachable_unchecked() }
+    }
+}
+
+impl Corner for Infallible {
+    type Corners = iter::Empty<Self>;
+    #[inline]
+    fn corners() -> Self::Corners {
+        iter::empty()
+    }
+}
+
+impl Rnd for Infallible {
+    #[inline]
+    fn rnd<Rng: rand_core::RngCore>(
+        _rng: &mut Rng,
+        _expected_weight: usize,
+    ) -> MaybeInstantiable<Self> {
+        MaybeInstantiable::Uninstantiable
+    }
+}
+
+impl Decimate for Infallible {
+    type Decimate = iter::Empty<Self>;
+    #[inline]
+    fn decimate(&self) -> Self::Decimate {
+        iter::empty()
+    }
+}
+
+impl Refine for Infallible {
+    type Refine = iter::Empty<Self>;
+    #[inline]
+    fn refine(&self) -> Self::Refine {
+        iter::empty()
+    }
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
     crate::impl_tests!((), unit);
+    crate::impl_tests!(Infallible, void);
 }
