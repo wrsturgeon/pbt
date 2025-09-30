@@ -126,7 +126,10 @@
             concatenated = builtins.concatLists named;
           in
           builtins.listToAttrs concatenated;
-        devShells.default = pkgs.mkShell { inputsFrom = builtins.attrValues self.packages."${system}"; };
+        devShells.default = pkgs.mkShell {
+          inputsFrom =
+            (builtins.attrValues self.packages."${system}") ++ (builtins.attrValues self.checks."${system}");
+        };
         formatter = treefmt.config.build.wrapper;
         packages = for-each-subproject (
           subproject: crane.buildPackage (common-args-from-src "${./.}/${subproject}")
