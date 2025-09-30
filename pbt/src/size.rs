@@ -24,6 +24,19 @@ pub enum MaybeOverflow<Contained> {
     Overflow,
 }
 
+impl MaybeOverflow<usize> {
+    #[inline]
+    pub const fn plus(self, rhs: usize) -> Self {
+        match self {
+            Self::Overflow => Self::Overflow,
+            Self::Contained(lhs) => match lhs.checked_add(rhs) {
+                Some(sum) => Self::Contained(sum),
+                None => Self::Overflow,
+            },
+        }
+    }
+}
+
 #[expect(clippy::missing_trait_methods, reason = "would take decades")]
 impl<Finite: PartialEq> PartialEq for MaybeInstantiable<Finite> {
     #[inline]

@@ -1,13 +1,13 @@
 use {
     crate::{
-        either::Either,
         size::{MaybeInfinite, MaybeInstantiable, MaybeOverflow},
         traits::{
             corner::Corner, decimate::Decimate, refine::Refine, rnd::Rnd, size::Size,
             weight::Weight,
         },
     },
-    core::{convert::Infallible, hint::unreachable_unchecked, iter, option},
+    core::{convert::Infallible, iter},
+    std::hint::unreachable_unchecked,
 };
 
 impl Size for () {
@@ -47,18 +47,18 @@ impl Rnd for () {
 }
 
 impl Decimate for () {
-    type Decimate = option::IntoIter<Self>;
+    type Decimate = iter::Once<Self>;
     #[inline]
-    fn decimate(&self, weight: usize) -> Self::Decimate {
-        (weight == 0).then_some(()).into_iter()
+    fn decimate(&self) -> Self::Decimate {
+        iter::once(())
     }
 }
 
 impl Refine for () {
-    type Refine = option::IntoIter<Self>;
+    type Refine = iter::Once<Self>;
     #[inline]
-    fn refine(&self, size: usize) -> Self::Refine {
-        (size == 0).then_some(()).into_iter()
+    fn refine(&self) -> Self::Refine {
+        iter::once(())
     }
 }
 
@@ -102,7 +102,7 @@ impl Rnd for Infallible {
 impl Decimate for Infallible {
     type Decimate = iter::Empty<Self>;
     #[inline]
-    fn decimate(&self, _weight: usize) -> Self::Decimate {
+    fn decimate(&self) -> Self::Decimate {
         iter::empty()
     }
 }
@@ -110,7 +110,7 @@ impl Decimate for Infallible {
 impl Refine for Infallible {
     type Refine = iter::Empty<Self>;
     #[inline]
-    fn refine(&self, _size: usize) -> Self::Refine {
+    fn refine(&self) -> Self::Refine {
         iter::empty()
     }
 }
@@ -146,15 +146,7 @@ impl<T: Corner> Corner for Option<T> {
     type Corners = iter::Chain<iter::Once<Self>, iter::Map<T::Corners, fn(T) -> Self>>;
     #[inline]
     fn corners() -> Self::Corners {
-        iter::once(None).chain(T::corners().map(
-            #[expect(
-                clippy::as_conversions,
-                reason = "Function pointer conversions are checked more thoroughly"
-            )]
-            {
-                Some as fn(_) -> _
-            },
-        ))
+        iter::once(None).chain(T::corners().map(Some as fn(_) -> _))
     }
 }
 
@@ -177,57 +169,18 @@ impl<T: Rnd> Rnd for Option<T> {
 }
 
 impl<T: Decimate> Decimate for Option<T> {
-    type Decimate = iter::Chain<
-        iter::Once<Self>,
-        iter::Flatten<option::IntoIter<iter::Map<T::Decimate, fn(T) -> Self>>>,
-    >;
+    type Decimate = iter::Once<Self>;
     #[inline]
-    fn decimate(&self, weight: usize) -> Self::Decimate {
-        iter::once(None).chain(
-            self.as_ref()
-                .and_then(|some| {
-                    weight.checked_sub(1).map(|weight| {
-                        some.decimate(weight).map(
-                            #[expect(
-                                clippy::as_conversions,
-                                reason = "Function pointer conversions are checked more thoroughly"
-                            )]
-                            {
-                                Some as fn(_) -> _
-                            },
-                        )
-                    })
-                })
-                .into_iter()
-                .flatten(),
-        )
+    fn decimate(&self) -> Self::Decimate {
+        iter::once(())
     }
 }
 
 impl<T: Refine> Refine for Option<T> {
-    type Refine =
-        Either<iter::Map<T::Refine, fn(T) -> Self>, Either<iter::Once<Self>, iter::Empty<Self>>>;
+    type Refine = iter::Once<Self>;
     #[inline]
-    fn refine(&self, size: usize) -> Self::Refine {
-        self.as_ref().map_or_else(
-            || Either::B(Either::A(iter::once(None))),
-            |some| {
-                size.checked_sub(1).map_or_else(
-                    || Either::B(Either::B(iter::empty())),
-                    |size| {
-                        Either::A(some.refine(size).map(
-                            #[expect(
-                                clippy::as_conversions,
-                                reason = "Function pointer conversions are checked more thoroughly"
-                            )]
-                            {
-                                Some as fn(_) -> _
-                            },
-                        ))
-                    },
-                )
-            },
-        )
+    fn refine(&self) -> Self::Refine {
+        iter::once(())
     }
 }
 

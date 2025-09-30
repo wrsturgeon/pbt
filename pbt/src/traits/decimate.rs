@@ -7,25 +7,20 @@ macro_rules! impl_decimate_tests {
         fn decimate() {
             for corner in <$ty as $crate::traits::corner::Corner>::corners() {
                 let orig_weight = <$ty as $crate::traits::weight::Weight>::weight(&corner);
-                let mut decimate = <$ty as $crate::traits::decimate::Decimate>::decimate(&corner);
-                while let Some(decimated) = decimate.next() {
-                    let weight = <$ty as $crate::traits::weight::Weight>::weight(&decimated);
-                    match PartialOrd::partial_cmp(&weight, &orig_weight) {
-                        None | Some(core::cmp::Ordering::Less) => continue,
-                        Some(core::cmp::Ordering::Greater) => panic!(
-                            "Decimation produced a value heavier than the original! Weight of the decimated value (`{decimated:#?}`) was {weight:?}, but the weight of the original (`{corner:#?}`) was only {orig_weight:?}",
-                        ),
-                        Some(core::cmp::Ordering::Equal) => {
-                            assert_eq!(
-                                decimated,
-                                corner,
-                                "Decimation produced a value (`{decimated:#?}`) of weight ({weight:?}) equal to that of the original (`{corner:#?}`), but the two values were not equal! (The only value of equal weight should be the original value at the end.)",
-                            );
-                            return;
-                        }
+                for expected_weight in 0..orig_weight {
+                    for decimated in <$ty as $crate::traits::decimate::Decimate>::decimate(&corner, expected_weight) {
+                        let actual_weight = <$ty as $crate::traits::weight::Weight>::weight(&decimated);
+                        assert_eq!(actual_weight, expected_weight, "Decimating `{corner:#?}` to weight {expected_weight} produced a value, `{decimated:#?}`, of weight {actual_weight} (=/= {expected_weight})");
                     }
                 }
-                panic!("Decimation never produced the original input (`{corner:#?}`)!");
+                let mut decimate = <$ty as $crate::traits::decimate::Decimate>::decimate(&corner, orig_weight);
+                let Some(decimated) = decimate.next() else {
+                    panic!("Decimating `{corner:#?}` to its own weight ({orig_weight}) produced no values!");
+                };
+                assert_eq!(decimated, corner, "Decimating `{corner:#?}` to its own weight ({orig_weight}) produced `{decimated:#?}`, but it should have produced only itself!");
+                if let Some(decimated) = decimate.next() {
+                    panic!("Decimating `{corner:#?}` to its own weight ({orig_weight}) produced itself and then another value, `{decimated:#?}`, instead of itself alone!");
+                }
             }
         }
     };
@@ -37,5 +32,5 @@ macro_rules! impl_decimate_tests {
 /// without touching zero-`Size` values.
 pub trait Decimate {
     type Decimate: Iterator<Item = Self>;
-    fn decimate(&self) -> Self::Decimate;
+    fn decimate(&self, weight: usize) -> Self::Decimate;
 }

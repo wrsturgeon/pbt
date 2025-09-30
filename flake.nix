@@ -43,6 +43,7 @@
           raw-src:
           let
             pre = {
+              cargoExtraArgs = "--offline";
               cargoLock = ./Cargo.lock;
               src = patch-src raw-src;
               strictDeps = true;
@@ -88,9 +89,11 @@
                 clippy-no-features = crane.cargoClippy (args {
                   cargoClippyExtraArgs = "--no-default-features --all-targets -- --deny warnings";
                 });
-                deny = crane.cargoDeny (args {
-                  cargoDenyChecks = "bans licenses sources -c ${./deny.toml}";
-                });
+                deny = crane.cargoDeny (
+                  builtins.removeAttrs (args { cargoDenyChecks = "bans licenses sources -c ${./deny.toml}"; }) [
+                    "cargoExtraArgs"
+                  ]
+                );
                 doc = crane.cargoDoc (args {
                   env.RUSTDOCFLAGS = "--deny warnings";
                 });

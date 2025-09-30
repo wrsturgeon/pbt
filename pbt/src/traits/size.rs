@@ -44,6 +44,13 @@ macro_rules! impl_size_tests {
                         <$ty as $crate::traits::corner::Corner>::corners().next().is_some(),
                         "Expected an infinitely instantiable type but found no corner cases",
                     );
+                    for corner in <$ty as $crate::traits::corner::Corner>::corners() {
+                        let size = <$ty as $crate::traits::size::Size>::size(&corner);
+                        if matches!(size, $crate::size::MaybeOverflow::Overflow) {
+                            return;
+                        }
+                    }
+                    panic!("Allegedly infinitely instantiable type has no corner cases which overflow a `usize` in size");
                 }
                 $crate::size::MaybeInstantiable::Instantiable(MaybeInfinite::Finite(max)) => {
                     assert!(
@@ -59,10 +66,18 @@ macro_rules! impl_size_tests {
                         <$ty as $crate::traits::corner::Corner>::corners().next().is_some(),
                         "Expected a finitely instantiable type but found no corner cases",
                     );
+                    let mut seen_max = false;
                     for corner in <$ty as $crate::traits::corner::Corner>::corners() {
                         let size = <$ty as $crate::traits::size::Size>::size(&corner);
                         assert!(size <= max, "Expected a maximum size of {max:?}, but the corner-case `{corner:#?}` has size {size:?}");
+                        if !seen_max {
+                            match size {
+                                $crate::size::MaybeOverflow::Overflow => seen_max = true,
+                                _ => if size == max { seen_max = true },
+                            }
+                        }
                     }
+                    assert!(seen_max, "Allegedly infinitely instantiable type has no corner cases which overflow a `usize` in size");
                 }
             }
         }
