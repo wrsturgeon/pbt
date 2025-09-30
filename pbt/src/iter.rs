@@ -89,7 +89,8 @@ impl<I: Iterator> Fuse<I> {
     /// which could be an even worse outcome.
     #[inline]
     pub const fn reload(&mut self, iter: I) {
-        #[cfg(debug_assertions)]
+        #[cfg(all(test, debug_assertions))]
+        #[expect(clippy::panic, reason = "Configured for tests only.")]
         let Self::Inactive = *self else {
             panic!("Called `Fuse::reload` on an active iterator!");
         };
@@ -122,7 +123,8 @@ where
     /// which ALMOST SURELY WILL be worse than an intentional crash.
     #[inline]
     pub fn clear(&mut self) {
-        #[cfg(debug_assertions)]
+        #[cfg(all(test, debug_assertions))]
+        #[expect(clippy::panic, reason = "Configured for tests only.")]
         let Some(..) = self.cache else {
             panic!("Called `Cache::clear` on an empty cache!");
         };
