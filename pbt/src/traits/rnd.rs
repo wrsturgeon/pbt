@@ -1,25 +1,28 @@
 //! Randomly generate instances of this type
 //! with a statistically guaranteed weight (in expectation).
 
-use {crate::size::MaybeInstantiable, rand_core::RngCore};
+use {
+    crate::{size::MaybeInstantiable, traits::weight::Weight},
+    rand_core::RngCore,
+};
 
 #[macro_export]
 macro_rules! impl_rnd_tests {
     ($ty:ty, $name:ident) => {
         #[test]
         fn rnd() {
-            let max_weight = <$ty as $crate::traits::weight::Weight>::MAX_WEIGHT;
+            let max_weight = <$ty as $crate::traits::weight::Weight>::MAX_EXPECTED_WEIGHT;
             match max_weight {
                 $crate::size::MaybeInstantiable::Uninstantiable => {
                     let mut rng = $crate::traits::rnd::default_rng();
-                    let rnd = <$ty as $crate::traits::rnd::Rnd>::rnd(&mut rng, 0);
+                    let rnd = <$ty as $crate::traits::rnd::Rnd>::rnd(&mut rng, 1.);
                     if let $crate::size::MaybeInstantiable::Instantiable(instantiated) = rnd {
                         panic!("Allegedly uninstantiable type was instantiated: `{instantiated:#?}`");
                     }
                 }
                 $crate::size::MaybeInstantiable::Instantiable(..) => {
                     let mut rng = $crate::traits::rnd::default_rng();
-                    let rnd = <$ty as $crate::traits::rnd::Rnd>::rnd(&mut rng, 0);
+                    let rnd = <$ty as $crate::traits::rnd::Rnd>::rnd(&mut rng, 1.);
                     assert!(
                         matches!(rnd, $crate::size::MaybeInstantiable::Instantiable(..)),
                         "Allegedly instantiable type returned `MaybeInstantiable::Uninstantiable` from `Rnd::rnd`",
@@ -33,7 +36,7 @@ macro_rules! impl_rnd_tests {
                 clippy::cast_precision_loss,
                 reason = "not astronomically precise",
             )]
-            for expected_weight in [1, 10, 100, 1_000, 10_000] {
+            for expected_weight in [1., 2., 5., 10., 50., 100., 1_000., 10_000.] {
                 if $crate::size::MaybeInstantiable::Instantiable($crate::size::MaybeInfinite::Finite(expected_weight)) > max_weight {
                     return;
                 }
@@ -69,10 +72,10 @@ pub type DefaultRng = rand_xoshiro::Xoshiro256Plus;
 
 /// Randomly generate instances of this type
 /// with a statistically guaranteed weight (in expectation).
-pub trait Rnd: Sized {
+pub trait Rnd: Weight + Sized {
     /// Randomly generate instances of this type
     /// with a statistically guaranteed weight (in expectation).
-    fn rnd<Rng: RngCore>(rng: &mut Rng, expected_weight: usize) -> MaybeInstantiable<Self>;
+    fn rnd<Rng: RngCore>(rng: &mut Rng, expected_weight: f32) -> MaybeInstantiable<Self>;
 }
 
 /// A good default random number generator.

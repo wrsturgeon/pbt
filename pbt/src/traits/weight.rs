@@ -45,6 +45,9 @@ macro_rules! impl_weight_tests {
 
 /// The coarse, overall size of a value, skipping all `Copy` values.
 pub trait Weight {
+    /// The maximum value that can ever be *expected* to be returned by `self.weight()`,
+    /// if any, over all values for `self: Self`.
+    const MAX_EXPECTED_WEIGHT: MaybeInstantiable<MaybeInfinite<f32>>;
     /// The maximum value that can ever be returned by `self.weight()`,
     /// if any, over all values for `self: Self`.
     const MAX_WEIGHT: MaybeInstantiable<MaybeInfinite<usize>>;
