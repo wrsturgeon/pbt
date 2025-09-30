@@ -135,7 +135,7 @@ impl Size for bool {
         MaybeInstantiable::Instantiable(MaybeInfinite::Finite(MaybeOverflow::Contained(0)));
     #[inline]
     fn size(&self) -> MaybeOverflow<usize> {
-        MaybeOverflow::Contained(0)
+        MaybeOverflow::Contained(usize::from(*self))
     }
 }
 
