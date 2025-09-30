@@ -7,7 +7,7 @@ use {
             weight::Weight,
         },
     },
-    core::{array, convert::Infallible, hint::unreachable_unchecked, iter, option, slice},
+    core::{array, convert::Infallible, hint::unreachable_unchecked, iter, option},
 };
 
 impl Weight for Infallible {
@@ -132,7 +132,7 @@ impl Weight for bool {
 
 impl Size for bool {
     const MAX_SIZE: MaybeInstantiable<MaybeInfinite<MaybeOverflow<usize>>> =
-        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(MaybeOverflow::Contained(0)));
+        MaybeInstantiable::Instantiable(MaybeInfinite::Finite(MaybeOverflow::Contained(1)));
     #[inline]
     fn size(&self) -> MaybeOverflow<usize> {
         MaybeOverflow::Contained(usize::from(*self))
@@ -158,19 +158,10 @@ impl Rnd for bool {
 }
 
 impl Decimate for bool {
-    type Decimate = iter::Copied<slice::Iter<'static, Self>>;
+    type Decimate = option::IntoIter<Self>;
     #[inline]
     fn decimate(&self, weight: usize) -> Self::Decimate {
-        let len = if weight == 0 {
-            if *self { 2 } else { 1 }
-        } else {
-            0
-        };
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "this is a slam-dunk for the compiler"
-        )]
-        [false, true][..len].iter().copied()
+        (weight == 0).then_some(*self).into_iter()
     }
 }
 
