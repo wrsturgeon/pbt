@@ -1,5 +1,5 @@
 pub mod basics;
-pub mod option;
 // pub mod ints;
+pub mod option;
 pub mod slice;
-// pub mod vec;
+pub mod vec;
