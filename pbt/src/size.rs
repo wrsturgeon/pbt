@@ -24,6 +24,16 @@ pub enum MaybeOverflow<Contained> {
     Overflow,
 }
 
+impl<X> MaybeInstantiable<X> {
+    #[inline]
+    pub fn map<Y, F: FnOnce(X) -> Y>(self, map: F) -> MaybeInstantiable<Y> {
+        match self {
+            Self::Uninstantiable => MaybeInstantiable::Uninstantiable,
+            Self::Instantiable(x) => MaybeInstantiable::Instantiable(map(x)),
+        }
+    }
+}
+
 impl MaybeOverflow<usize> {
     #[inline]
     pub const fn plus(self, rhs: usize) -> Self {
