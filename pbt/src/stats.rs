@@ -1,5 +1,12 @@
+//! Statistically useful functions, like Bernoulli trials (i.e. biased coin flips).
+
+/// Flip a biased coin with a given chance of coming up `true`.
 #[inline]
 pub fn bernoulli<Rng: rand_core::RngCore>(rng: &mut Rng, pr_true: f32) -> bool {
+    debug_assert!(
+        (0_f32..=1.).contains(&pr_true),
+        "Pr[true] should be on [0, 1], but it was {pr_true}!",
+    );
     #[expect(
         clippy::as_conversions,
         clippy::cast_possible_truncation,
