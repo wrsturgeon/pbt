@@ -8,8 +8,7 @@ use {
             weight::Weight,
         },
     },
-    core::{iter, option},
-    std::hint::unreachable_unchecked,
+    core::{hint::unreachable_unchecked, iter, option},
 };
 
 impl<T: Weight> Weight for Option<T> {
