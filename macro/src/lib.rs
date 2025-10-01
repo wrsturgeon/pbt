@@ -6,6 +6,7 @@
 const MAX_TUPLE_SIZE: usize = 12;
 */
 
+/// Implement traits for non-empty tuples of arbitrary (generic) types.
 #[proc_macro]
 pub fn impl_non_empty_tuples(_: proc_macro::TokenStream) -> proc_macro::TokenStream {
     #![expect(clippy::todo, reason = "TODO")]
