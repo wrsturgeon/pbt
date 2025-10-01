@@ -1,6 +1,12 @@
 //! Iterator tooling, mainly for computing Cartesian products.
 
+#![expect(
+    clippy::zero_sized_map_values,
+    reason = "Until `btree_set::Entry` is stabilized."
+)]
+
 use core::{hint::unreachable_unchecked, ptr};
+use std::collections::{BTreeMap, btree_map};
 
 /// A wrapper around an iterator that drops the
 /// underlying iterator the first time it returns `None`.
@@ -77,6 +83,22 @@ where
     head: Cache<Head>,
     /// An automatically reloaded iterator over the right-hand side.
     tail: AutoReload<Tail, F>,
+}
+
+/// Lazily remove duplicates from an iterator.
+///
+/// Note that this will take more and more space
+/// the more unique elements `I` creates over time.
+pub struct RemoveDuplicates<I: Iterator>
+where
+    I::Item: Clone + Ord,
+{
+    /// An iterator of type `I` which may or may not
+    /// produce the same value(s) multiple times,
+    /// separated or not by additional items.
+    iter: I,
+    /// Set of values seen so far.
+    seen: BTreeMap<I::Item, ()>, // Not a `BTreeSet` until `btree_set::Entry` is stabilized.
 }
 
 impl<I: Iterator> Fuse<I> {
@@ -176,6 +198,23 @@ where
     }
 }
 
+impl<I: Iterator> RemoveDuplicates<I>
+where
+    I::Item: Clone + Ord,
+{
+    /// Lazily remove duplicates from an iterator.
+    ///
+    /// Note that this will take more and more space
+    /// the more unique elements `I` creates over time.
+    #[inline]
+    pub const fn new(iter: I) -> Self {
+        Self {
+            iter,
+            seen: BTreeMap::new(),
+        }
+    }
+}
+
 #[expect(clippy::missing_trait_methods, reason = "would take decades")]
 impl<I: Iterator> Iterator for Fuse<I> {
     type Item = I::Item;
@@ -243,6 +282,26 @@ where
                 return Some((head, tail));
             }
             let () = self.head.clear();
+        }
+    }
+}
+
+#[expect(clippy::missing_trait_methods, reason = "would take decades")]
+impl<I: Iterator> Iterator for RemoveDuplicates<I>
+where
+    I::Item: Clone + Ord,
+{
+    type Item = I::Item;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        loop {
+            let item = self.iter.next()?;
+            if let btree_map::Entry::Vacant(vacant) = self.seen.entry(item) {
+                let item = vacant.key().clone();
+                let () = *vacant.insert(());
+                return Some(item);
+            }
         }
     }
 }
@@ -346,5 +405,12 @@ mod test {
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);
         assert_eq!(iter.next(), None);
+    }
+
+    #[test]
+    fn remove_duplicates_12345() {
+        let unfiltered = [1, 2, 1, 3, 2, 4, 3, 1, 4, 1, 5, 2_u8];
+        let iter = RemoveDuplicates::new(unfiltered.into_iter());
+        assert_eq!(iter.collect::<Vec<_>>(), vec![1, 2, 3, 4, 5]);
     }
 }
