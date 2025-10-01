@@ -53,7 +53,7 @@ impl<T: Clone + Refine> Refiner<T> {
         match *self {
             Self::Nil {
                 ref mut remaining_size,
-            } => *remaining_size = Some(remaining_size.map_or(0, |size| size + 1)),
+            } => *remaining_size = Some(remaining_size.map_or(1, |size| size + 1)),
             Self::Cons {
                 ref mut head_size,
                 ref mut head,
@@ -97,18 +97,14 @@ impl<T: Clone + Refine> Refiner<T> {
         }
     }
 
-    /// Build a vector incrementally instead of appending `O(n)` times
+    /// Build a vector incrementally instead of concatenating `O(n)` times
     /// (which would have brought the total runtime to `O(n^2)`).
     #[inline]
     pub fn next_acc(&mut self, acc: &mut Vec<T>) -> Option<()> {
         match *self {
             Self::Nil {
                 ref mut remaining_size,
-            } => {
-                let opt = matches!(remaining_size, Some(0)).then_some(());
-                *remaining_size = None;
-                opt
-            }
+            } => (remaining_size.take()? == 0).then_some(()),
             Self::Cons {
                 ref mut head_size,
                 ref mut head,

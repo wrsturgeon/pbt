@@ -133,7 +133,8 @@ impl<T: Rnd> Rnd for Option<T> {
                 }
             };
             expected_weight / (1. + expected_some_weight)
-        };
+        }
+        .min(1.);
 
         MaybeInstantiable::Instantiable(bernoulli(rng, pr_some).then(move || {
             let MaybeInstantiable::Instantiable(some) = T::rnd(rng, expected_weight) else {
