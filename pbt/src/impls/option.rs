@@ -1,3 +1,5 @@
+//! Implementations for `Option<_>`.
+
 use {
     crate::{
         either::Either,

@@ -1,3 +1,5 @@
+//! Implementations for trivial built-in types.
+
 use {
     crate::{
         size::{MaybeInfinite, MaybeInstantiable, MaybeOverflow},

@@ -1,3 +1,5 @@
+//! Implementations for `&[_]`.
+
 use crate::{
     size::{MaybeInfinite, MaybeInstantiable, MaybeOverflow},
     traits::{size::Size, weight::Weight},
