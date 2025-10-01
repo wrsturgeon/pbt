@@ -6,7 +6,12 @@ use core::{hint::unreachable_unchecked, ptr};
 /// underlying iterator the first time it returns `None`.
 #[expect(clippy::exhaustive_enums, reason = "Nope, this is it.")]
 pub enum Fuse<I: Iterator> {
-    Active { iter: I },
+    /// An iterator is currently running and has not yet produced `None`.
+    Active {
+        /// The iterator which will be dropped when it yields `None`.
+        iter: I,
+    },
+    /// Either no iterator has run yet or the last one just produced `None`.
     Inactive,
 }
 
@@ -102,6 +107,9 @@ impl<I: Iterator> Fuse<I> {
 }
 
 impl<I: Iterator, F: Fn() -> I> AutoReload<I, F> {
+    /// Lazily call this function to produce an iterator as necessary,
+    /// returning `None` exactly once at the end of every iterator's run
+    /// (but NOT at the beginning, unless of course this iterator is empty).
     #[inline]
     pub const fn new(reload: F) -> Self {
         Self {
