@@ -2,6 +2,7 @@
 
 use crate::size::{MaybeInfinite, MaybeInstantiable};
 
+/// Test compliance with the crucial invariants assumed of `pbt::Weight`.
 #[macro_export]
 macro_rules! impl_weight_tests {
     ($ty:ty, $name:ident) => {

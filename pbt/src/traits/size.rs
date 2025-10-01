@@ -2,6 +2,7 @@
 
 use crate::size::{MaybeInfinite, MaybeInstantiable, MaybeOverflow};
 
+/// Test compliance with the crucial invariants assumed of `pbt::Size`.
 #[macro_export]
 macro_rules! impl_size_tests {
     ($ty:ty, $name:ident) => {

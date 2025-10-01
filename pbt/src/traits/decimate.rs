@@ -1,5 +1,6 @@
 //! Remove large chunks of a value at a time.
 
+/// Test compliance with the crucial invariants assumed of `pbt::Decimate`.
 #[macro_export]
 macro_rules! impl_decimate_tests {
     ($ty:ty, $name:ident) => {
@@ -31,6 +32,9 @@ macro_rules! impl_decimate_tests {
 /// Technically, this decreases the `Weight` of a value
 /// without touching zero-`Size` values.
 pub trait Decimate {
+    /// Iterator over decimated values.
     type Decimate: Iterator<Item = Self>;
+    /// Remove large chunks of this value at a time
+    /// to produce smaller values of the requested weight.
     fn decimate(&self, weight: usize) -> Self::Decimate;
 }

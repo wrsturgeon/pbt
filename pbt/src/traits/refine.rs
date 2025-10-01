@@ -1,5 +1,6 @@
 //! Remove small details of a value.
 
+/// Test compliance with the crucial invariants assumed of `pbt::Refine`.
 #[macro_export]
 macro_rules! impl_refine_tests {
     ($ty:ty, $name:ident) => {
@@ -41,6 +42,9 @@ macro_rules! impl_refine_tests {
 /// Technically, this manitains the `Weight` of a value
 /// while decreasing its `Size` alone.
 pub trait Refine {
+    /// Iterator over refined values.
     type Refine: Iterator<Item = Self>;
+    /// Remove small details of this value at a time
+    /// to produce smaller values of the requested size.
     fn refine(&self, size: usize) -> Self::Refine;
 }

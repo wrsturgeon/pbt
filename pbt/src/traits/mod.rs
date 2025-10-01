@@ -7,6 +7,7 @@ pub mod rnd;
 pub mod size;
 pub mod weight;
 
+/// Test compliance with the crucial invariants assumed of traits in `pbt`.
 #[macro_export]
 macro_rules! impl_tests {
     ($ty:ty, $name:ident) => {

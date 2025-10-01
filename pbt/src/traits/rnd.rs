@@ -6,6 +6,7 @@ use {
     rand_core::RngCore,
 };
 
+/// Test compliance with the crucial invariants assumed of `pbt::Rnd`.
 #[macro_export]
 macro_rules! impl_rnd_tests {
     ($ty:ty, $name:ident) => {
@@ -96,11 +97,12 @@ macro_rules! impl_rnd_tests {
     };
 }
 
-// Supposedly higher throughput than a simple 64-bit multiply-and-add,
-// plus much, much better qualiy than that, and
-// coming from people who know what they're doing.
-// Caution: low complexity in lower bits.
-// `Xoshiro256**` is an alternative (~15% slowdown).
+/// Supposedly higher throughput than a simple 64-bit multiply-and-add,
+/// plus much, much better qualiy than that, and
+/// coming from people who know what they're doing.
+///
+/// Caution: low complexity in lower bits.
+/// `Xoshiro256**` is an alternative (~15% slowdown).
 pub type DefaultRng = rand_xoshiro::Xoshiro256Plus;
 
 /// Randomly generate instances of this type
