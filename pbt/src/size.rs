@@ -1,30 +1,42 @@
+//! AST-size logic defining instantiability, finiteness, and overflow.
+
 use core::cmp;
 
+/// Either uninstantiable (no argument) or instantiable (with a generic argument).
 #[must_use]
 #[derive(Debug)]
 #[expect(clippy::exhaustive_enums, reason = "Nope, this is it.")]
 pub enum MaybeInstantiable<Instantiable> {
+    /// Instantiable.
     Instantiable(Instantiable),
+    /// Uninstantiable.
     Uninstantiable,
 }
 
+/// Either infinite (no argument) or finite (with a generic argument).
 #[must_use]
 #[derive(Debug)]
 #[expect(clippy::exhaustive_enums, reason = "Nope, this is it.")]
 pub enum MaybeInfinite<Finite> {
+    /// Finite.
     Finite(Finite),
+    /// Infinite.
     Infinite,
 }
 
+/// Either overflow (no argument) or contained (with a generic argument).
 #[must_use]
 #[derive(Debug)]
 #[expect(clippy::exhaustive_enums, reason = "Nope, this is it.")]
 pub enum MaybeOverflow<Contained> {
+    /// Computation did not overflow.
     Contained(Contained),
+    /// Computation overflowed (...overflew?).
     Overflow,
 }
 
 impl<X> MaybeInstantiable<X> {
+    /// If this is `Instantiable(..)`, apply a function to the instantiated value.
     #[inline]
     pub fn map<Y, F: FnOnce(X) -> Y>(self, map: F) -> MaybeInstantiable<Y> {
         match self {
@@ -35,6 +47,9 @@ impl<X> MaybeInstantiable<X> {
 }
 
 impl MaybeOverflow<usize> {
+    /// If computation has not yet overflowed,
+    /// add to the internal value so far,
+    /// overflowing if necessary.
     #[inline]
     pub const fn plus(self, rhs: usize) -> Self {
         match self {
