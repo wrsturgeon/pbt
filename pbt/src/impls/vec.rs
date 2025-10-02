@@ -295,12 +295,30 @@ mod test {
         }
     }
 
+    #[test]
+    fn refine_vec_of_vec() {
+        let orig = vec![vec![], vec![()], vec![(), ()]];
+        assert_eq!(orig.refine(0).next(), None);
+        assert_eq!(orig.refine(1).next(), None);
+        assert_eq!(orig.refine(2).next(), None);
+        assert_eq!(orig.refine(3).next(), None);
+        assert_eq!(orig.refine(4).next(), None);
+        assert_eq!(orig.refine(5).next(), None);
+        {
+            let mut iter = orig.refine(6);
+            assert_eq!(iter.next(), Some(vec![vec![], vec![()], vec![(), ()]]));
+            assert_eq!(iter.next(), None);
+        }
+        assert_eq!(orig.refine(7).next(), None);
+    }
+
     // TODO: enable
     /*
     impl_tests!(Vec<Infallible>, vec_void);
     impl_tests!(Vec<()>, vec_unit);
     impl_tests!(Vec<bool>, vec_bool); // TODO: remove and switch to the below
     // impl_tests!(Vec<u8>, vec_u8); // TODO
+    impl_tests!(Vec<Vec<()>>, vec_vec_unit);
 
     #[test]
     fn decimate_vec_false_true() {
@@ -325,6 +343,63 @@ mod test {
             let mut iter = orig.decimate(3);
             assert_eq!(iter.next(), None);
         }
+    }
+
+    #[inline]
+    fn decimate_vec_of_vec() {
+        let orig = vec![vec![], vec![()], vec![(), ()]];
+        {
+            let mut iter = orig.decimate(0);
+            assert_eq!(iter.next(), Some(vec![]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.decimate(1);
+            assert_eq!(iter.next(), Some(vec![vec![]]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.decimate(2);
+            assert_eq!(iter.next(), Some(vec![vec![()]]));
+            assert_eq!(iter.next(), Some(vec![vec![], vec![]]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.decimate(3);
+            assert_eq!(iter.next(), Some(vec![vec![(), ()]]));
+            assert_eq!(iter.next(), Some(vec![vec![()], vec![]]));
+            assert_eq!(iter.next(), Some(vec![vec![], vec![()]]));
+            assert_eq!(iter.next(), Some(vec![vec![], vec![], vec![]]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.decimate(3);
+            assert_eq!(iter.next(), Some(vec![vec![(), (), ()]]));
+            assert_eq!(iter.next(), Some(vec![vec![(), ()], vec![]]));
+            assert_eq!(iter.next(), Some(vec![vec![()], vec![()]]));
+            assert_eq!(iter.next(), Some(vec![vec![], vec![(), ()]]));
+            assert_eq!(iter.next(), Some(vec![vec![], vec![()], vec![]]));
+            assert_eq!(iter.next(), Some(vec![vec![], vec![], vec![()]]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.decimate(4);
+            assert_eq!(iter.next(), Some(vec![vec![(), ()], vec![()]]));
+            assert_eq!(iter.next(), Some(vec![vec![()], vec![(), ()]]));
+            assert_eq!(iter.next(), Some(vec![vec![], vec![()], vec![()]]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.decimate(5);
+            // TODO
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.decimate(6);
+            // TODO
+            assert_eq!(iter.next(), None);
+        }
+        assert_eq!(orig.decimate(7).next(), None);
     }
 
     #[test]
