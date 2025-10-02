@@ -152,3 +152,373 @@ impl<T: Clone + Refine> Iterator for Iter<T> {
         Some(acc)
     }
 }
+
+impl<T: Clone + Refine> Refine for Vec<T> {
+    type Refine = Iter<T>;
+    #[inline]
+    fn refine(&self, size: usize) -> Self::Refine {
+        Iter::new(self, size)
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn refine_vec_false_true() {
+        let orig = vec![false, true];
+        {
+            let mut iter = orig.refine(0);
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(1);
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(2);
+            assert_eq!(iter.next(), Some(vec![false, false]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(3);
+            assert_eq!(iter.next(), Some(vec![false, true]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(4);
+            assert_eq!(iter.next(), None);
+        }
+    }
+
+    #[test]
+    fn refine_vec_of_vec() {
+        let orig = vec![vec![], vec![()], vec![(), ()]];
+        assert_eq!(orig.refine(0).next(), None);
+        assert_eq!(orig.refine(1).next(), None);
+        assert_eq!(orig.refine(2).next(), None);
+        assert_eq!(orig.refine(3).next(), None);
+        assert_eq!(orig.refine(4).next(), None);
+        assert_eq!(orig.refine(5).next(), None);
+        {
+            let mut iter = orig.refine(6);
+            assert_eq!(iter.next(), Some(vec![vec![], vec![()], vec![(), ()]]));
+            assert_eq!(iter.next(), None);
+        }
+        assert_eq!(orig.refine(7).next(), None);
+    }
+
+    /*
+    #[test]
+    #[expect(
+        clippy::cognitive_complexity,
+        clippy::too_many_lines,
+        reason = "Just a long iterator."
+    )]
+    fn refine_vec_1234() {
+        let orig = vec![1, 2, 3, 4_u8];
+        assert_eq!(orig.refine(0).next(), None);
+        assert_eq!(orig.refine(1).next(), None);
+        assert_eq!(orig.refine(2).next(), None);
+        assert_eq!(orig.refine(3).next(), None);
+        {
+            let mut iter = orig.refine(4);
+            assert_eq!(iter.next(), Some(vec![0, 0, 0, 0]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(5);
+            assert_eq!(iter.next(), Some(vec![0, 0, 0, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 1, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 0, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 0, 0]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(6);
+            assert_eq!(iter.next(), Some(vec![0, 0, 0, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 1, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 2, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 0, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 1, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 0, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 0, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 1, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 0, 0]));
+            // assert_eq!(iter.next(), Some(vec![2, 0, 0, 0]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(7);
+            assert_eq!(iter.next(), Some(vec![0, 0, 0, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 1, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 2, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 3, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 0, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 1, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 2, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 0, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 1, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 3, 0, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 0, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 1, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 2, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 0, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 1, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 0, 0]));
+            // assert_eq!(iter.next(), Some(vec![2, 0, 0, 1]));
+            // assert_eq!(iter.next(), Some(vec![2, 0, 1, 0]));
+            // assert_eq!(iter.next(), Some(vec![2, 1, 0, 0]));
+            // assert_eq!(iter.next(), Some(vec![3, 0, 0, 0]));
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(8);
+            assert_eq!(iter.next(), Some(vec![0, 0, 0, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 1, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 2, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 3, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 4, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 0, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 1, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 2, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 3, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 0, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 1, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 2, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 3, 0, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 0, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 1, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 2, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 3, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 0, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 1, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 2, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 0, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 1, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 3, 0, 0]));
+            // assert_eq!(iter.next(), Some(vec![2, 0, 0, 2]));
+            // ...
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(9);
+            // assert_eq!(iter.next(), Some(vec![0, 0, 0, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 1, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 2, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 3, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 4, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 5, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 0, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 1, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 2, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 3, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 4, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 0, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 1, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 2, 1]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 3, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 3, 0, 1]));
+            // ...
+            assert_eq!(iter.next(), Some(vec![1, 0, 0, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 1, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 2, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 3, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 4, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 0, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 1, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 2, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 3, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 0, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 1, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 2, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 3, 0, 1]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![2, 0, 0, 3]));
+            // ...
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(10);
+            // assert_eq!(iter.next(), Some(vec![0, 0, 0, 6]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 1, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 2, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 3, 3]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 4, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 5, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 6, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 0, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 1, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 2, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 3, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 4, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 5, 0]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 0, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 1, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 2, 2]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 3, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 4, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 3, 0, 3]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![1, 0, 0, 5]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 1, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 2, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 3, 2]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 4, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 5, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 0, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 1, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 2, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 3, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 4, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 0, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 1, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 2, 1]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 3, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 3, 0, 2]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![2, 0, 0, 4]));
+            // ...
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(11);
+            // assert_eq!(iter.next(), Some(vec![0, 0, 0, 7]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 1, 6]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 2, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 0, 3, 4]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 4, 3]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 5, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 6, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 0, 7, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 0, 6]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 1, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 2, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 3, 3]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 4, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 5, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 6, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 0, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 1, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 2, 3]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 3, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 4, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 5, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 3, 0, 4]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![1, 0, 0, 6]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 1, 5]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 2, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 3, 3]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 4, 2]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 5, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 6, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 0, 5]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 1, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 2, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 3, 2]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 4, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 5, 0]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 0, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 1, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 2, 2]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 3, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 4, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 3, 0, 3]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![2, 0, 0, 5]));
+            // ...
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(12);
+            // assert_eq!(iter.next(), Some(vec![0, 0, 0, 8]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![0, 1, 0, 7]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 1, 6]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 2, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 1, 3, 4]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 4, 3]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 5, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 6, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 1, 7, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 0, 6]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 1, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 2, 4]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 3, 3]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 4, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 5, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 6, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 3, 0, 5]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![1, 0, 0, 7]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 1, 6]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 2, 5]));
+            assert_eq!(iter.next(), Some(vec![1, 0, 3, 4]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 4, 3]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 5, 2]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 6, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 0, 7, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 0, 6]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 1, 5]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 2, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 3, 3]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 4, 2]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 5, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 6, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 0, 5]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 1, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 2, 3]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 3, 2]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 4, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 5, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 3, 0, 4]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![2, 0, 0, 6]));
+            // ...
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(13);
+            // assert_eq!(iter.next(), Some(vec![0, 0, 0, 9]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![0, 2, 0, 7]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 1, 6]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 2, 5]));
+            assert_eq!(iter.next(), Some(vec![0, 2, 3, 4]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 4, 3]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 5, 2]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 6, 1]));
+            // assert_eq!(iter.next(), Some(vec![0, 2, 7, 0]));
+            // assert_eq!(iter.next(), Some(vec![0, 3, 0, 6]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![1, 1, 0, 7]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 1, 6]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 2, 5]));
+            assert_eq!(iter.next(), Some(vec![1, 1, 3, 4]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 4, 3]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 5, 2]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 6, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 1, 7, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 0, 6]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 1, 5]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 2, 4]));
+            assert_eq!(iter.next(), Some(vec![1, 2, 3, 3]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 4, 2]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 5, 1]));
+            // assert_eq!(iter.next(), Some(vec![1, 2, 6, 0]));
+            // assert_eq!(iter.next(), Some(vec![1, 3, 0, 5]));
+            // ...
+            // assert_eq!(iter.next(), Some(vec![2, 0, 0, 7]));
+            // ...
+            assert_eq!(iter.next(), None);
+        }
+        {
+            let mut iter = orig.refine(14);
+            assert_eq!(iter.next(), Some(vec![1, 2, 3, 4]));
+            assert_eq!(iter.next(), None);
+        }
+    }
+    */
+}
