@@ -100,6 +100,7 @@ impl<T: Rnd> Rnd for Vec<T> {
     }
 }
 
+// TODO: enable
 /*
 #[cfg(test)]
 mod test {
