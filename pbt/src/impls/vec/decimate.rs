@@ -7,17 +7,22 @@ use {
 
 /// Decimate a slice of values,
 /// returning each decimation as a `Vec<_>`.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 #[expect(clippy::exhaustive_enums, reason = "Nope, this is it.")]
 pub enum Iter<T: Clone + fmt::Debug + Decimate>
 where
-    T::Decimate: fmt::Debug,
+    T::Decimate: Clone + fmt::Debug,
 {
     /// Non-empty slice, split into its head and tail.
     Cons {
         /// The original value of the first element,
         /// for use when decimating to a new weight.
         original: T,
+        /// The expected total weight of the decimated vector.
+        /// This is `Some(..)` until the head is fully exhausted,
+        /// at which point the head is skipped and
+        /// the tail is reset to this overall weight.
+        weight_alone: Option<usize>,
         /// The weight of decimations to the first element.
         /// This is initialized to the maximum possible weight
         /// (after accounting for the length of the tail)
@@ -29,11 +34,6 @@ where
         head: Option<Cache<T::Decimate>>,
         /// Iterator over the rest of the slice (same logic as here).
         tail: Box<Self>,
-        /// The expected total weight of the decimated vector.
-        /// This is `Some(..)` until the head is fully exhausted,
-        /// at which point the head is skipped and
-        /// the tail is reset to this overall weight.
-        weight_alone: Option<usize>,
     },
     /// Empty slice.
     Nil {
@@ -48,7 +48,7 @@ where
 
 impl<T: Clone + fmt::Debug + Decimate> Iter<T>
 where
-    T::Decimate: fmt::Debug,
+    T::Decimate: Clone + fmt::Debug,
 {
     /// Increase the decimation weight of the first element,
     /// clearing the iterator if any (which would have produced an outdated weight).
@@ -59,15 +59,15 @@ where
     )]
     pub fn increment_weight(&mut self) {
         println!();
-        println!("Incrementing weight: {self:?}");
+        println!("Incrementing weight: {self:#?}");
         match *self {
             Self::Nil {
                 ref mut remaining_weight,
             } => *remaining_weight = Some(remaining_weight.map_or(1, |weight| weight + 1)),
             Self::Cons {
+                ref mut weight_alone,
                 ref mut head_weight,
                 ref mut head,
-                ref mut weight_alone,
                 ..
             } => {
                 *weight_alone = Some(weight_alone.map_or(0, |weight| weight + 1));
@@ -101,10 +101,10 @@ where
                 let singleton_weight = weight.checked_sub(1);
                 Self::Cons {
                     original: head.clone(),
+                    weight_alone: singleton_weight,
                     head_weight: singleton_weight,
                     head: None,
                     tail: Box::new(Self::new_with_weight_zero(tail, weight)),
-                    weight_alone: singleton_weight,
                 }
             }
         }
@@ -119,10 +119,10 @@ where
             },
             [ref head, ref tail @ ..] => Self::Cons {
                 original: head.clone(),
+                weight_alone: None,
                 head_weight: None,
                 head: None,
                 tail: Box::new(Self::new_with_weight_zero(tail, weight)),
-                weight_alone: None,
             },
         }
     }
@@ -148,18 +148,26 @@ where
             }
             Self::Cons {
                 ref original,
+                weight_alone,
                 ref mut head_weight,
                 ref mut head,
                 ref mut tail,
-                weight_alone,
             } => 'head_weights: loop {
                 println!();
                 println!("Top of `'head_weights: loop ...`");
                 println!("{acc:?}");
                 println!(
-                    "Cons {{ original: {original:?}, head_weight: {head_weight:?}, head: {head:?}, tail: {tail:?}, weight_alone: {weight_alone:?} }}",
+                    "{:#?}",
+                    Self::Cons {
+                        original: original.clone(),
+                        weight_alone,
+                        head_weight: *head_weight,
+                        head: head.clone(),
+                        tail: tail.clone(),
+                    },
                 );
                 let Some(current_head_weight) = *head_weight else {
+                    println!("Skipping the head...");
                     return tail.next_acc(acc);
                 };
                 loop {
@@ -204,7 +212,7 @@ where
     #[inline]
     pub fn reset(&mut self, maybe_weight: Option<usize>) {
         println!();
-        println!("Resetting (maybe_weight is `{maybe_weight:?}`): {self:?}");
+        println!("Resetting (maybe_weight is `{maybe_weight:?}`): {self:#?}");
         match *self {
             Self::Nil {
                 ref mut remaining_weight,
@@ -248,7 +256,7 @@ where
 #[expect(clippy::missing_trait_methods, reason = "would take decades")]
 impl<T: Clone + fmt::Debug + Decimate> Iterator for Iter<T>
 where
-    T::Decimate: fmt::Debug,
+    T::Decimate: Clone + fmt::Debug,
 {
     type Item = Vec<T>;
     #[inline]
@@ -261,7 +269,7 @@ where
 
 impl<T: Clone + fmt::Debug + Decimate> Decimate for Vec<T>
 where
-    T::Decimate: fmt::Debug,
+    T::Decimate: Clone + fmt::Debug,
 {
     type Decimate = Iter<T>;
     #[inline]
@@ -351,12 +359,17 @@ mod test {
     #[expect(clippy::cognitive_complexity, reason = "Just a bunch of vectors.")]
     fn decimate_vec_of_vec() {
         let orig = vec![vec![], vec![()], vec![(), ()]];
+        /*
         {
+            println!();
+            println!("%%%%%%%% 0");
             let mut iter = orig.decimate(0);
             assert_eq!(iter.next(), Some(vec![]));
             assert_eq!(iter.next(), None);
         }
         {
+            println!();
+            println!("%%%%%%%% 1");
             let mut iter = orig.decimate(1);
             assert_eq!(iter.next(), Some(vec![vec![]]));
             assert_eq!(iter.next(), Some(vec![vec![]])); // TODO: `RemoveDuplicates`?
@@ -364,6 +377,8 @@ mod test {
             assert_eq!(iter.next(), None);
         }
         {
+            println!();
+            println!("%%%%%%%% 2");
             let mut iter = orig.decimate(2);
             assert_eq!(iter.next(), Some(vec![vec![], vec![]]));
             assert_eq!(iter.next(), Some(vec![vec![], vec![]]));
@@ -371,17 +386,32 @@ mod test {
             assert_eq!(iter.next(), Some(vec![vec![()]]));
             assert_eq!(iter.next(), None);
         }
+        */
         {
+            println!();
+            println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 3");
             let mut iter = orig.decimate(3);
+            assert_eq!(iter.next(), Some(vec![vec![], vec![()]]));
+            println!();
+            println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
+            assert_eq!(iter.next(), Some(vec![vec![], vec![()]]));
+            println!();
+            println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
             assert_eq!(iter.next(), Some(vec![vec![], vec![], vec![]]));
-            assert_eq!(iter.next(), Some(vec![vec![], vec![()]]));
-            assert_eq!(iter.next(), Some(vec![vec![], vec![()]]));
+            println!();
+            println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
             assert_eq!(iter.next(), Some(vec![vec![()], vec![]]));
+            println!();
+            println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
             assert_eq!(iter.next(), Some(vec![vec![(), ()]]));
+            println!();
+            println!("%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%");
             assert_eq!(iter.next(), None);
         }
         {
-            let mut iter = orig.decimate(3);
+            println!();
+            println!("%%%%%%%% 4");
+            let mut iter = orig.decimate(4);
             assert_eq!(iter.next(), Some(vec![vec![(), (), ()]]));
             assert_eq!(iter.next(), Some(vec![vec![(), ()], vec![]]));
             assert_eq!(iter.next(), Some(vec![vec![()], vec![()]]));
@@ -391,22 +421,21 @@ mod test {
             assert_eq!(iter.next(), None);
         }
         {
-            let mut iter = orig.decimate(4);
-            assert_eq!(iter.next(), Some(vec![vec![(), ()], vec![()]]));
-            assert_eq!(iter.next(), Some(vec![vec![()], vec![(), ()]]));
-            assert_eq!(iter.next(), Some(vec![vec![], vec![()], vec![()]]));
-            assert_eq!(iter.next(), None);
-        }
-        {
+            println!();
+            println!("%%%%%%%% 5");
             let mut iter = orig.decimate(5);
             // TODO
             assert_eq!(iter.next(), None);
         }
         {
+            println!();
+            println!("%%%%%%%% 6");
             let mut iter = orig.decimate(6);
             // TODO
             assert_eq!(iter.next(), None);
         }
+        println!();
+        println!("%%%%%%%% 7");
         assert_eq!(orig.decimate(7).next(), None);
     }
 

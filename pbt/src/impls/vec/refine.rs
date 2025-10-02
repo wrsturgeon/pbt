@@ -1,5 +1,7 @@
 //! `Refine` implementation for `Vec<_>`.
 
+// TODO: cap each element at its statically known maximum size, if any
+
 use {
     crate::{iter::Cache, traits::refine::Refine},
     core::ptr,
@@ -24,11 +26,11 @@ pub enum Iter<T: Clone + Refine> {
         /// Caching iterator over refinements to the first element,
         /// each of which is of size `head_size` (if any).
         head: Option<Cache<T::Refine>>,
-        /// Iterator over the rest of the slice (same logic as here).
-        tail: Box<Self>,
         /// The original value of the first element,
         /// for use when refining to a new size.
         original: T,
+        /// Iterator over the rest of the slice (same logic as here).
+        tail: Box<Self>,
     },
     /// Empty slice.
     Nil {
@@ -75,8 +77,8 @@ impl<T: Clone + Refine> Iter<T> {
             [ref head, ref tail @ ..] => Self::Cons {
                 head_size: size.checked_sub(slice.len()),
                 head: None,
-                tail: Box::new(Self::new_with_size_zero(tail, size)),
                 original: head.clone(),
+                tail: Box::new(Self::new_with_size_zero(tail, size)),
             },
         }
     }
@@ -92,8 +94,8 @@ impl<T: Clone + Refine> Iter<T> {
             [ref head, ref tail @ ..] => Self::Cons {
                 head_size: zero_if_in_range,
                 head: None,
-                tail: Box::new(Self::new_with_size_zero(tail, size)),
                 original: head.clone(),
+                tail: Box::new(Self::new_with_size_zero(tail, size)),
             },
         }
     }
@@ -109,8 +111,8 @@ impl<T: Clone + Refine> Iter<T> {
             Self::Cons {
                 ref mut head_size,
                 ref mut head,
-                ref mut tail,
                 ref original,
+                ref mut tail,
             } => 'head_sizes: loop {
                 let current_head_size = (*head_size)?;
                 loop {
