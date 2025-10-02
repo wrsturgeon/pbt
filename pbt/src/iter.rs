@@ -41,6 +41,7 @@ pub struct AutoReload<I: Iterator, F: Fn() -> I> {
 /// caching that value and cloning it endlessly
 /// until the cache is cleared, at which point
 /// the cycle continues until the underlying iterator returns `None`.
+#[derive(Debug)]
 pub struct Cache<I: Iterator>
 where
     I::Item: Clone,

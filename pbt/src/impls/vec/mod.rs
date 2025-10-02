@@ -1,6 +1,6 @@
 //! Implementations for `Vec<_>`.
 
-// pub mod decimate;
+pub mod decimate;
 pub mod refine;
 
 use {
@@ -100,7 +100,6 @@ impl<T: Rnd> Rnd for Vec<T> {
     }
 }
 
-/*
 #[cfg(test)]
 mod test {
     use {super::*, crate::impl_tests, core::convert::Infallible};
@@ -111,4 +110,3 @@ mod test {
     // impl_tests!(Vec<u8>, vec_u8); // TODO
     impl_tests!(Vec<Vec<()>>, vec_vec_unit);
 }
-*/

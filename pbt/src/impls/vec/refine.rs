@@ -5,6 +5,10 @@ use {
     core::ptr,
 };
 
+// TODO: Note that `Box<Self>` doesn't have any wrapping logic,
+// so we can convert the linked-list format into a
+// `Vec<_>` of elements without the `tail: Box<Self>` field.
+
 /// Refine a slice of values,
 /// returning each refinement as a `Vec<_>`.
 #[expect(clippy::exhaustive_enums, reason = "Nope, this is it.")]
@@ -71,7 +75,7 @@ impl<T: Clone + Refine> Iter<T> {
             [ref head, ref tail @ ..] => Self::Cons {
                 head_size: size.checked_sub(slice.len()),
                 head: None,
-                tail: Box::new(Self::new_with_size_zero(tail)),
+                tail: Box::new(Self::new_with_size_zero(tail, size)),
                 original: head.clone(),
             },
         }
@@ -79,15 +83,16 @@ impl<T: Clone + Refine> Iter<T> {
 
     /// Prepare to refine this slice, assigning each element a size of `Some(0)`.
     #[inline]
-    fn new_with_size_zero(slice: &[T]) -> Self {
+    fn new_with_size_zero(slice: &[T], size: usize) -> Self {
+        let zero_if_in_range = (size >= slice.len()).then_some(0);
         match *slice {
             [] => Self::Nil {
-                remaining_size: Some(0),
+                remaining_size: zero_if_in_range,
             },
             [ref head, ref tail @ ..] => Self::Cons {
-                head_size: Some(0),
+                head_size: zero_if_in_range,
                 head: None,
-                tail: Box::new(Self::new_with_size_zero(tail)),
+                tail: Box::new(Self::new_with_size_zero(tail, size)),
                 original: head.clone(),
             },
         }
@@ -209,6 +214,7 @@ mod test {
         assert_eq!(orig.refine(7).next(), None);
     }
 
+    // TODO: re-enable
     /*
     #[test]
     #[expect(
