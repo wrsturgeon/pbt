@@ -35,9 +35,8 @@
           overlays = [ (import rust-overlay) ];
         };
         treefmt = treefmt-nix.lib.evalModule pkgs ./.treefmt.nix;
-        crane = (crane-src.mkLib pkgs).overrideToolchain (
-          p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml
-        );
+        rust-toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+        crane = (crane-src.mkLib pkgs).overrideToolchain (_: rust-toolchain);
         patch-src = raw-src: crane.cleanCargoSource raw-src;
         common-args-from-src =
           raw-src:
@@ -67,10 +66,8 @@
               value = f name;
             }) subprojects
           );
-      in
-      {
         checks =
-          # TODO: `miri`
+          # TODO: `miri` here instead of separately
           let
             by-subproject = for-each-subproject (
               subproject:
@@ -128,6 +125,32 @@
             concatenated = builtins.concatLists named;
           in
           builtins.listToAttrs concatenated;
+        apps =
+          builtins.mapAttrs
+            (k: v: {
+              type = "app";
+              program =
+                let
+                  script = ''
+                    shopt -s nullglob
+                    set -euxo pipefail
+
+                    ${v}
+                  '';
+                  written = pkgs.writeShellScriptBin k script;
+                in
+                "${written}/bin/${k}";
+            })
+            {
+              ci = ''
+                nix flake check --all-systems
+                ${rust-toolchain}/bin/cargo miri test --no-default-features
+                ${rust-toolchain}/bin/cargo miri test --all-features
+              '';
+            };
+      in
+      {
+        inherit apps checks;
         devShells.default = pkgs.mkShell {
           inputsFrom =
             (builtins.attrValues self.packages."${system}") ++ (builtins.attrValues self.checks."${system}");
