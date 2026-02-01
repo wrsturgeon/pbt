@@ -4,6 +4,7 @@ use {
     crate::{
         conjure::{Conjure, ConjureAsync, Seed},
         count::{Cardinality, Count},
+        decompose::{Decompose, Decomposition},
     },
     core::iter,
     futures::{StreamExt as _, stream::FuturesOrdered},
@@ -44,7 +45,7 @@ impl<T: Conjure> Conjure for Vec<T> {
         iter::once(vec![]).chain(T::corners().map(|singleton| vec![singleton]))
     }
 
-    #[inline(always)]
+    #[inline]
     fn leaf(_seed: Seed) -> Option<Self> {
         Some(vec![])
     }
@@ -71,5 +72,27 @@ impl<T: ConjureAsync> ConjureAsync for Vec<T> {
                 acc.collect().await
             }
         })
+    }
+}
+
+impl<T: Decompose> Decompose for Vec<T> {
+    #[inline]
+    fn decompose(&self) -> Decomposition {
+        Decomposition(self.iter().map(T::decompose).collect())
+    }
+
+    #[inline]
+    fn from_decomposition(d: &Decomposition) -> Option<Self> {
+        d.0.iter().map(T::from_decomposition).collect()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use crate::decompose;
+
+    #[test]
+    fn decomposition_roundtrip() {
+        let () = decompose::check_roundtrip::<Vec<Vec<u8>>>();
     }
 }

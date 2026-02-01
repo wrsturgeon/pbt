@@ -1,8 +1,12 @@
 //! Implementations for standard fixed-bit-width integral types (e.g. `u8`) and `bool`.
 
-use crate::{
-    conjure::{Conjure, ConjureAsync, Seed},
-    count::{Cardinality, Count},
+use {
+    crate::{
+        conjure::{Conjure, ConjureAsync, Seed},
+        count::{Cardinality, Count},
+        decompose::{Decompose, Decomposition},
+    },
+    core::array,
 };
 
 /// Implement `Count` and `Conjure` for integral types of a given
@@ -14,7 +18,7 @@ macro_rules! impl_le_64b {
         }
 
         impl Conjure for $i {
-            #[inline(always)]
+            #[inline]
             fn conjure(seed: Seed, _size: usize) -> Option<Self> {
                 Self::leaf(seed)
             }
@@ -31,7 +35,7 @@ macro_rules! impl_le_64b {
                 .into_iter()
             }
 
-            #[inline(always)]
+            #[inline]
             #[allow(
                 clippy::allow_attributes,
                 clippy::as_conversions,
@@ -45,9 +49,27 @@ macro_rules! impl_le_64b {
         }
 
         impl ConjureAsync for $i {
-            #[inline(always)]
+            #[inline]
             async fn conjure_async(seed: Seed, _size: usize) -> Option<Self> {
                 Self::leaf(seed)
+            }
+        }
+
+        impl Decompose for $i {
+            #[inline]
+            fn decompose(&self) -> Decomposition {
+                ((*self < 0), self.unsigned_abs()).decompose()
+            }
+
+            #[inline]
+            fn from_decomposition(d: &Decomposition) -> Option<Self> {
+                let (negate, $u) = Decompose::from_decomposition(d)?;
+                let $i = $u::cast_signed($u);
+                Some(if negate && let Some(negative) = $i.checked_neg() {
+                    negative
+                } else {
+                    $i
+                })
             }
         }
 
@@ -56,17 +78,17 @@ macro_rules! impl_le_64b {
         }
 
         impl Conjure for $u {
-            #[inline(always)]
+            #[inline]
             fn conjure(seed: Seed, size: usize) -> Option<Self> {
                 Some($i::conjure(seed, size)?.cast_unsigned())
             }
 
-            #[inline(always)]
+            #[inline]
             fn corners() -> impl Iterator<Item = Self> {
                 $i::corners().map($i::cast_unsigned)
             }
 
-            #[inline(always)]
+            #[inline]
             #[allow(
                 clippy::allow_attributes,
                 clippy::as_conversions,
@@ -79,12 +101,98 @@ macro_rules! impl_le_64b {
         }
 
         impl ConjureAsync for $u {
-            #[inline(always)]
+            #[inline]
             async fn conjure_async(seed: Seed, size: usize) -> Option<Self> {
                 Some($i::conjure_async(seed, size).await?.cast_unsigned())
             }
         }
+
+        impl Decompose for $u {
+            #[inline]
+            fn decompose(&self) -> Decomposition {
+                #[expect(
+                    clippy::as_conversions,
+                    reason = "If integer bit width exceeds `usize`, there are much bigger problems"
+                )]
+                <[bool; Self::BITS as usize]>::decompose(&array::from_fn(|i| {
+                    (*self & (1 << i)) != 0
+                }))
+            }
+
+            #[inline]
+            fn from_decomposition(d: &Decomposition) -> Option<Self> {
+                #[expect(
+                    clippy::as_conversions,
+                    reason = "If integer bit width exceeds `usize`, there are much bigger problems"
+                )]
+                let bits = <[bool; Self::BITS as usize]>::from_decomposition(d)?;
+                let mut acc: Self = 0;
+                for (i, bit) in bits.into_iter().enumerate() {
+                    acc |= Self::from(bit) << i;
+                }
+                Some(acc)
+            }
+        }
+
+        #[cfg(test)]
+        mod $i {
+            use crate::decompose;
+
+            #[test]
+            fn $i() {
+                decompose::check_roundtrip::<$i>();
+            }
+
+            #[test]
+            fn $u() {
+                decompose::check_roundtrip::<$u>();
+            }
+        }
     };
+}
+
+impl Count for bool {
+    const CARDINALITY: Cardinality = Cardinality::Finite;
+}
+
+impl Conjure for bool {
+    #[inline]
+    fn conjure(mut seed: Seed, _size: usize) -> Option<Self> {
+        Some(seed.prng_bool())
+    }
+
+    #[inline]
+    fn corners() -> impl Iterator<Item = Self> {
+        [false, true].into_iter()
+    }
+
+    #[inline]
+    fn leaf(mut seed: Seed) -> Option<Self> {
+        Some(seed.prng_bool())
+    }
+}
+
+impl ConjureAsync for bool {
+    #[inline]
+    async fn conjure_async(mut seed: Seed, _size: usize) -> Option<Self> {
+        Some(seed.prng_bool())
+    }
+}
+
+impl Decompose for bool {
+    #[inline]
+    fn decompose(&self) -> Decomposition {
+        Decomposition(if *self {
+            vec![Decomposition(vec![])]
+        } else {
+            vec![]
+        })
+    }
+
+    #[inline]
+    fn from_decomposition(d: &Decomposition) -> Option<Self> {
+        Some(!d.0.is_empty())
+    }
 }
 
 impl_le_64b!(i8, u8);
@@ -92,30 +200,12 @@ impl_le_64b!(i16, u16);
 impl_le_64b!(i32, u32);
 impl_le_64b!(i64, u64);
 
-impl Count for bool {
-    const CARDINALITY: Cardinality = Cardinality::Finite;
-}
+#[cfg(test)]
+mod test {
+    use crate::decompose;
 
-impl Conjure for bool {
-    #[inline(always)]
-    fn conjure(mut seed: Seed, _size: usize) -> Option<Self> {
-        Some(seed.prng_bool())
-    }
-
-    #[inline(always)]
-    fn corners() -> impl Iterator<Item = Self> {
-        [false, true].into_iter()
-    }
-
-    #[inline(always)]
-    fn leaf(mut seed: Seed) -> Option<Self> {
-        Some(seed.prng_bool())
-    }
-}
-
-impl ConjureAsync for bool {
-    #[inline(always)]
-    async fn conjure_async(mut seed: Seed, _size: usize) -> Option<Self> {
-        Some(seed.prng_bool())
+    #[test]
+    fn bool() {
+        decompose::check_roundtrip::<bool>();
     }
 }

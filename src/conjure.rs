@@ -1,7 +1,7 @@
 use {
     crate::count::Count,
     alloc::collections::BinaryHeap,
-    core::{array, num::NonZero},
+    core::{array, iter, num::NonZero},
     wyrand::WyRand,
 };
 
@@ -58,22 +58,13 @@ pub trait ConjureAsync: Conjure + Send + Sync {
 pub struct Seed(u64);
 
 impl Seed {
+    #[inline]
     #[must_use]
-    #[inline(always)]
-    pub const fn prng(&mut self) -> u64 {
-        let (prng, seed) = WyRand::gen_u64(self.0);
-        self.0 = seed;
-        prng
+    pub const fn new() -> Self {
+        Self(42) // yes, this is a bad initial state, but that's fine
     }
 
-    #[must_use]
-    #[inline(always)]
-    pub const fn prng_bool(&mut self) -> bool {
-        (self.prng() & 1) != 0
-    }
-
-    /// With a chance inversely proportional to `size`, stop now;
-    /// otherwise, use a stars-and-bars-style subroutine to
+    /// Use a stars-and-bars-style subroutine to
     /// split a total size among a known number of children
     /// and generate pseudorandom seeds for each.
     #[inline]
@@ -83,22 +74,9 @@ impl Seed {
         clippy::cast_possible_truncation,
         reason = "not critical"
     )]
-    pub fn should_recurse<const N: usize>(&mut self, size: usize) -> Option<[(Seed, usize); N]> {
-        // Decrease the remaining size, since
-        // an extra node now exists (this one).
-        let remaining_size = size.checked_sub(1)?;
-
-        // With a chance inversely proportional to `size`, stop here
-        if let Some(nz) = size.checked_add(1)
-            // SAFETY: Added 1 above, and overflow already exited.
-            && let nz = unsafe { NonZero::new_unchecked(nz) }
-            && (self.prng() as usize % nz) == 0
-        {
-            return None;
-        }
-
-        Some(if let Some(nz) = NonZero::new(remaining_size) {
-            let mut heap = BinaryHeap::from_iter([0, remaining_size].into_iter().chain(
+    pub fn partition<const N: usize>(&mut self, size: usize) -> [(Self, usize); N] {
+        if let Some(nz) = NonZero::new(size) {
+            let mut heap = BinaryHeap::from_iter(iter::once(0).chain(iter::once(size)).chain(
                 const { 1..N }.map(|_| {
                     let unrestricted = self.prng();
                     let unrestricted = unrestricted as usize;
@@ -116,12 +94,61 @@ impl Seed {
             })
         } else {
             array::from_fn(|_| (self.split(), 0))
-        })
+        }
     }
 
+    #[inline]
     #[must_use]
-    #[inline(always)]
+    pub const fn prng(&mut self) -> u64 {
+        let (prng, seed) = WyRand::gen_u64(self.0);
+        self.0 = seed;
+        prng
+    }
+
+    #[inline]
+    #[must_use]
+    pub const fn prng_bool(&mut self) -> bool {
+        (self.prng() & 1) != 0
+    }
+
+    /// With a chance inversely proportional to `size`, stop now;
+    /// otherwise, use a stars-and-bars-style subroutine to
+    /// split a total size among a known number of children
+    /// and generate pseudorandom seeds for each.
+    #[inline]
+    #[must_use]
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        reason = "not critical"
+    )]
+    pub fn should_recurse<const N: usize>(&mut self, size: usize) -> Option<[(Self, usize); N]> {
+        // Decrease the remaining size, since
+        // an extra node now exists (this one).
+        let remaining_size = size.checked_sub(1)?;
+
+        // With a chance inversely proportional to `size`, stop here
+        if let Some(nz) = size.checked_add(1)
+            // SAFETY: Added 1 above, and overflow already exited.
+            && let nz = unsafe { NonZero::new_unchecked(nz) }
+            && (self.prng() as usize % nz) == 0
+        {
+            return None;
+        }
+
+        Some(self.partition(remaining_size))
+    }
+
+    #[inline]
+    #[must_use]
     pub const fn split(&mut self) -> Self {
         Self(self.prng())
+    }
+}
+
+impl Default for Seed {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }

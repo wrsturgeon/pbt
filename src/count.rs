@@ -39,6 +39,19 @@ pub trait Count {
 impl Cardinality {
     #[inline]
     #[must_use]
+    pub const fn prod(self, other: Self) -> Self {
+        match self {
+            Self::Empty => Self::Empty,
+            Self::Finite => other,
+            Self::Infinite => match other {
+                Self::Empty => Self::Empty,
+                Self::Finite | Self::Infinite => Self::Infinite,
+            },
+        }
+    }
+
+    #[inline]
+    #[must_use]
     pub const fn sum(self, other: Self) -> Self {
         match self {
             Self::Empty => other,

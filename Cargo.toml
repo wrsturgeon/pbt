@@ -8,6 +8,7 @@ edition = "2024"
 
 [dependencies]
 futures = { version = "~0.3", default-features = false, features = ["alloc"] }
+pretty_assertions = "~1.4"
 wyrand = { version = "~0.3", default-features = false }
 
 [dev-dependencies]
@@ -31,7 +32,6 @@ blanket_clippy_restriction_lints = "allow"
 field_scoped_visibility_modifiers = "allow"
 from_iter_instead_of_collect = "allow"
 implicit_return = "allow"
-inline_always = "allow"
 map_err_ignore = "allow"
 min_ident_chars = "allow"
 mod_module_files = "allow"
