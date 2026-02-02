@@ -82,8 +82,8 @@ impl<T: Decompose> Decompose for Vec<T> {
     }
 
     #[inline]
-    fn from_decomposition(d: &Decomposition) -> Option<Self> {
-        d.0.iter().map(T::from_decomposition).collect()
+    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
+        d.iter().map(|d| T::from_decomposition(d)).collect()
     }
 }
 

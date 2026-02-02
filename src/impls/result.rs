@@ -77,12 +77,20 @@ impl<T: Decompose, E: Decompose> Decompose for Result<T, E> {
     }
 
     #[inline]
-    fn from_decomposition(d: &Decomposition) -> Option<Self> {
-        let (err, etc) = Decompose::from_decomposition(d)?;
-        if err {
-            E::from_decomposition(&etc).map(Err)
+    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
+        let [ref err, ref etc, ..] = *d else {
+            return if let [ref err] = *d
+                && bool::from_decomposition(err)?
+            {
+                E::from_decomposition(&[]).map(Err)
+            } else {
+                T::from_decomposition(&[]).map(Ok)
+            };
+        };
+        if bool::from_decomposition(err)? {
+            E::from_decomposition(etc).map(Err)
         } else {
-            T::from_decomposition(&etc).map(Ok)
+            T::from_decomposition(etc).map(Ok)
         }
     }
 }

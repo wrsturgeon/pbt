@@ -62,7 +62,7 @@ macro_rules! impl_le_64b {
             }
 
             #[inline]
-            fn from_decomposition(d: &Decomposition) -> Option<Self> {
+            fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
                 let (negate, $u) = Decompose::from_decomposition(d)?;
                 let $i = $u::cast_signed($u);
                 Some(if negate && let Some(negative) = $i.checked_neg() {
@@ -120,7 +120,7 @@ macro_rules! impl_le_64b {
             }
 
             #[inline]
-            fn from_decomposition(d: &Decomposition) -> Option<Self> {
+            fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
                 #[expect(
                     clippy::as_conversions,
                     reason = "If integer bit width exceeds `usize`, there are much bigger problems"
@@ -190,8 +190,8 @@ impl Decompose for bool {
     }
 
     #[inline]
-    fn from_decomposition(d: &Decomposition) -> Option<Self> {
-        Some(!d.0.is_empty())
+    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
+        Some(!d.is_empty())
     }
 }
 

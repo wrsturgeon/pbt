@@ -59,16 +59,14 @@ impl<T: Decompose, const N: usize> Decompose for [T; N] {
     }
 
     #[inline]
-    fn from_decomposition(d: &Decomposition) -> Option<Self> {
-        const TRIVIAL: Decomposition = Decomposition(vec![]);
-
+    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
         let ds = <Vec<Decomposition>>::from_decomposition(d)?;
 
         let mut acc = const { MaybeUninit::<[T; N]>::uninit() };
         for i in const { 0..N } {
             // SAFETY: In bounds and types match.
             let uninit = unsafe { &mut *acc.as_mut_ptr().cast::<MaybeUninit<T>>().add(i) };
-            let _: &mut _ = uninit.write(T::from_decomposition(ds.get(i).unwrap_or(&TRIVIAL))?);
+            let _: &mut _ = uninit.write(T::from_decomposition(ds.get(i).map_or(&[], |d| d))?);
         }
         // SAFETY: Iterated over all `N` elements above.
         let acc = unsafe { acc.assume_init() };

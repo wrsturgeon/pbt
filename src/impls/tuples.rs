@@ -38,9 +38,14 @@ impl<A: Decompose, B: Decompose> Decompose for (A, B) {
     }
 
     #[inline]
-    fn from_decomposition(d: &Decomposition) -> Option<Self> {
-        let [a, b] = Decompose::from_decomposition(d)?;
-        Some((A::from_decomposition(&a)?, B::from_decomposition(&b)?))
+    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
+        let [ref a, ref b, ..] = *d else {
+            return Some((
+                A::from_decomposition(if let [ref a] = *d { a } else { &[] })?,
+                B::from_decomposition(&[])?,
+            ));
+        };
+        Some((A::from_decomposition(a)?, B::from_decomposition(b)?))
     }
 }
 
