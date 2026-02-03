@@ -6,7 +6,7 @@ use {
     crate::{
         conjure::{Conjure, Seed},
         count::{Cardinality, Count},
-        decompose::{Decompose, Decomposition},
+        shrink::Shrink,
     },
     core::{iter, mem::MaybeUninit},
 };
@@ -52,34 +52,24 @@ impl<T: Conjure, const N: usize> Conjure for [T; N] {
     }
 }
 
-impl<T: Decompose, const N: usize> Decompose for [T; N] {
+impl<T: Shrink, const N: usize> Shrink for [T; N] {
     #[inline]
-    fn decompose(&self) -> Decomposition {
-        Decomposition(self.iter().map(T::decompose).collect())
-    }
-
-    #[inline]
-    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
-        let ds = <Vec<Decomposition>>::from_decomposition(d)?;
-
-        let mut acc = const { MaybeUninit::<[T; N]>::uninit() };
+    fn step<P: for<'s> FnMut(&'s Self) -> bool>(&self, property: &mut P) -> Option<Self> {
+        let mut acc = self.clone();
+        let mut any = false;
         for i in const { 0..N } {
-            // SAFETY: In bounds and types match.
-            let uninit = unsafe { &mut *acc.as_mut_ptr().cast::<MaybeUninit<T>>().add(i) };
-            let _: &mut _ = uninit.write(T::from_decomposition(ds.get(i).map_or(&[], |d| d))?);
+            // SAFETY: `i` (defined above) cannot exceed `N`
+            if let Some(reduced) = unsafe { acc.get_unchecked(i) }.step(&mut |t: &T| {
+                let mut acc = acc.clone();
+                // SAFETY: `i` (defined above) cannot exceed `N`
+                *unsafe { acc.get_unchecked_mut(i) } = t.clone();
+                property(&acc)
+            }) {
+                // SAFETY: `i` (defined above) cannot exceed `N`
+                *unsafe { acc.get_unchecked_mut(i) } = reduced;
+                any = true;
+            }
         }
-        // SAFETY: Iterated over all `N` elements above.
-        let acc = unsafe { acc.assume_init() };
-        Some(acc)
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::decompose;
-
-    #[test]
-    fn decomposition_roundtrip() {
-        let () = decompose::check_roundtrip::<[Vec<u8>; 3]>();
+        any.then_some(acc)
     }
 }

@@ -61,7 +61,7 @@ impl Seed {
     #[inline]
     #[must_use]
     pub const fn new() -> Self {
-        Self(42) // yes, this is a bad initial state, but that's fine
+        Self(1337_1337_1337_1337_1337)
     }
 
     /// Use a stars-and-bars-style subroutine to

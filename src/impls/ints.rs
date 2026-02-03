@@ -1,12 +1,9 @@
 //! Implementations for standard fixed-bit-width integral types (e.g. `u8`) and `bool`.
 
-use {
-    crate::{
-        conjure::{Conjure, ConjureAsync, Seed},
-        count::{Cardinality, Count},
-        decompose::{Decompose, Decomposition},
-    },
-    core::array,
+use crate::{
+    conjure::{Conjure, ConjureAsync, Seed},
+    count::{Cardinality, Count},
+    shrink::Shrink,
 };
 
 /// Implement `Count` and `Conjure` for integral types of a given
@@ -55,21 +52,42 @@ macro_rules! impl_le_64b {
             }
         }
 
-        impl Decompose for $i {
+        impl Shrink for $i {
             #[inline]
-            fn decompose(&self) -> Decomposition {
-                ((*self < 0), self.unsigned_abs()).decompose()
-            }
+            fn step<P: for<'s> FnMut(&'s Self) -> bool>(&self, property: &mut P) -> Option<Self> {
+                const ZERO: $i = 0;
 
-            #[inline]
-            fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
-                let (negate, $u) = Decompose::from_decomposition(d)?;
-                let $i = $u::cast_signed($u);
-                Some(if negate && let Some(negative) = $i.checked_neg() {
-                    negative
-                } else {
-                    $i
-                })
+                #[inline]
+                #[expect(clippy::single_call_fn, reason = "complement to the below")]
+                fn decompose(i: $i) -> (bool, $u) {
+                    (i < 0, i.unsigned_abs())
+                }
+
+                #[inline]
+                fn recompose(neg: bool, abs: $u) -> Option<$i> {
+                    let i = $i::try_from(abs).ok()?;
+                    if neg {
+                        i.checked_neg()
+                    } else {
+                        Some(i)
+                    }
+                }
+
+                if *self < ZERO
+                    && let Some(pos) = self.checked_neg()
+                    && property(&pos)
+                {
+                    return Some(pos);
+                }
+
+                let (neg, abs) = <(bool, $u) as Shrink>::step(&decompose(*self), &mut |&(neg, abs)| {
+                    if let Some(recomposed) = recompose(neg, abs) {
+                        property(&recomposed)
+                    } else {
+                        false
+                    }
+                })?;
+                recompose(neg, abs)
             }
         }
 
@@ -107,45 +125,81 @@ macro_rules! impl_le_64b {
             }
         }
 
-        impl Decompose for $u {
+        impl Shrink for $u {
             #[inline]
-            fn decompose(&self) -> Decomposition {
-                #[expect(
-                    clippy::as_conversions,
-                    reason = "If integer bit width exceeds `usize`, there are much bigger problems"
-                )]
-                <[bool; Self::BITS as usize]>::decompose(&array::from_fn(|i| {
-                    (*self & (1 << i)) != 0
-                }))
-            }
-
-            #[inline]
-            fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
-                #[expect(
-                    clippy::as_conversions,
-                    reason = "If integer bit width exceeds `usize`, there are much bigger problems"
-                )]
-                let bits = <[bool; Self::BITS as usize]>::from_decomposition(d)?;
-                let mut acc: Self = 0;
-                for (i, bit) in bits.into_iter().enumerate() {
-                    acc |= Self::from(bit) << i;
+            fn step<P: for<'s> FnMut(&'s Self) -> bool>(&self, property: &mut P) -> Option<Self> {
+                // Take large (but successively smaller) steps first:
+                let mut shift = 0;
+                'logarithmic: loop {
+                    let Some(subtrahend) = self.checked_shr(shift) else {
+                        break 'logarithmic;
+                    };
+                    if subtrahend == 0 {
+                        break 'logarithmic;
+                    }
+                    let difference = self.checked_sub(subtrahend)?;
+                    if property(&difference) {
+                        return Some(difference);
+                    }
+                    let Some(next_shift) = shift.checked_add(1) else {
+                        break 'logarithmic;
+                    };
+                    shift = next_shift;
                 }
-                Some(acc)
+
+                /*
+                // If none of those succeeded, fill in the gaps:
+                let mut fuel = u8::MAX;
+                'linear: while let Some(next_shift) = shift.checked_sub(1) {
+                    let lhs = self.checked_shr(shift);
+                    shift = next_shift;
+                    let Some(lhs) = lhs.and_then(|u| u.checked_add(1)) else {
+                        continue 'linear;
+                    };
+                    let Some(rhs) = self.checked_shr(shift) else {
+                        continue 'linear;
+                    };
+                    for u in lhs..rhs {
+                        fuel = fuel.checked_sub(1)?;
+                        if property(&u) {
+                            return Some(u);
+                        }
+                    }
+                }
+                */
+
+                None
             }
         }
 
         #[cfg(test)]
-        mod $i {
-            use crate::decompose;
+        mod $u {
+            use super::*;
 
             #[test]
-            fn $i() {
-                decompose::check_roundtrip::<$i>();
-            }
+            fn shrink() {
+                const N_TRIALS: usize = 1_000;
 
-            #[test]
-            fn $u() {
-                decompose::check_roundtrip::<$u>();
+                let mut seed = Seed::new();
+                for size in 0..N_TRIALS {
+                    println!();
+
+                    let (mut minimal, mut greater) = <($u, $u)>::conjure(seed.split(), size).unwrap();
+                    if minimal > greater {
+                        let () = ::core::mem::swap(&mut minimal, &mut greater);
+                    }
+                    let shrunk = crate::shrink::minimal(&greater, |&i: &$u| {
+                        print!("{i:?}");
+                        let greater = i >= minimal;
+                        println!(" {}", if greater { 'Y' } else { 'N' });
+                        greater
+                    });
+                    pretty_assertions::assert_eq!(
+                        minimal,
+                        shrunk,
+                        "{greater:?} shrunk to {shrunk:?}, but it should have shrunk further to {minimal:?}",
+                    );
+                }
             }
         }
     };
@@ -179,19 +233,10 @@ impl ConjureAsync for bool {
     }
 }
 
-impl Decompose for bool {
+impl Shrink for bool {
     #[inline]
-    fn decompose(&self) -> Decomposition {
-        Decomposition(if *self {
-            vec![Decomposition(vec![])]
-        } else {
-            vec![]
-        })
-    }
-
-    #[inline]
-    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
-        Some(!d.is_empty())
+    fn step<P: for<'s> FnMut(&'s Self) -> bool>(&self, property: &mut P) -> Option<Self> {
+        (*self && property(&false)).then_some(false)
     }
 }
 
@@ -200,12 +245,21 @@ impl_le_64b!(i16, u16);
 impl_le_64b!(i32, u32);
 impl_le_64b!(i64, u64);
 
+// this is intentionally a counterexample; shrinking is not perfect:
+/*
 #[cfg(test)]
 mod test {
-    use crate::decompose;
 
     #[test]
-    fn bool() {
-        decompose::check_roundtrip::<bool>();
+    fn shrink_mod_100() {
+        let orig = 300_u16;
+        let shrunk = crate::shrink::minimal(&orig, |&u| {
+            print!("{u}");
+            let success = u > 0 && u % 100 == 0;
+            println!(" {}", if success { 'Y' } else { 'N' });
+            success
+        });
+        pretty_assertions::assert_eq!(100, shrunk);
     }
 }
+*/

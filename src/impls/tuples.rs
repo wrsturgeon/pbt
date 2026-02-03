@@ -3,7 +3,7 @@
 use crate::{
     conjure::{Conjure, Seed},
     count::{Cardinality, Count},
-    decompose::{Decompose, Decomposition},
+    shrink::Shrink,
 };
 
 impl<A: Count, B: Count> Count for (A, B) {
@@ -30,31 +30,16 @@ impl<A: Conjure, B: Conjure> Conjure for (A, B) {
     }
 }
 
-impl<A: Decompose, B: Decompose> Decompose for (A, B) {
+impl<A: Shrink, B: Shrink> Shrink for (A, B) {
     #[inline]
-    fn decompose(&self) -> Decomposition {
+    fn step<P: FnMut(&Self) -> bool>(&self, property: &mut P) -> Option<Self> {
         let (ref a, ref b) = *self;
-        Decomposition(vec![a.decompose(), b.decompose()])
-    }
-
-    #[inline]
-    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
-        let [ref a, ref b, ..] = *d else {
-            return Some((
-                A::from_decomposition(if let [ref a] = *d { a } else { &[] })?,
-                B::from_decomposition(&[])?,
-            ));
-        };
-        Some((A::from_decomposition(a)?, B::from_decomposition(b)?))
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::decompose;
-
-    #[test]
-    fn decomposition_roundtrip() {
-        let () = decompose::check_roundtrip::<(Vec<u8>, Vec<u8>)>();
+        let sa = a.step(&mut |a| property(&(a.clone(), b.clone())));
+        let sb = b.step(&mut |b| property(&(a.clone(), b.clone())));
+        if let Some(a) = sa {
+            Some((a, sb.unwrap_or_else(|| b.clone())))
+        } else {
+            sb.map(|b| (a.clone(), b))
+        }
     }
 }

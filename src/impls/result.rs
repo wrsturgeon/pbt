@@ -3,7 +3,6 @@
 use crate::{
     conjure::{Conjure, ConjureAsync, Seed},
     count::{Cardinality, Count},
-    decompose::{Decompose, Decomposition},
 };
 
 impl<T: Count, E: Count> Count for Result<T, E> {
@@ -64,43 +63,5 @@ impl<T: ConjureAsync, E: ConjureAsync> ConjureAsync for Result<T, E> {
                 }
             }),
         }
-    }
-}
-
-impl<T: Decompose, E: Decompose> Decompose for Result<T, E> {
-    #[inline]
-    fn decompose(&self) -> Decomposition {
-        Decomposition(match *self {
-            Ok(ref ok) => vec![false.decompose(), ok.decompose()],
-            Err(ref err) => vec![true.decompose(), err.decompose()],
-        })
-    }
-
-    #[inline]
-    fn from_decomposition(d: &[Decomposition]) -> Option<Self> {
-        let [ref err, ref etc, ..] = *d else {
-            return if let [ref err] = *d
-                && bool::from_decomposition(err)?
-            {
-                E::from_decomposition(&[]).map(Err)
-            } else {
-                T::from_decomposition(&[]).map(Ok)
-            };
-        };
-        if bool::from_decomposition(err)? {
-            E::from_decomposition(etc).map(Err)
-        } else {
-            T::from_decomposition(etc).map(Ok)
-        }
-    }
-}
-
-#[cfg(test)]
-mod test {
-    use crate::decompose;
-
-    #[test]
-    fn decomposition_roundtrip() {
-        let () = decompose::check_roundtrip::<Result<Vec<u8>, Vec<u8>>>();
     }
 }
