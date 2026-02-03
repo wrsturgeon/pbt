@@ -1,21 +1,18 @@
-[package]
+[workspace]
+members = ["pbt"]
+resolver = "3"
+
+
+[workspace.package]
 authors = ["Will Sturgeon <willstrgn@gmail.com>"]
-name = "pbt"
-publish = false
-version = "0.1.0"
 edition = "2024"
+license = "MPL-2.0"
+readme = "README.md"
+repository = "https://github.com/wrsturgeon/pbt"
+version = "0.1.0"
 
 
-[dependencies]
-futures = { version = "~0.3", default-features = false, features = ["alloc"] }
-pretty_assertions = "~1.4"
-wyrand = { version = "~0.3", default-features = false }
-
-[dev-dependencies]
-tokio = { version = "~1.49", features = ["rt", "macros"] }
-
-
-[lints.clippy]
+[workspace.lints.clippy]
 
 # Deny all lints first (see <https://doc.rust-lang.org/stable/clippy/lints.html>):
 cargo = { level = "deny", priority = -1 }
@@ -32,11 +29,11 @@ blanket_clippy_restriction_lints = "allow"
 field_scoped_visibility_modifiers = "allow"
 from_iter_instead_of_collect = "allow"
 implicit_return = "allow"
+inline_always = "allow"
 map_err_ignore = "allow"
 min_ident_chars = "allow"
 mod_module_files = "allow"
 needless_borrowed_reference = "allow"
-pub_use = "allow"
 pub_with_shorthand = "allow"
 question_mark_used = "allow"
 ref_patterns = "allow"
