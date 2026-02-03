@@ -6,7 +6,7 @@ pub mod shrink;
 
 mod impls;
 
-// pub use ::pbt_macros::Conjure;
+pub use ::pbt_macros::Pbt;
 
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]

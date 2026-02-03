@@ -74,10 +74,15 @@ name = "pbt"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "pbt-macros",
  "pretty_assertions",
  "tokio",
  "wyrand",
 ]
+
+[[package]]
+name = "pbt-macros"
+version = "0.1.0"
 
 [[package]]
 name = "pin-project-lite"

@@ -1,5 +1,5 @@
 [workspace]
-members = ["pbt"]
+members = ["pbt", "pbt-macros"]
 resolver = "3"
 
 

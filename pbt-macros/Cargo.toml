@@ -5,20 +5,17 @@ authors.workspace = true
 edition.workspace = true
 # keywords.workspace = true
 license.workspace = true
-name = "pbt"
+name = "pbt-macros"
 readme.workspace = true
 repository.workspace = true
 version.workspace = true
 
 
-[dependencies]
-futures = { version = "~0.3", default-features = false, features = ["alloc"] }
-pbt-macros = { path = "../pbt-macros" }
-pretty_assertions = "~1.4"
-wyrand = { version = "~0.3", default-features = false }
+[lib]
+proc-macro = true
 
-[dev-dependencies]
-tokio = { version = "~1.49", features = ["rt", "macros"] }
+
+[dependencies]
 
 
 [lints]
