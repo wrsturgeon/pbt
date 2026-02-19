@@ -1,6 +1,6 @@
-use {core::hash::Hash, std::collections::HashSet};
+use {crate::conjure::Conjure, core::hash::Hash, std::collections::HashSet};
 
-pub trait Shrink: Clone + Eq + Hash {
+pub trait Shrink: Clone + Conjure + Eq + Hash {
     #[must_use]
     fn step<P: for<'s> FnMut(&'s Self) -> bool + ?Sized>(&self, property: &mut P) -> Option<Self>;
 }
