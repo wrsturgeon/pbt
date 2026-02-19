@@ -1,10 +1,29 @@
 [workspace]
-members = ["pbt", "pbt-macros"]
+members = ["pbt", "pbt-macros", "pbt-tests"]
 resolver = "3"
 
 
 [workspace.package]
+categories = [
+    "algorithms",
+    "asynchronous",
+    "development-tools::testing",
+    "mathematics",
+    "security",
+]
+keywords = [
+    "property",
+    "pbt",
+    "proptest",
+    "arbitrary",
+    "fuzz",
+    "fuzzing",
+    "fuzzer",
+    "test",
+    "testing",
+]
 authors = ["Will Sturgeon <willstrgn@gmail.com>"]
+description = "Property-based testing with `derive` and `async`, aware of uninstantiable and inductive types."
 edition = "2024"
 license = "MPL-2.0"
 readme = "README.md"

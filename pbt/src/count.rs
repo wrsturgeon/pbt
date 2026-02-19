@@ -18,6 +18,10 @@ pub enum Cardinality {
     Infinite,
 }
 
+/// Sentinel type to replace `Self` as necessary.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub enum Inductive {}
+
 /// Types "containing" a known number of terms*.
 /// # asterisk
 /// If you're a type theorist, the above statement will
@@ -39,7 +43,7 @@ pub trait Count {
 impl Cardinality {
     #[inline]
     #[must_use]
-    pub const fn prod(self, other: Self) -> Self {
+    pub const fn of_prod(self, other: Self) -> Self {
         match self {
             Self::Empty => Self::Empty,
             Self::Finite => other,
@@ -52,7 +56,7 @@ impl Cardinality {
 
     #[inline]
     #[must_use]
-    pub const fn sum(self, other: Self) -> Self {
+    pub const fn of_sum(self, other: Self) -> Self {
         match self {
             Self::Empty => other,
             Self::Infinite => Self::Infinite,
@@ -62,4 +66,8 @@ impl Cardinality {
             },
         }
     }
+}
+
+impl Count for Inductive {
+    const CARDINALITY: Cardinality = Cardinality::Infinite;
 }

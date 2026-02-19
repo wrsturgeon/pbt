@@ -2,13 +2,13 @@ use {core::hash::Hash, std::collections::HashSet};
 
 pub trait Shrink: Clone + Eq + Hash {
     #[must_use]
-    fn step<P: for<'s> FnMut(&'s Self) -> bool>(&self, property: &mut P) -> Option<Self>;
+    fn step<P: for<'s> FnMut(&'s Self) -> bool + ?Sized>(&self, property: &mut P) -> Option<Self>;
 }
 
 #[inline]
 #[must_use]
 pub fn minimal<T: Shrink, P: for<'t> Fn(&'t T) -> bool>(t: &T, property: P) -> T {
-    let mut reuse = HashSet::new();
+    let mut reuse = HashSet::<T>::new();
     let mut property = move |t: &T| {
         if reuse.contains(t) {
             false

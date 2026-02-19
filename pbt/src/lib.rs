@@ -1,3 +1,5 @@
+//! Property-based testing with `derive`, aware of uninstantiable and inductive types.
+
 extern crate alloc;
 
 pub mod conjure;
@@ -8,7 +10,6 @@ mod impls;
 
 pub use ::pbt_macros::Pbt;
 
-#[non_exhaustive]
 #[derive(Clone, Copy, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct NotFound;
 
@@ -22,9 +23,8 @@ pub fn witness<T: conjure::Conjure + shrink::Shrink, P: Fn(&T) -> bool>(
 ) -> Result<T, NotFound> {
     const N_TRIALS: usize = 1_000;
 
-    let mut seed = conjure::Seed::new();
-    for size in 0..N_TRIALS {
-        let Some(witness) = <T as conjure::Conjure>::conjure(seed.split(), size) else {
+    for seed in conjure::seeds().take(N_TRIALS) {
+        let Ok(witness) = <T as conjure::Conjure>::conjure(seed) else {
             return Err(NotFound);
         };
         if predicate(&witness) {

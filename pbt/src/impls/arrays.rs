@@ -4,7 +4,7 @@
 
 use {
     crate::{
-        conjure::{Conjure, Seed},
+        conjure::{Conjure, Seed, Uninstantiable},
         count::{Cardinality, Count},
         shrink::Shrink,
     },
@@ -18,43 +18,49 @@ impl<T: Count, const N: usize> Count for [T; N] {
 
 impl<T: Conjure, const N: usize> Conjure for [T; N] {
     #[inline]
-    fn conjure(mut seed: Seed, size: usize) -> Option<Self> {
-        let seeds = seed.partition::<N>(size);
+    fn conjure(seed: Seed) -> Result<Self, Uninstantiable> {
+        let seeds = seed.split::<N>();
 
         let mut acc = const { MaybeUninit::<[T; N]>::uninit() };
-        for (i, (seed, size)) in seeds.into_iter().enumerate() {
+        for (i, seed) in seeds.into_iter().enumerate() {
             // SAFETY: In bounds and types match.
             let uninit = unsafe { &mut *acc.as_mut_ptr().cast::<MaybeUninit<T>>().add(i) };
-            let _: &mut _ = uninit.write(T::conjure(seed, size)?);
+            let _: &mut _ = uninit.write(T::conjure(seed)?);
         }
         // SAFETY: Iterated over all `N` elements above.
         let acc = unsafe { acc.assume_init() };
-        Some(acc)
+        Ok(acc)
     }
 
     #[inline]
-    fn corners() -> impl Iterator<Item = Self> {
+    fn corners() -> Box<dyn Iterator<Item = Self>> {
         // TODO: proper implementation (e.g. [A, ..., A], [A, ..., B], ... [B, ..., A], ...)
+        Box::new(iter::empty())
+    }
+
+    #[inline]
+    fn variants() -> impl Iterator<Item = (Cardinality, fn(Seed) -> Self)> {
         iter::empty()
     }
 
     #[inline]
-    fn leaf(mut seed: Seed) -> Option<Self> {
+    fn leaf(seed: Seed) -> Result<Self, Uninstantiable> {
         let mut acc = const { MaybeUninit::<[T; N]>::uninit() };
-        for i in const { 0..N } {
+        let seeds = seed.split::<N>();
+        for (i, seed) in seeds.into_iter().enumerate() {
             // SAFETY: In bounds and types match.
             let uninit = unsafe { &mut *acc.as_mut_ptr().cast::<MaybeUninit<T>>().add(i) };
-            let _: &mut _ = uninit.write(T::leaf(seed.split())?);
+            let _: &mut _ = uninit.write(T::leaf(seed)?);
         }
         // SAFETY: Iterated over all `N` elements above.
         let acc = unsafe { acc.assume_init() };
-        Some(acc)
+        Ok(acc)
     }
 }
 
 impl<T: Shrink, const N: usize> Shrink for [T; N] {
     #[inline]
-    fn step<P: for<'s> FnMut(&'s Self) -> bool>(&self, property: &mut P) -> Option<Self> {
+    fn step<P: for<'s> FnMut(&'s Self) -> bool + ?Sized>(&self, property: &mut P) -> Option<Self> {
         let mut acc = self.clone();
         let mut any = false;
         for i in const { 0..N } {

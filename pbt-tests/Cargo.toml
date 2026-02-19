@@ -5,22 +5,16 @@ description.workspace = true
 edition.workspace = true
 keywords.workspace = true
 license.workspace = true
-name = "pbt"
+name = "pbt-tests"
 readme.workspace = true
 repository.workspace = true
 version.workspace = true
 
-
 [dependencies]
-futures = { version = "~0.3", default-features = false, features = ["alloc"] }
-futures-util = "0.3.31"
-pbt-macros = { path = "../pbt-macros" }
-wyrand = { version = "~0.3", default-features = false }
+pbt = { path = "../pbt" }
 
 [dev-dependencies]
 pretty_assertions = "~1.4"
-tokio = { version = "~1.49", features = ["rt", "macros"] }
-
 
 [lints]
 workspace = true

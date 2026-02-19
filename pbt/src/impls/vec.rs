@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        conjure::{Conjure, ConjureAsync, Seed},
+        conjure::{Conjure, ConjureAsync, Seed, Uninstantiable},
         count::{Cardinality, Count},
         shrink::Shrink,
     },
@@ -23,17 +23,15 @@ impl<T: Count> Count for Vec<T> {
 
 impl<T: Conjure> Conjure for Vec<T> {
     #[inline]
-    fn conjure(mut seed: Seed, mut size: usize) -> Option<Self> {
-        Some(match T::CARDINALITY {
+    fn conjure(mut seed: Seed) -> Result<Self, Uninstantiable> {
+        Ok(match T::CARDINALITY {
             Cardinality::Empty => vec![],
             Cardinality::Finite | Cardinality::Infinite => {
                 let mut acc = vec![];
-                while let Some([(head_seed, head_size), (tail_seed, tail_size)]) =
-                    seed.should_recurse(size)
-                {
-                    let () = acc.push(T::conjure(head_seed, head_size)?);
+                while seed.should_recurse() {
+                    let [head_seed, tail_seed] = seed.split();
+                    let () = acc.push(T::conjure(head_seed)?);
                     seed = tail_seed;
-                    size = tail_size;
                 }
                 acc
             }
@@ -41,33 +39,49 @@ impl<T: Conjure> Conjure for Vec<T> {
     }
 
     #[inline]
-    fn corners() -> impl Iterator<Item = Self> {
-        iter::once(vec![]).chain(T::corners().map(|singleton| vec![singleton]))
+    fn corners() -> Box<dyn Iterator<Item = Self>> {
+        Box::new(iter::once(vec![]).chain(T::corners().map(|singleton| vec![singleton])))
     }
 
     #[inline]
-    fn leaf(_seed: Seed) -> Option<Self> {
-        Some(vec![])
+    fn leaf(_seed: Seed) -> Result<Self, Uninstantiable> {
+        Ok(vec![])
+    }
+
+    #[inline]
+    fn variants() -> impl Iterator<Item = (Cardinality, fn(Seed) -> Self)> {
+        iter::once((Cardinality::Finite, (|_| vec![]) as fn(_) -> _)).chain(
+            (!matches!(T::CARDINALITY, Cardinality::Empty)).then_some((
+                Cardinality::Infinite,
+                (|mut seed: Seed| {
+                    let mut acc = vec![];
+                    while seed.should_recurse() {
+                        let [head_seed, tail_seed] = seed.split();
+                        let () = acc.push(unsafe { T::conjure(head_seed).unwrap_unchecked() });
+                        seed = tail_seed;
+                    }
+                    acc
+                }) as fn(_) -> _,
+            )),
+        )
     }
 }
 
 impl<T: ConjureAsync> ConjureAsync for Vec<T> {
     #[inline]
-    async fn conjure_async(mut seed: Seed, mut size: usize) -> Option<Self> {
-        Some(match T::CARDINALITY {
+    async fn conjure_async(mut seed: Seed) -> Result<Self, Uninstantiable> {
+        Ok(match T::CARDINALITY {
             Cardinality::Empty => vec![],
             Cardinality::Finite | Cardinality::Infinite => {
                 let mut acc = FuturesOrdered::new();
-                while let Some([(head_seed, head_size), (tail_seed, tail_size)]) =
-                    seed.should_recurse(size)
-                {
+                while seed.should_recurse() {
+                    let [head_seed, tail_seed] = seed.split();
                     let () = acc.push_back(async move {
-                        let opt = T::conjure_async(head_seed, head_size).await;
+                        let opt = T::conjure_async(head_seed).await;
                         // SAFETY: `T` verified not to be empty above.
                         unsafe { opt.unwrap_unchecked() }
                     });
                     seed = tail_seed;
-                    size = tail_size;
                 }
                 acc.collect().await
             }
@@ -77,7 +91,7 @@ impl<T: ConjureAsync> ConjureAsync for Vec<T> {
 
 impl<T: Shrink> Shrink for Vec<T> {
     #[inline]
-    fn step<P: for<'s> FnMut(&'s Self) -> bool>(&self, property: &mut P) -> Option<Self> {
+    fn step<P: for<'s> FnMut(&'s Self) -> bool + ?Sized>(&self, property: &mut P) -> Option<Self> {
         // TODO: this seems wildly inefficient with all the copying,
         // but is there a general solution that will not interfere with other types?
         // maybe let `P` take `<T as Deref>::Target` or something like that
