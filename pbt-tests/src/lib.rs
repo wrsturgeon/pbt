@@ -18,6 +18,9 @@ pub enum Peano {
 #[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Pbt)]
 pub struct Pair(Peano, Peano);
 
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Pbt)]
+pub struct Wrapper<T>(T);
+
 impl PartialEq<usize> for Peano {
     #[inline]
     fn eq(&self, other: &usize) -> bool {
@@ -97,6 +100,22 @@ fn ge_42() {
             acc = Peano::S(Box::new(acc));
         }
         acc
+    };
+    pretty_assertions::assert_eq!(witness, Ok(forty_two));
+}
+
+#[test]
+fn wrapper_ge_42() {
+    let witness = pbt::witness(|p: &Wrapper<Peano>| {
+        dbg!(&p);
+        p.0 >= 42
+    });
+    let forty_two = {
+        let mut acc = Peano::O;
+        for _ in 0..42 {
+            acc = Peano::S(Box::new(acc));
+        }
+        Wrapper(acc)
     };
     pretty_assertions::assert_eq!(witness, Ok(forty_two));
 }
