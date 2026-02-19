@@ -1,4 +1,4 @@
-//! Property-based testing with `derive`, aware of uninstantiable and inductive types.
+//! Property-based testing with `derive`, automatic corner cases, `async` support, and awareness of uninstantiable and inductive types.
 
 extern crate alloc;
 

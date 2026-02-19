@@ -23,7 +23,7 @@ keywords = [
     "testing",
 ]
 authors = ["Will Sturgeon <willstrgn@gmail.com>"]
-description = "Property-based testing with `derive` and `async`, aware of uninstantiable and inductive types."
+description = "Property-based testing with `derive`, automatic corner cases, `async` support, and awareness of uninstantiable and inductive types."
 edition = "2024"
 license = "MPL-2.0"
 readme = "README.md"
