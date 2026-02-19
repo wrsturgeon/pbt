@@ -2,6 +2,7 @@ use {
     crate::count::{Cardinality, Count},
     alloc::collections::BinaryHeap,
     core::{array, num::NonZero},
+    std::iter,
     wyrand::WyRand,
 };
 
@@ -71,7 +72,7 @@ pub struct Seeds(Seed);
 
 /// Error: uninstantiable with finite memory
 /// (i.e. all empty or inductive, e.g. uninstantiable like `!` or infinite like `struct Y(Box<Self>)`).
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub struct Uninstantiable;
 
 // TODO: try `smallvec`
@@ -137,6 +138,22 @@ impl Seed {
         }
     }
 
+    #[inline]
+    pub fn stream(mut self) -> impl Iterator<Item = Self> {
+        core::iter::repeat_with(move || {
+            let size = if let Some(nz) = NonZero::new(self.size) {
+                self.prng() as usize % nz
+            } else {
+                0
+            };
+            self.size -= size;
+            Seed {
+                seed: self.prng(),
+                size,
+            }
+        })
+    }
+
     /// Generate a pseudorandom `u64`,
     /// ignoring this seed's `size` field.
     #[inline]
@@ -178,6 +195,35 @@ impl Seed {
 
             true
         }
+    }
+}
+
+impl Count for Seed {
+    const CARDINALITY: Cardinality = Cardinality::Finite;
+}
+
+impl Conjure for Seed {
+    #[inline]
+    fn conjure(seed: Seed) -> Result<Self, Uninstantiable> {
+        Ok(seed) // important later on that this is exact
+    }
+
+    #[inline]
+    fn corners() -> Box<dyn Iterator<Item = Self>> {
+        Box::new(Conjure::corners().map(|(seed, size)| Self { seed, size }))
+    }
+
+    #[inline]
+    fn leaf(seed: Seed) -> Result<Self, Uninstantiable> {
+        Conjure::leaf(seed).map(|(seed, size)| Self { seed, size })
+    }
+
+    #[inline]
+    fn variants() -> impl Iterator<Item = (Cardinality, fn(Seed) -> Self)> {
+        iter::once((
+            Self::CARDINALITY,
+            (|seed| unsafe { Self::conjure(seed).unwrap_unchecked() }) as fn(_) -> _,
+        ))
     }
 }
 
