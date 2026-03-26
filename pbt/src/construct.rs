@@ -53,7 +53,8 @@ pub trait Construct: 'static + Clone {
     /// }
     /// # fn register_all_immediate_dependencies(_: &pbt::hash::Set<pbt::reflection::Type>, _: &mut pbt::hash::Map<pbt::reflection::Type, std::sync::Arc<pbt::reflection::TypeInfo>>) {}
     /// # fn shallow_constructors() -> Vec<pbt::construct::ShallowConstructor<Self>> { todo!() }
-    /// # fn visit<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
+    /// # fn visit_deep<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
+    /// # fn visit_shallow<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
     /// # }
     /// ```
     fn info() -> &'static TypeInfo;
@@ -76,7 +77,12 @@ pub trait Construct: 'static + Clone {
     /// Visit all terms of type `V` in this abstract syntax tree.
     /// Your implementation should always follow this formula:
     /// `pbt::construct::visit_self(self).chain(... recurse into fields ...)`.
-    fn visit<V: Construct>(&self) -> impl Iterator<Item = &V>;
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V>;
+
+    /// Visit all *non-nested* terms of type `V` in this abstract syntax tree.
+    /// Your implementation should always follow this formula:
+    /// `pbt::construct::visit_self_or(self, || ... recurse into fields ...)`.
+    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V>;
 }
 
 impl<T> Generate<T> {
@@ -139,12 +145,31 @@ pub fn construct<T: Construct>(_prng: &mut Prng) -> T {
 
 #[inline]
 pub fn visit_self<V: Construct, S: Construct>(s: &S) -> impl Iterator<Item = &V> {
-    (type_of::<V>() == type_of::<S>())
-        .then(|| {
-            let s: *const S = ptr::from_ref(s);
-            let s: *const V = s.cast();
-            // SAFETY: `S` and `V` are the same type.
-            unsafe { &*s }
-        })
-        .into_iter()
+    visit_self_opt::<V, S>(s).into_iter()
+}
+
+#[inline]
+pub fn visit_self_opt<V: Construct, S: Construct>(s: &S) -> Option<&V> {
+    (type_of::<V>() == type_of::<S>()).then(|| {
+        let s: *const S = ptr::from_ref(s);
+        let s: *const V = s.cast();
+        // SAFETY: `S` and `V` are the same type.
+        unsafe { &*s }
+    })
+}
+
+#[inline]
+pub fn visit_self_or<
+    's,
+    V: Construct,
+    S: Construct,
+    I: Iterator<Item = &'s V>,
+    F: FnOnce() -> I,
+>(
+    s: &'s S,
+    f: F,
+) -> impl Iterator<Item = &'s V> {
+    let opt = visit_self_opt::<V, S>(s);
+    let recurse = opt.is_none();
+    opt.into_iter().chain(recurse.then(f).into_iter().flatten())
 }

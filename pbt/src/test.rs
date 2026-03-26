@@ -74,29 +74,57 @@ fn info_box_bool() {
 }
 
 #[test]
-fn visit_bool() {
+fn visit_deep_bool() {
     let t = true;
     let f = false;
-    assert_eq!(t.visit().collect::<Vec<&bool>>(), vec![&true]);
-    assert_eq!(f.visit().collect::<Vec<&bool>>(), vec![&false]);
-    assert_eq!(t.visit().collect::<Vec<&u64>>(), Vec::<&u64>::new());
-    assert_eq!(f.visit().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(t.visit_deep().collect::<Vec<&bool>>(), vec![&true]);
+    assert_eq!(f.visit_deep().collect::<Vec<&bool>>(), vec![&false]);
+    assert_eq!(t.visit_deep().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(f.visit_deep().collect::<Vec<&u64>>(), Vec::<&u64>::new());
 }
 
 #[test]
-fn visit_box_bool() {
+fn visit_deep_box_bool() {
     let t = Box::new(true);
     let f = Box::new(false);
     assert_eq!(
-        t.visit().collect::<Vec<&Box<bool>>>(),
+        t.visit_deep().collect::<Vec<&Box<bool>>>(),
         vec![&Box::new(true)],
     );
     assert_eq!(
-        f.visit().collect::<Vec<&Box<bool>>>(),
+        f.visit_deep().collect::<Vec<&Box<bool>>>(),
         vec![&Box::new(false)],
     );
-    assert_eq!(t.visit().collect::<Vec<&bool>>(), vec![&true]);
-    assert_eq!(f.visit().collect::<Vec<&bool>>(), vec![&false]);
-    assert_eq!(t.visit().collect::<Vec<&u64>>(), Vec::<&u64>::new());
-    assert_eq!(f.visit().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(t.visit_deep().collect::<Vec<&bool>>(), vec![&true]);
+    assert_eq!(f.visit_deep().collect::<Vec<&bool>>(), vec![&false]);
+    assert_eq!(t.visit_deep().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(f.visit_deep().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+}
+
+#[test]
+fn visit_shallow_bool() {
+    let t = true;
+    let f = false;
+    assert_eq!(t.visit_shallow().collect::<Vec<&bool>>(), vec![&true]);
+    assert_eq!(f.visit_shallow().collect::<Vec<&bool>>(), vec![&false]);
+    assert_eq!(t.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(f.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+}
+
+#[test]
+fn visit_shallow_box_bool() {
+    let t = Box::new(true);
+    let f = Box::new(false);
+    assert_eq!(
+        t.visit_shallow().collect::<Vec<&Box<bool>>>(),
+        vec![&Box::new(true)],
+    );
+    assert_eq!(
+        f.visit_shallow().collect::<Vec<&Box<bool>>>(),
+        vec![&Box::new(false)],
+    );
+    assert_eq!(t.visit_shallow().collect::<Vec<&bool>>(), vec![&true]);
+    assert_eq!(f.visit_shallow().collect::<Vec<&bool>>(), vec![&false]);
+    assert_eq!(t.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(f.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
 }

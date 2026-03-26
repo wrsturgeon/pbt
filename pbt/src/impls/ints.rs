@@ -39,7 +39,12 @@ impl Construct for bool {
     }
 
     #[inline]
-    fn visit<V: Construct>(&self) -> impl Iterator<Item = &V> {
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V> {
+        visit_self(self)
+    }
+
+    #[inline]
+    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
         visit_self(self)
     }
 }
@@ -67,7 +72,12 @@ impl Construct for u64 {
     }
 
     #[inline]
-    fn visit<V: Construct>(&self) -> impl Iterator<Item = &V> {
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V> {
+        visit_self(self)
+    }
+
+    #[inline]
+    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
         visit_self(self)
     }
 }
