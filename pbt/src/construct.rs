@@ -2,9 +2,9 @@ use {
     crate::{
         hash::{Map, Set},
         multiset::Multiset,
-        reflection::{TermsOfVariousTypes, Type, TypeInfo, type_of},
+        reflection::{Erased, TermsOfVariousTypes, Type, TypeInfo, type_of},
     },
-    core::{convert::Infallible, fmt, mem, num::NonZero, ptr},
+    core::{fmt, mem, num::NonZero, ptr},
     std::sync::Arc,
     wyrand::WyRand,
 };
@@ -13,8 +13,6 @@ use {
 #[repr(transparent)]
 #[derive(Clone, Copy, Hash)]
 pub struct CtorFn<T>(fn(TermsOfVariousTypes) -> T);
-
-pub type CtorFnErased = CtorFn<Infallible>;
 
 #[derive(/* NOT Copy */ Clone, Debug)]
 pub struct Prng {
@@ -99,9 +97,9 @@ pub trait Construct: 'static + Clone {
 impl<T> CtorFn<T> {
     #[inline]
     #[must_use]
-    pub const fn erase(self) -> CtorFnErased {
+    pub const fn erase(self) -> CtorFn<Erased> {
         // SAFETY: Same size, still a function pointer with the same arguments.
-        unsafe { mem::transmute::<CtorFn<T>, CtorFnErased>(self) }
+        unsafe { mem::transmute::<CtorFn<T>, CtorFn<Erased>>(self) }
     }
 
     #[inline]
@@ -117,7 +115,7 @@ impl<T> fmt::Debug for CtorFn<T> {
     }
 }
 
-impl CtorFnErased {
+impl CtorFn<Erased> {
     /// Interpret this type-erased generator as a generator for a specific type.
     /// # Safety
     /// You'd better be damn well sure that you're specifying the right type.
@@ -125,7 +123,7 @@ impl CtorFnErased {
     #[must_use]
     pub const unsafe fn unerase<T>(self) -> CtorFn<T> {
         // SAFETY: Same size, still a function pointer with the same arguments.
-        unsafe { mem::transmute::<CtorFnErased, CtorFn<T>>(self) }
+        unsafe { mem::transmute::<CtorFn<Erased>, CtorFn<T>>(self) }
     }
 }
 

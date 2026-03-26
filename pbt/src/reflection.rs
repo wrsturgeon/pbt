@@ -1,11 +1,10 @@
 use {
     crate::{
-        construct::{Construct, CtorFn, CtorFnErased, IntroductionRules, ShallowConstructor},
+        construct::{Construct, CtorFn, IntroductionRules, ShallowConstructor},
         hash::{Map, Set, empty_map, empty_set},
     },
     core::{
         any::{TypeId, type_name},
-        convert::Infallible,
         fmt, mem,
         num::NonZero,
         ptr,
@@ -17,6 +16,13 @@ use {
 /// One, as a non-zero integer. Stupid but efficient.
 const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 
+/// A statically unknown type.
+#[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[non_exhaustive]
+pub enum Erased {
+    // uninstantiable
+}
+
 /// A map from types to ordered collections of terms of those types.
 /// This is used e.g. for constructors:
 /// each constructor knows the multiset of types it needs to fill its fields,
@@ -25,7 +31,7 @@ const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 #[repr(transparent)]
 pub struct TermsOfVariousTypes {
     /// A map from types to ordered collections of terms of those types.
-    map: Map<Type, (Vec<Infallible>, fn(Vec<Infallible>))>,
+    map: Map<Type, (Vec<Erased>, fn(Vec<Erased>))>,
 }
 
 #[non_exhaustive]
@@ -75,25 +81,25 @@ pub struct AlgebraicConstructors {
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type,
     /// each tagged with information about its type-level properties.
-    pub all_tagged: Vec<(CtorFnErased, TypeDependencies)>,
+    pub all_tagged: Vec<(CtorFn<Erased>, TypeDependencies)>,
     /// All constructors for which `Self` is *unreachable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly smaller* value (in some sense).
-    pub guaranteed_leaves: Vec<CtorFnErased>,
+    pub guaranteed_leaves: Vec<CtorFn<Erased>>,
     /// All constructors for which `Self` is *unavoidable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly larger* value (in some sense).
-    pub guaranteed_loops: Vec<CtorFnErased>,
+    pub guaranteed_loops: Vec<CtorFn<Erased>>,
     /// All constructors for which `Self` is *avoidable*.
     /// This is guaranteed to be non-empty because
     /// Rust disallows coinductive types (i.e. streams, infinite-size types, etc.)
     /// Use this (when non-empty) to *allow* generation of
     /// a smaller value (in some sense).
-    pub potential_leaves: Vec<CtorFnErased>,
+    pub potential_leaves: Vec<CtorFn<Erased>>,
     /// All constructors for which `Self` is *reachable*.
     /// Use this (when non-empty) to *allow* generation of
     /// a *larger* value (in some sense).
-    pub potential_loops: Vec<CtorFnErased>,
+    pub potential_loops: Vec<CtorFn<Erased>>,
 }
 
 #[non_exhaustive]
@@ -101,7 +107,7 @@ pub struct AlgebraicConstructors {
 pub enum Constructors {
     Algebraic(AlgebraicConstructors),
     Literal {
-        generate: for<'prng> fn(&'prng mut WyRand) -> Infallible,
+        generate: for<'prng> fn(&'prng mut WyRand) -> Erased,
     },
 }
 
@@ -120,7 +126,7 @@ impl Constructors {
             generate: unsafe {
                 mem::transmute::<
                     for<'prng> fn(&'prng mut WyRand) -> T,
-                    for<'prng> fn(&'prng mut WyRand) -> Infallible,
+                    for<'prng> fn(&'prng mut WyRand) -> Erased,
                 >(generate)
             },
         }
@@ -141,7 +147,7 @@ impl AlgebraicConstructors {
         let all_tagged = unsafe {
             mem::transmute::<
                 Vec<(CtorFn<T>, TypeDependencies)>,
-                Vec<(CtorFnErased, TypeDependencies)>,
+                Vec<(CtorFn<Erased>, TypeDependencies)>,
             >(all_tagged)
         };
         #[cfg(debug_assertions)]
@@ -157,19 +163,19 @@ impl AlgebraicConstructors {
                 "Constructor indices are out of order (should be 1, 2, ...): {all_tagged:#?}",
             );
         }
-        let guaranteed_leaves: Vec<CtorFnErased> = all_tagged
+        let guaranteed_leaves: Vec<CtorFn<Erased>> = all_tagged
             .iter()
             .filter_map(|&(f, ref deps)| deps.is_guaranteed_leaf().then_some(f))
             .collect();
-        let guaranteed_loops: Vec<CtorFnErased> = all_tagged
+        let guaranteed_loops: Vec<CtorFn<Erased>> = all_tagged
             .iter()
             .filter_map(|&(f, ref deps)| deps.is_guaranteed_loop().then_some(f))
             .collect();
-        let potential_leaves: Vec<CtorFnErased> = all_tagged
+        let potential_leaves: Vec<CtorFn<Erased>> = all_tagged
             .iter()
             .filter_map(|&(f, ref deps)| deps.is_potential_leaf().then_some(f))
             .collect();
-        let potential_loops: Vec<CtorFnErased> = all_tagged
+        let potential_loops: Vec<CtorFn<Erased>> = all_tagged
             .iter()
             .filter_map(|&(f, ref deps)| deps.is_potential_loop().then_some(f))
             .collect();
@@ -194,10 +200,10 @@ impl TermsOfVariousTypes {
     pub fn get<T: Construct>(&self) -> Option<&[T]> {
         let id = type_of::<T>();
         let &(ref v, _drop) = self.map.get(&id)?;
-        let v: *const Vec<Infallible> = ptr::from_ref(v);
+        let v: *const Vec<Erased> = ptr::from_ref(v);
         let v: *const Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
-        // no operations are ever performed on the erased `Vec<Infallible>` state.
+        // no operations are ever performed on the erased `Vec<Erased>` state.
         let v = unsafe { v.as_ref_unchecked() };
         Some(v)
     }
@@ -208,10 +214,10 @@ impl TermsOfVariousTypes {
     fn get_mut<T: Construct>(&mut self) -> Option<&mut Vec<T>> {
         let id = type_of::<T>();
         let &mut (ref mut v, _drop) = self.map.get_mut(&id)?;
-        let v: *mut Vec<Infallible> = ptr::from_mut(v);
+        let v: *mut Vec<Erased> = ptr::from_mut(v);
         let v: *mut Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
-        // no operations are ever performed on the erased `Vec<Infallible>` state.
+        // no operations are ever performed on the erased `Vec<Erased>` state.
         let v = unsafe { v.as_mut_unchecked() };
         Some(v)
     }
@@ -268,17 +274,17 @@ impl TermsOfVariousTypes {
             let v: Vec<T> = vec![];
             // SAFETY: Same collection type without elements;
             // creating a `Vec<T>` first to avoid size/alignment issues.
-            let v = unsafe { mem::transmute::<Vec<T>, Vec<Infallible>>(v) };
-            let drop: fn(Vec<Infallible>) = |v| {
+            let v = unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) };
+            let drop: fn(Vec<Erased>) = |v| {
                 // SAFETY: Undoing the `transmute` above.
-                drop(unsafe { mem::transmute::<Vec<Infallible>, Vec<T>>(v) })
+                drop(unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) })
             };
             (v, drop)
         });
-        let v: *mut Vec<Infallible> = ptr::from_mut(v);
+        let v: *mut Vec<Erased> = ptr::from_mut(v);
         let v: *mut Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
-        // no operations are ever performed on the erased `Vec<Infallible>` state.
+        // no operations are ever performed on the erased `Vec<Erased>` state.
         let v = unsafe { v.as_mut_unchecked() };
         v.push(t)
     }
