@@ -2,7 +2,7 @@ use {
     crate::{
         hash::{Map, Set},
         multiset::Multiset,
-        reflection::{Type, TypeInfo, type_of},
+        reflection::{TermsOfVariousTypes, Type, TypeInfo, type_of},
     },
     core::{convert::Infallible, fmt, mem, num::NonZero, ptr},
     std::sync::Arc,
@@ -12,9 +12,9 @@ use {
 #[non_exhaustive]
 #[repr(transparent)]
 #[derive(Clone, Copy, Hash)]
-pub struct Generate<T>(for<'prng> fn(&'prng mut Prng) -> T);
+pub struct CtorFn<T>(fn(TermsOfVariousTypes) -> T);
 
-pub type GenerateErased = Generate<Infallible>;
+pub type CtorFnErased = CtorFn<Infallible>;
 
 #[derive(/* NOT Copy */ Clone, Debug)]
 pub struct Prng {
@@ -28,8 +28,19 @@ pub struct Prng {
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
+pub enum IntroductionRules<T> {
+    Algebraic {
+        constructors: Vec<ShallowConstructor<T>>,
+    },
+    Literal {
+        generate: for<'prng> fn(&'prng mut WyRand) -> T,
+    },
+}
+
+#[non_exhaustive]
+#[derive(Clone, Debug)]
 pub struct ShallowConstructor<T> {
-    pub construct: Generate<T>,
+    pub construct: CtorFn<T>,
     pub immediate_dependencies: Multiset<Type>,
 }
 
@@ -52,12 +63,16 @@ pub trait Construct: 'static + Clone {
     ///     })
     /// }
     /// # fn register_all_immediate_dependencies(_: &pbt::hash::Set<pbt::reflection::Type>, _: &mut pbt::hash::Map<pbt::reflection::Type, std::sync::Arc<pbt::reflection::TypeInfo>>) {}
-    /// # fn shallow_constructors() -> Vec<pbt::construct::ShallowConstructor<Self>> { todo!() }
+    /// # fn introduction_rules() -> pbt::construct::IntroductionRules<Self> { todo!() }
     /// # fn visit_deep<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
     /// # fn visit_shallow<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
     /// # }
     /// ```
     fn info() -> &'static TypeInfo;
+
+    /// The exhaustive disjoint set of methods
+    /// to construct a term of this type.
+    fn introduction_rules() -> IntroductionRules<Self>;
 
     /// Run depth-first search on the global type dependency graph.
     /// All this needs to do in practice is to
@@ -70,10 +85,6 @@ pub trait Construct: 'static + Clone {
         registry: &mut Map<Type, Arc<TypeInfo>>,
     );
 
-    /// The exhaustive disjoint set of methods
-    /// to construct a term of this type.
-    fn shallow_constructors() -> Vec<ShallowConstructor<Self>>;
-
     /// Visit all terms of type `V` in this abstract syntax tree.
     /// Your implementation should always follow this formula:
     /// `pbt::construct::visit_self(self).chain(... recurse into fields ...)`.
@@ -85,36 +96,36 @@ pub trait Construct: 'static + Clone {
     fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V>;
 }
 
-impl<T> Generate<T> {
+impl<T> CtorFn<T> {
     #[inline]
     #[must_use]
-    pub const fn erase(self) -> GenerateErased {
+    pub const fn erase(self) -> CtorFnErased {
         // SAFETY: Same size, still a function pointer with the same arguments.
-        unsafe { mem::transmute::<Generate<T>, GenerateErased>(self) }
+        unsafe { mem::transmute::<CtorFn<T>, CtorFnErased>(self) }
     }
 
     #[inline]
-    pub const fn new(f: for<'prng> fn(&'prng mut Prng) -> T) -> Self {
+    pub const fn new(f: fn(TermsOfVariousTypes) -> T) -> Self {
         Self(f)
     }
 }
 
-impl<T> fmt::Debug for Generate<T> {
+impl<T> fmt::Debug for CtorFn<T> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("(|prng| ...)")
+        f.write_str("(|terms| ...)")
     }
 }
 
-impl GenerateErased {
+impl CtorFnErased {
     /// Interpret this type-erased generator as a generator for a specific type.
     /// # Safety
     /// You'd better be damn well sure that you're specifying the right type.
     #[inline]
     #[must_use]
-    pub const unsafe fn unerase<T>(self) -> Generate<T> {
+    pub const unsafe fn unerase<T>(self) -> CtorFn<T> {
         // SAFETY: Same size, still a function pointer with the same arguments.
-        unsafe { mem::transmute::<GenerateErased, Generate<T>>(self) }
+        unsafe { mem::transmute::<CtorFnErased, CtorFn<T>>(self) }
     }
 }
 
@@ -135,12 +146,6 @@ impl Prng {
     pub const fn u64(&mut self) -> u64 {
         self.state.rand()
     }
-}
-
-#[inline]
-#[expect(clippy::todo, reason = "TODO")]
-pub fn construct<T: Construct>(_prng: &mut Prng) -> T {
-    todo!()
 }
 
 #[inline]

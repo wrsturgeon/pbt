@@ -3,7 +3,7 @@
 use {
     crate::{
         construct::{
-            Construct, Generate, Prng, ShallowConstructor, construct, visit_self, visit_self_or,
+            Construct, CtorFn, IntroductionRules, ShallowConstructor, visit_self, visit_self_or,
         },
         hash::{Map, Set, empty_set},
         reflection::{_registry_mut, Type, TypeInfo, register, type_of},
@@ -20,6 +20,16 @@ impl<T: Construct> Construct for Box<T> {
     }
 
     #[inline]
+    fn introduction_rules() -> IntroductionRules<Self> {
+        IntroductionRules::Algebraic {
+            constructors: vec![ShallowConstructor {
+                construct: CtorFn::new(|mut terms| Box::new(terms.must_pop())),
+                immediate_dependencies: iter::once(type_of::<T>()).collect(),
+            }],
+        }
+    }
+
+    #[inline]
     fn register_all_immediate_dependencies(
         visited: &Set<Type>,
         registry: &mut Map<Type, Arc<TypeInfo>>,
@@ -33,20 +43,6 @@ impl<T: Construct> Construct for Box<T> {
             type_name::<Self>(),
         );
         register::<T>(visited, registry);
-    }
-
-    #[inline]
-    fn shallow_constructors() -> Vec<ShallowConstructor<Self>> {
-        vec![ShallowConstructor {
-            #[expect(
-                clippy::as_conversions,
-                reason = "Stateless function from the same types to same type."
-            )]
-            construct: Generate::new(
-                (|prng| Box::new(construct(prng))) as for<'prng> fn(&'prng mut Prng) -> Self,
-            ),
-            immediate_dependencies: iter::once(type_of::<T>()).collect(),
-        }]
     }
 
     #[inline]

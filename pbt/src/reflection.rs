@@ -1,18 +1,32 @@
 use {
     crate::{
-        construct::{Construct, Generate, GenerateErased, ShallowConstructor},
+        construct::{Construct, CtorFn, CtorFnErased, IntroductionRules, ShallowConstructor},
         hash::{Map, Set, empty_map, empty_set},
     },
     core::{
         any::{TypeId, type_name},
+        convert::Infallible,
         fmt, mem,
         num::NonZero,
+        ptr,
     },
     std::sync::{Arc, OnceLock, RwLock, RwLockWriteGuard},
+    wyrand::WyRand,
 };
 
 /// One, as a non-zero integer. Stupid but efficient.
 const ONE: NonZero<usize> = NonZero::new(1).unwrap();
+
+/// A map from types to ordered collections of terms of those types.
+/// This is used e.g. for constructors:
+/// each constructor knows the multiset of types it needs to fill its fields,
+/// so it can request exactly enough terms of various types to do so.
+#[non_exhaustive]
+#[repr(transparent)]
+pub struct TermsOfVariousTypes {
+    /// A map from types to ordered collections of terms of those types.
+    map: Map<Type, Vec<Infallible>>,
+}
 
 #[non_exhaustive]
 #[repr(transparent)]
@@ -57,46 +71,77 @@ pub struct TypeInfo {
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
-pub struct Constructors {
+pub struct AlgebraicConstructors {
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type,
     /// each tagged with information about its type-level properties.
-    pub all_tagged: Vec<(GenerateErased, TypeDependencies)>,
+    pub all_tagged: Vec<(CtorFnErased, TypeDependencies)>,
     /// All constructors for which `Self` is *unreachable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly smaller* value (in some sense).
-    pub guaranteed_leaves: Vec<GenerateErased>,
+    pub guaranteed_leaves: Vec<CtorFnErased>,
     /// All constructors for which `Self` is *unavoidable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly larger* value (in some sense).
-    pub guaranteed_loops: Vec<GenerateErased>,
+    pub guaranteed_loops: Vec<CtorFnErased>,
     /// All constructors for which `Self` is *avoidable*.
     /// This is guaranteed to be non-empty because
     /// Rust disallows coinductive types (i.e. streams, infinite-size types, etc.)
     /// Use this (when non-empty) to *allow* generation of
     /// a smaller value (in some sense).
-    pub potential_leaves: Vec<GenerateErased>,
+    pub potential_leaves: Vec<CtorFnErased>,
     /// All constructors for which `Self` is *reachable*.
     /// Use this (when non-empty) to *allow* generation of
     /// a *larger* value (in some sense).
-    pub potential_loops: Vec<GenerateErased>,
+    pub potential_loops: Vec<CtorFnErased>,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum Constructors {
+    Algebraic(AlgebraicConstructors),
+    Literal {
+        generate: for<'prng> fn(&'prng mut WyRand) -> Infallible,
+    },
 }
 
 impl Constructors {
-    /// Partition these constructors into sets that will be
-    /// useful for generation and shrinking.
+    #[inline]
+    #[must_use]
+    pub fn algebraic<T>(all_tagged: Vec<(CtorFn<T>, TypeDependencies)>) -> Self {
+        Self::Algebraic(AlgebraicConstructors::new::<T>(all_tagged))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn literal<T>(generate: for<'prng> fn(&'prng mut WyRand) -> T) -> Self {
+        Self::Literal {
+            // SAFETY: Same size, still a function pointer with the same arguments.
+            generate: unsafe {
+                mem::transmute::<
+                    for<'prng> fn(&'prng mut WyRand) -> T,
+                    for<'prng> fn(&'prng mut WyRand) -> Infallible,
+                >(generate)
+            },
+        }
+    }
+}
+
+impl AlgebraicConstructors {
+    /// Partition a set of constructors into subsets
+    /// that will be useful for generation and shrinking.
     /// # Panics
     /// If constructors are out of order (for bookkeeping)
     /// or if every constructor forces creation of
     /// another term of type `Self` (since generation would never halt).
     #[inline]
     #[must_use]
-    pub fn new<T>(all_tagged: Vec<(Generate<T>, TypeDependencies)>) -> Self {
+    pub fn new<T>(all_tagged: Vec<(CtorFn<T>, TypeDependencies)>) -> Self {
         // SAFETY: Same size, still a function pointer with the same arguments.
         let all_tagged = unsafe {
             mem::transmute::<
-                Vec<(Generate<T>, TypeDependencies)>,
-                Vec<(GenerateErased, TypeDependencies)>,
+                Vec<(CtorFn<T>, TypeDependencies)>,
+                Vec<(CtorFnErased, TypeDependencies)>,
             >(all_tagged)
         };
         #[cfg(debug_assertions)]
@@ -112,19 +157,19 @@ impl Constructors {
                 "Constructor indices are out of order (should be 1, 2, ...): {all_tagged:#?}",
             );
         }
-        let guaranteed_leaves: Vec<GenerateErased> = all_tagged
+        let guaranteed_leaves: Vec<CtorFnErased> = all_tagged
             .iter()
             .filter_map(|&(f, ref deps)| deps.is_guaranteed_leaf().then_some(f))
             .collect();
-        let guaranteed_loops: Vec<GenerateErased> = all_tagged
+        let guaranteed_loops: Vec<CtorFnErased> = all_tagged
             .iter()
             .filter_map(|&(f, ref deps)| deps.is_guaranteed_loop().then_some(f))
             .collect();
-        let potential_leaves: Vec<GenerateErased> = all_tagged
+        let potential_leaves: Vec<CtorFnErased> = all_tagged
             .iter()
             .filter_map(|&(f, ref deps)| deps.is_potential_leaf().then_some(f))
             .collect();
-        let potential_loops: Vec<GenerateErased> = all_tagged
+        let potential_loops: Vec<CtorFnErased> = all_tagged
             .iter()
             .filter_map(|&(f, ref deps)| deps.is_potential_loop().then_some(f))
             .collect();
@@ -140,6 +185,85 @@ impl Constructors {
             potential_leaves,
             potential_loops,
         }
+    }
+}
+
+impl TermsOfVariousTypes {
+    #[inline]
+    #[must_use]
+    pub fn get<T: Construct>(&self) -> Option<&[T]> {
+        let id = type_of::<T>();
+        let v: &Vec<Infallible> = self.map.get(&id)?;
+        let v: *const Vec<Infallible> = ptr::from_ref(v);
+        let v: *const Vec<T> = v.cast();
+        // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
+        // no operations are ever performed on the erased `Vec<Infallible>` state.
+        let v = unsafe { &*v };
+        Some(v)
+    }
+
+    /// Mutably borrow the list of terms of a given type.
+    #[inline]
+    #[must_use]
+    fn get_mut<T: Construct>(&mut self) -> Option<&mut Vec<T>> {
+        let id = type_of::<T>();
+        let v: &mut Vec<Infallible> = self.map.get_mut(&id)?;
+        let v: *mut Vec<Infallible> = ptr::from_mut(v);
+        let v: *mut Vec<T> = v.cast();
+        // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
+        // no operations are ever performed on the erased `Vec<Infallible>` state.
+        let v = unsafe { &mut *v };
+        Some(v)
+    }
+
+    /// Remove the last-pushed term of a given type (usually inferred).
+    /// # Panics
+    /// If no terms of that type remain.
+    #[inline]
+    pub fn must_pop<T: Construct>(&mut self) -> T {
+        match self.pop::<T>() {
+            Some(t) => t,
+            #[expect(clippy::panic, reason = "internal invariants")]
+            None => panic!(
+                "internal `pbt` error: popped too many `{}`s",
+                type_name::<T>(),
+            ),
+        }
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn new() -> Self {
+        Self { map: empty_map() }
+    }
+
+    /// Remove the last-pushed term of a given type (usually inferred).
+    #[inline]
+    pub fn pop<T: Construct>(&mut self) -> Option<T> {
+        self.get_mut()?.pop()
+    }
+
+    #[inline]
+    pub fn push<T: Construct>(&mut self, t: T) {
+        let id = type_of::<T>();
+        let v = self.map.entry(id).or_insert_with(|| {
+            // SAFETY: Same collection type without elements;
+            // creating a `Vec<T>` first to avoid size/alignment issues.
+            unsafe { mem::transmute::<Vec<T>, Vec<Infallible>>(vec![]) }
+        });
+        let v: *mut Vec<Infallible> = ptr::from_mut(v);
+        let v: *mut Vec<T> = v.cast();
+        // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
+        // no operations are ever performed on the erased `Vec<Infallible>` state.
+        let v = unsafe { &mut *v };
+        v.push(t)
+    }
+}
+
+impl Default for TermsOfVariousTypes {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -206,6 +330,15 @@ impl TypeDependencies {
     }
 }
 
+impl fmt::Debug for TermsOfVariousTypes {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set()
+            .entries(self.map.iter().map(|(&k, v)| vec![k; v.len()]))
+            .finish()
+    }
+}
+
 impl fmt::Debug for Type {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -255,7 +388,23 @@ fn compute_type_info<T: Construct>(
         type_name::<T>(),
     );
 
-    let shallow_ctors = T::shallow_constructors();
+    let intros = T::introduction_rules();
+    let shallow_ctors = match intros {
+        IntroductionRules::Algebraic { constructors } => constructors,
+        IntroductionRules::Literal { generate } => {
+            return TypeInfo {
+                constructors: Constructors::literal(generate),
+                dependencies: TypeDependencies {
+                    ctor_idx: None,
+                    id: self_id,
+                    reachable: empty_set(),
+                    unavoidable: Some(empty_set()),
+                },
+                name: type_name::<T>(),
+                trivial: true,
+            };
+        }
+    };
 
     // Necessary to do this here, since we don't want *transitive* dependencies;
     // we care only whether this type wraps a single other type,
@@ -280,7 +429,7 @@ fn compute_type_info<T: Construct>(
         false
     };
 
-    let mut constructors: Vec<(Generate<T>, TypeDependencies)> = vec![];
+    let mut constructors: Vec<(CtorFn<T>, TypeDependencies)> = vec![];
     let mut reachable: Set<Type> = empty_set();
     let mut unavoidable: Option<Set<Type>> = None;
     for (
@@ -328,7 +477,7 @@ fn compute_type_info<T: Construct>(
     }
 
     TypeInfo {
-        constructors: Constructors::new(constructors),
+        constructors: Constructors::algebraic(constructors),
         dependencies: TypeDependencies {
             ctor_idx: None,
             id: self_id,
