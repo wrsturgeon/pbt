@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        construct::{Construct, Generate, Prng, ShallowConstructor, construct},
+        construct::{Construct, Generate, Prng, ShallowConstructor, construct, visit_self},
         hash::{Map, Set, empty_set},
         reflection::{_registry_mut, Type, TypeInfo, register, type_of},
     },
@@ -45,5 +45,10 @@ impl<T: Construct> Construct for Box<T> {
             ),
             immediate_dependencies: iter::once(type_of::<T>()).collect(),
         }]
+    }
+
+    #[inline]
+    fn visit<V: Construct>(&self) -> impl Iterator<Item = &V> {
+        visit_self(self).chain(self.as_ref().visit())
     }
 }

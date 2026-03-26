@@ -4,8 +4,9 @@ _: {
     keep-sorted = { };
     mdformat = { };
     nixfmt.strict = true;
-    qmlformat = { };
+    rustfmt = { };
     statix = { };
+    taplo = { };
   };
   projectRootFile = "flake.nix";
   settings.formatter = {

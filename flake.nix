@@ -7,6 +7,10 @@
     crane-flake.url = "github:ipetkov/crane";
     flake-utils.url = "github:numtide/flake-utils";
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     treefmt-nix = {
       inputs.nixpkgs.follows = "nixpkgs";
       url = "github:numtide/treefmt-nix/main";
@@ -18,14 +22,20 @@
       crane-flake,
       flake-utils,
       nixpkgs,
+      rust-overlay,
       self,
       treefmt-nix,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs { inherit system; };
-        crane = crane-flake.mkLib pkgs;
+        pkgs = import nixpkgs {
+          inherit system;
+          overlays = [ (import rust-overlay) ];
+        };
+        crane = (crane-flake.mkLib pkgs).overrideToolchain (
+          pkgs: pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml
+        );
 
         src = crane.cleanCargoSource ./.;
 

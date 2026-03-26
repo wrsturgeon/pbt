@@ -2,9 +2,9 @@ use {
     crate::{
         hash::{Map, Set},
         multiset::Multiset,
-        reflection::{Type, TypeInfo},
+        reflection::{Type, TypeInfo, type_of},
     },
-    core::{convert::Infallible, fmt, mem, num::NonZero},
+    core::{convert::Infallible, fmt, mem, num::NonZero, ptr},
     std::sync::Arc,
     wyrand::WyRand,
 };
@@ -53,6 +53,7 @@ pub trait Construct: 'static + Clone {
     /// }
     /// # fn register_all_immediate_dependencies(_: &pbt::hash::Set<pbt::reflection::Type>, _: &mut pbt::hash::Map<pbt::reflection::Type, std::sync::Arc<pbt::reflection::TypeInfo>>) {}
     /// # fn shallow_constructors() -> Vec<pbt::construct::ShallowConstructor<Self>> { todo!() }
+    /// # fn visit<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
     /// # }
     /// ```
     fn info() -> &'static TypeInfo;
@@ -71,6 +72,11 @@ pub trait Construct: 'static + Clone {
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type.
     fn shallow_constructors() -> Vec<ShallowConstructor<Self>>;
+
+    /// Visit all terms of type `V` in this abstract syntax tree.
+    /// Your implementation should always follow this formula:
+    /// `pbt::construct::visit_self(self).chain(... recurse into fields ...)`.
+    fn visit<V: Construct>(&self) -> impl Iterator<Item = &V>;
 }
 
 impl<T> Generate<T> {
@@ -129,4 +135,16 @@ impl Prng {
 #[expect(clippy::todo, reason = "TODO")]
 pub fn construct<T: Construct>(_prng: &mut Prng) -> T {
     todo!()
+}
+
+#[inline]
+pub fn visit_self<V: Construct, S: Construct>(s: &S) -> impl Iterator<Item = &V> {
+    (type_of::<V>() == type_of::<S>())
+        .then(|| {
+            let s: *const S = ptr::from_ref(s);
+            let s: *const V = s.cast();
+            // SAFETY: `S` and `V` are the same type.
+            unsafe { &*s }
+        })
+        .into_iter()
 }

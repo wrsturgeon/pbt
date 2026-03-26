@@ -1,8 +1,8 @@
 [workspace]
 members = [
-    "pbt",
-    # "pbt-macros", 
-    # "pbt-tests",
+  "pbt",
+  # "pbt-macros", 
+  # "pbt-tests",
 ]
 metadata.crane.name = "pbt"
 resolver = "3"
@@ -10,22 +10,22 @@ resolver = "3"
 
 [workspace.package]
 categories = [
-    "algorithms",
-    "asynchronous",
-    "development-tools::testing",
-    "mathematics",
-    "security",
+  "algorithms",
+  "asynchronous",
+  "development-tools::testing",
+  "mathematics",
+  "security",
 ]
 keywords = [
-    "property",
-    "pbt",
-    "proptest",
-    "arbitrary",
-    "fuzz",
-    "fuzzing",
-    "fuzzer",
-    "test",
-    "testing",
+  "property",
+  "pbt",
+  "proptest",
+  "arbitrary",
+  "fuzz",
+  "fuzzing",
+  "fuzzer",
+  "test",
+  "testing",
 ]
 authors = ["Will Sturgeon <willstrgn@gmail.com>"]
 description = "Property-based testing with `derive`, automatic corner cases, `async` support, and awareness of uninstantiable and inductive types."

@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        construct::{Construct, Generate, Prng, ShallowConstructor},
+        construct::{Construct, Generate, Prng, ShallowConstructor, visit_self},
         hash::{Map, Set, empty_set},
         multiset::Multiset,
         reflection::{_registry_mut, Type, TypeInfo, register},
@@ -37,6 +37,11 @@ impl Construct for bool {
             immediate_dependencies: Multiset::new(),
         }]
     }
+
+    #[inline]
+    fn visit<V: Construct>(&self) -> impl Iterator<Item = &V> {
+        visit_self(self)
+    }
 }
 
 impl Construct for u64 {
@@ -59,5 +64,10 @@ impl Construct for u64 {
             construct: Generate::new(Prng::u64),
             immediate_dependencies: Multiset::new(),
         }]
+    }
+
+    #[inline]
+    fn visit<V: Construct>(&self) -> impl Iterator<Item = &V> {
+        visit_self(self)
     }
 }

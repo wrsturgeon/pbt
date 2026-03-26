@@ -12,7 +12,7 @@ use {
 };
 
 #[test]
-fn bool() {
+fn info_bool() {
     type T = bool;
     let TypeInfo {
         ref constructors,
@@ -40,7 +40,7 @@ fn bool() {
 }
 
 #[test]
-fn box_bool() {
+fn info_box_bool() {
     type T = Box<bool>;
     let TypeInfo {
         ref constructors,
@@ -71,4 +71,32 @@ fn box_bool() {
         Some(iter::once(type_of::<bool>()).collect()),
     );
     assert!(trivial);
+}
+
+#[test]
+fn visit_bool() {
+    let t = true;
+    let f = false;
+    assert_eq!(t.visit().collect::<Vec<&bool>>(), vec![&true]);
+    assert_eq!(f.visit().collect::<Vec<&bool>>(), vec![&false]);
+    assert_eq!(t.visit().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(f.visit().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+}
+
+#[test]
+fn visit_box_bool() {
+    let t = Box::new(true);
+    let f = Box::new(false);
+    assert_eq!(
+        t.visit().collect::<Vec<&Box<bool>>>(),
+        vec![&Box::new(true)],
+    );
+    assert_eq!(
+        f.visit().collect::<Vec<&Box<bool>>>(),
+        vec![&Box::new(false)],
+    );
+    assert_eq!(t.visit().collect::<Vec<&bool>>(), vec![&true]);
+    assert_eq!(f.visit().collect::<Vec<&bool>>(), vec![&false]);
+    assert_eq!(t.visit().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(f.visit().collect::<Vec<&u64>>(), Vec::<&u64>::new());
 }
