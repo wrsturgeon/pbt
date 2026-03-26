@@ -25,7 +25,7 @@ const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 #[repr(transparent)]
 pub struct TermsOfVariousTypes {
     /// A map from types to ordered collections of terms of those types.
-    map: Map<Type, Vec<Infallible>>,
+    map: Map<Type, (Vec<Infallible>, fn(Vec<Infallible>))>,
 }
 
 #[non_exhaustive]
@@ -193,12 +193,12 @@ impl TermsOfVariousTypes {
     #[must_use]
     pub fn get<T: Construct>(&self) -> Option<&[T]> {
         let id = type_of::<T>();
-        let v: &Vec<Infallible> = self.map.get(&id)?;
+        let &(ref v, _drop) = self.map.get(&id)?;
         let v: *const Vec<Infallible> = ptr::from_ref(v);
         let v: *const Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Infallible>` state.
-        let v = unsafe { &*v };
+        let v = unsafe { v.as_ref_unchecked() };
         Some(v)
     }
 
@@ -207,12 +207,12 @@ impl TermsOfVariousTypes {
     #[must_use]
     fn get_mut<T: Construct>(&mut self) -> Option<&mut Vec<T>> {
         let id = type_of::<T>();
-        let v: &mut Vec<Infallible> = self.map.get_mut(&id)?;
+        let &mut (ref mut v, _drop) = self.map.get_mut(&id)?;
         let v: *mut Vec<Infallible> = ptr::from_mut(v);
         let v: *mut Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Infallible>` state.
-        let v = unsafe { &mut *v };
+        let v = unsafe { v.as_mut_unchecked() };
         Some(v)
     }
 
@@ -239,23 +239,47 @@ impl TermsOfVariousTypes {
 
     /// Remove the last-pushed term of a given type (usually inferred).
     #[inline]
+    #[expect(
+        clippy::missing_panics_doc,
+        reason = "won't panic b/c internal invariants"
+    )]
     pub fn pop<T: Construct>(&mut self) -> Option<T> {
-        self.get_mut()?.pop()
+        let v: &mut Vec<T> = self.get_mut()?;
+        let opt: Option<T> = v.pop();
+        if opt.is_none() || v.is_empty() {
+            #[expect(
+                clippy::expect_used,
+                clippy::unwrap_in_result,
+                reason = "won't panic b/c internal invariants"
+            )]
+            let (v, drop) = self
+                .map
+                .remove(&type_of::<T>())
+                .expect("internal `pbt` error: failed to remove empty vector of terms");
+            drop(v)
+        }
+        opt
     }
 
     #[inline]
     pub fn push<T: Construct>(&mut self, t: T) {
         let id = type_of::<T>();
-        let v = self.map.entry(id).or_insert_with(|| {
+        let &mut (ref mut v, _drop) = self.map.entry(id).or_insert_with(|| {
+            let v: Vec<T> = vec![];
             // SAFETY: Same collection type without elements;
             // creating a `Vec<T>` first to avoid size/alignment issues.
-            unsafe { mem::transmute::<Vec<T>, Vec<Infallible>>(vec![]) }
+            let v = unsafe { mem::transmute::<Vec<T>, Vec<Infallible>>(v) };
+            let drop: fn(Vec<Infallible>) = |v| {
+                // SAFETY: Undoing the `transmute` above.
+                drop(unsafe { mem::transmute::<Vec<Infallible>, Vec<T>>(v) })
+            };
+            (v, drop)
         });
         let v: *mut Vec<Infallible> = ptr::from_mut(v);
         let v: *mut Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Infallible>` state.
-        let v = unsafe { &mut *v };
+        let v = unsafe { v.as_mut_unchecked() };
         v.push(t)
     }
 }
@@ -264,6 +288,28 @@ impl Default for TermsOfVariousTypes {
     #[inline]
     fn default() -> Self {
         Self::new()
+    }
+}
+
+impl Drop for TermsOfVariousTypes {
+    #[inline]
+    fn drop(&mut self) {
+        for (_, (v, drop)) in self.map.drain() {
+            drop(v)
+        }
+    }
+}
+
+impl fmt::Debug for TermsOfVariousTypes {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_set()
+            .entries(
+                self.map
+                    .iter()
+                    .map(|(&k, &(ref v, _drop))| vec![k; v.len()]),
+            )
+            .finish()
     }
 }
 
@@ -327,15 +373,6 @@ impl TypeDependencies {
     #[must_use]
     pub fn is_potential_loop(&self) -> bool {
         self.reachable.contains(&self.id)
-    }
-}
-
-impl fmt::Debug for TermsOfVariousTypes {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set()
-            .entries(self.map.iter().map(|(&k, v)| vec![k; v.len()]))
-            .finish()
     }
 }
 

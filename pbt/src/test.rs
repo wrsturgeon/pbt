@@ -4,7 +4,7 @@ use {
     crate::{
         construct::Construct as _,
         hash::empty_set,
-        reflection::{Constructors, TypeInfo, type_of},
+        reflection::{Constructors, TermsOfVariousTypes, TypeInfo, type_of},
     },
     core::{
         any::{TypeId, type_name},
@@ -130,4 +130,17 @@ fn visit_shallow_box_bool() {
     assert_eq!(f.visit_shallow().collect::<Vec<&bool>>(), vec![&false]);
     assert_eq!(t.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
     assert_eq!(f.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+}
+
+#[test]
+fn terms_of_various_types() {
+    let mut terms = TermsOfVariousTypes::new();
+    let () = terms.push(42_u64);
+    let () = terms.push(true);
+    let () = terms.push(false);
+    assert_eq!(terms.pop(), Some(false));
+    assert_eq!(terms.pop(), Option::<Box<bool>>::None);
+    assert_eq!(terms.pop(), Some(42_u64));
+    assert_eq!(terms.pop(), Option::<u64>::None);
+    // leave `true` intact to test that `Drop` doesn't leak:
 }
