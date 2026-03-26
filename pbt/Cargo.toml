@@ -1,0 +1,23 @@
+[package]
+name = "pbt"
+categories.workspace = true
+keywords.workspace = true
+authors.workspace = true
+description.workspace = true
+edition.workspace = true
+license.workspace = true
+readme.workspace = true
+repository.workspace = true
+version.workspace = true
+
+
+[dependencies]
+ahash = "~0.8"
+wyrand = "~0.4"
+
+[dev-dependencies]
+pretty_assertions = "~1.4"
+
+
+[lints]
+workspace = true
