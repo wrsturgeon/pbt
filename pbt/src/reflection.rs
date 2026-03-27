@@ -1,13 +1,14 @@
 use {
     crate::{
         construct::{
-            Algebraic, Construct, CtorFn, IndexedCtorFn, IntroductionRule, Literal, TypeFormer,
+            Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal, Prng,
+            TypeFormer,
         },
         hash::{Map, Set, empty_map, empty_set},
     },
     core::{
         any::{TypeId, type_name},
-        fmt, mem,
+        fmt, iter, mem,
         num::NonZero,
         ptr,
     },
@@ -25,15 +26,26 @@ pub enum Erased {
     // uninstantiable
 }
 
+/// An erased term of some type that implements `Clone + Debug + Eq`.
+#[non_exhaustive]
+pub struct Terms {
+    pub clone: for<'t> fn(&'t Vec<Erased>) -> Vec<Erased>,
+    pub debug: for<'t, 'm, 'f> fn(&'t Vec<Erased>, &'m mut fmt::Formatter<'f>) -> fmt::Result,
+    pub drop: fn(Vec<Erased>),
+    pub eq: for<'lhs, 'rhs> fn(&'lhs Vec<Erased>, &'rhs Vec<Erased>) -> bool,
+    pub terms: Vec<Erased>,
+}
+
 /// A map from types to ordered collections of terms of those types.
 /// This is used e.g. for constructors:
 /// each constructor knows the multiset of types it needs to fill its fields,
 /// so it can request exactly enough terms of various types to do so.
 #[non_exhaustive]
 #[repr(transparent)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TermsOfVariousTypes {
     /// A map from types to ordered collections of terms of those types.
-    map: Map<Type, (Vec<Erased>, fn(Vec<Erased>))>,
+    pub map: Map<Type, Terms>,
 }
 
 #[non_exhaustive]
@@ -65,7 +77,6 @@ pub struct TypeDependencies {
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct TypeInfo {
-    pub constructors: Constructors,
     /// The union and intersection of the bag of types that
     /// may be contained in a value of this type.
     pub dependencies: TypeDependencies,
@@ -75,15 +86,20 @@ pub struct TypeInfo {
     /// non-inductive or a trivial wrapper around exactly one (other) type.
     /// Note that uninstantiable types *are* interesting, i.e. nontrivial.
     pub trivial: bool,
+    pub type_former: PrecomputedTypeFormer,
 }
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
-pub struct AlgebraicConstructors {
+pub struct AlgebraicTypeFormer {
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type,
     /// each tagged with information about its type-level properties.
     pub all_tagged: Vec<(CtorFn<Erased>, TypeDependencies)>,
+    /// Decompose this value into a
+    /// constructor (by index) and
+    /// its associated fields.
+    pub eliminator: ElimFn<Erased>,
     /// All constructors for which `Self` is *unreachable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly smaller* value (in some sense).
@@ -106,36 +122,14 @@ pub struct AlgebraicConstructors {
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
-pub enum Constructors {
-    Algebraic(AlgebraicConstructors),
+pub enum PrecomputedTypeFormer {
+    Algebraic(AlgebraicTypeFormer),
     Literal {
         generate: for<'prng> fn(&'prng mut WyRand) -> Erased,
     },
 }
 
-impl Constructors {
-    #[inline]
-    #[must_use]
-    pub fn algebraic<T>(all_tagged: Vec<(CtorFn<T>, TypeDependencies)>) -> Self {
-        Self::Algebraic(AlgebraicConstructors::new::<T>(all_tagged))
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn literal<T>(generate: for<'prng> fn(&'prng mut WyRand) -> T) -> Self {
-        Self::Literal {
-            // SAFETY: Same size, still a function pointer with the same arguments.
-            generate: unsafe {
-                mem::transmute::<
-                    for<'prng> fn(&'prng mut WyRand) -> T,
-                    for<'prng> fn(&'prng mut WyRand) -> Erased,
-                >(generate)
-            },
-        }
-    }
-}
-
-impl AlgebraicConstructors {
+impl AlgebraicTypeFormer {
     /// Partition a set of constructors into subsets
     /// that will be useful for generation and shrinking.
     /// # Panics
@@ -144,7 +138,7 @@ impl AlgebraicConstructors {
     /// another term of type `Self` (since generation would never halt).
     #[inline]
     #[must_use]
-    pub fn new<T>(all_tagged: Vec<(CtorFn<T>, TypeDependencies)>) -> Self {
+    pub fn new<T>(all_tagged: Vec<(CtorFn<T>, TypeDependencies)>, eliminator: ElimFn<T>) -> Self {
         // SAFETY: Same size, still a function pointer with the same arguments.
         let all_tagged = unsafe {
             mem::transmute::<
@@ -236,6 +230,9 @@ impl AlgebraicConstructors {
         );
         Self {
             all_tagged,
+            // SAFETY: Never used in its erased form, and
+            // `Vec<_>`s all have the same size+alignment.
+            eliminator: unsafe { mem::transmute::<ElimFn<T>, ElimFn<Erased>>(eliminator) },
             guaranteed_leaves,
             guaranteed_loops,
             potential_leaves,
@@ -244,13 +241,141 @@ impl AlgebraicConstructors {
     }
 }
 
+impl PrecomputedTypeFormer {
+    #[inline]
+    #[must_use]
+    pub fn algebraic<T>(
+        all_tagged: Vec<(CtorFn<T>, TypeDependencies)>,
+        eliminator: ElimFn<T>,
+    ) -> Self {
+        Self::Algebraic(AlgebraicTypeFormer::new::<T>(all_tagged, eliminator))
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn literal<T>(generate: for<'prng> fn(&'prng mut WyRand) -> T) -> Self {
+        Self::Literal {
+            // SAFETY: Same size, still a function pointer with the same arguments.
+            generate: unsafe {
+                mem::transmute::<
+                    for<'prng> fn(&'prng mut WyRand) -> T,
+                    for<'prng> fn(&'prng mut WyRand) -> Erased,
+                >(generate)
+            },
+        }
+    }
+}
+
+#[expect(
+    clippy::diverging_sub_expression,
+    clippy::panic,
+    reason = "internal invariant that ought to panic before causing damage"
+)]
+impl Construct for Erased {
+    #[inline]
+    fn arbitrary_fields_for_ctor(
+        _ctor_idx: NonZero<usize>,
+        _prng: &mut Prng,
+    ) -> TermsOfVariousTypes {
+        panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
+    }
+
+    #[inline]
+    fn info() -> &'static TypeInfo {
+        panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
+    }
+
+    #[inline]
+    fn register_all_immediate_dependencies(
+        _visited: &Set<Type>,
+        _registry: &mut Map<Type, Arc<TypeInfo>>,
+    ) {
+        panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
+    }
+
+    #[inline]
+    fn type_former() -> TypeFormer<Self> {
+        panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
+    }
+
+    #[inline]
+    #[expect(
+        unreachable_code,
+        unused_variables,
+        reason = "to constrain the anonymous return type"
+    )]
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V> {
+        let panic: iter::Empty<_> =
+            panic!("internal `pbt` error: do not call `Construct` methods on `Erased`");
+        panic
+    }
+
+    #[inline]
+    #[expect(
+        unreachable_code,
+        unused_variables,
+        reason = "to constrain the anonymous return type"
+    )]
+    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
+        let panic: iter::Empty<_> =
+            panic!("internal `pbt` error: do not call `Construct` methods on `Erased`");
+        panic
+    }
+}
+
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl Clone for Terms {
+    #[inline]
+    fn clone(&self) -> Self {
+        let Self {
+            ref terms,
+            clone,
+            debug,
+            drop,
+            eq,
+        } = *self;
+        Self {
+            terms: (self.clone)(terms),
+            clone,
+            debug,
+            drop,
+            eq,
+        }
+    }
+}
+
+impl fmt::Debug for Terms {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (self.debug)(&self.terms, f)
+    }
+}
+
+impl Drop for Terms {
+    #[inline]
+    fn drop(&mut self) {
+        (self.drop)(mem::take(&mut self.terms))
+    }
+}
+
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl Eq for Terms {}
+
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl PartialEq for Terms {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        (self.eq)(&self.terms, &other.terms)
+    }
+}
+
 impl TermsOfVariousTypes {
     #[inline]
     #[must_use]
     pub fn get<T: Construct>(&self) -> Option<&[T]> {
         let id = type_of::<T>();
-        let &(ref v, _drop) = self.map.get(&id)?;
-        let v: *const Vec<Erased> = ptr::from_ref(v);
+        let v = self.map.get(&id)?;
+        let v: *const Vec<Erased> = ptr::from_ref(&v.terms);
         let v: *const Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Erased>` state.
@@ -263,8 +388,8 @@ impl TermsOfVariousTypes {
     #[must_use]
     fn get_mut<T: Construct>(&mut self) -> Option<&mut Vec<T>> {
         let id = type_of::<T>();
-        let &mut (ref mut v, _drop) = self.map.get_mut(&id)?;
-        let v: *mut Vec<Erased> = ptr::from_mut(v);
+        let v = self.map.get_mut(&id)?;
+        let v: *mut Vec<Erased> = ptr::from_mut(&mut v.terms);
         let v: *mut Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Erased>` state.
@@ -278,7 +403,7 @@ impl TermsOfVariousTypes {
         self.map.is_empty()
             || {
                 debug_assert!(
-                    !self.map.iter().any(|(_, &(ref v, _))| v.is_empty()),
+                    !self.map.iter().any(|(_, v)| v.terms.is_empty()),
                     "internal `pbt` error: `TermsOfVariousTypes` contained an empty vector; it should have been removed from the map after `pop`",
                 );
                 false
@@ -321,7 +446,7 @@ impl TermsOfVariousTypes {
                 clippy::unwrap_in_result,
                 reason = "won't panic b/c internal invariants"
             )]
-            let (v, drop) = self
+            let v = self
                 .map
                 .remove(&type_of::<T>())
                 .expect("internal `pbt` error: failed to remove empty vector of terms");
@@ -331,20 +456,34 @@ impl TermsOfVariousTypes {
     }
 
     #[inline]
+    #[expect(clippy::transmute_ptr_to_ptr, reason = "maximally explicit types")]
     pub fn push<T: Construct>(&mut self, t: T) {
         let id = type_of::<T>();
-        let &mut (ref mut v, _drop) = self.map.entry(id).or_insert_with(|| {
-            let v: Vec<T> = vec![];
-            // SAFETY: Same collection type without elements;
-            // creating a `Vec<T>` first to avoid size/alignment issues.
-            let v = unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) };
-            let drop: fn(Vec<Erased>) = |v| {
-                // SAFETY: Undoing the `transmute` above.
-                drop(unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) })
-            };
-            (v, drop)
+        let terms = self.map.entry(id).or_insert_with(|| Terms {
+            // SAFETY: Never used in its erased form, and
+            // `Vec<_>`s all have the same size+alignment.
+            terms: unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(vec![]) },
+            clone: |v| {
+                // SAFETY: Undoing an earlier `transmute`.
+                let erased = unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(v) }.clone();
+                // SAFETY: Never used in its erased form, and
+                // `Vec<_>`s all have the same size+alignment.
+                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(erased) }
+            },
+            // SAFETY: Undoing an earlier `transmute`.
+            debug: |v, f| fmt::Debug::fmt(unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(v) }, f),
+            // SAFETY: Undoing an earlier `transmute`.
+            drop: |v| mem::drop(unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) }),
+            eq: |lhs, rhs| {
+                <Vec<T> as PartialEq>::eq(
+                    // SAFETY: Undoing an earlier `transmute`.
+                    unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(lhs) },
+                    // SAFETY: Undoing an earlier `transmute`.
+                    unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(rhs) },
+                )
+            },
         });
-        let v: *mut Vec<Erased> = ptr::from_mut(v);
+        let v: *mut Vec<Erased> = ptr::from_mut(&mut terms.terms);
         let v: *mut Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Erased>` state.
@@ -357,28 +496,6 @@ impl Default for TermsOfVariousTypes {
     #[inline]
     fn default() -> Self {
         Self::new()
-    }
-}
-
-impl Drop for TermsOfVariousTypes {
-    #[inline]
-    fn drop(&mut self) {
-        for (_, (v, drop)) in self.map.drain() {
-            drop(v)
-        }
-    }
-}
-
-impl fmt::Debug for TermsOfVariousTypes {
-    #[inline]
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_set()
-            .entries(
-                self.map
-                    .iter()
-                    .map(|(&k, &(ref v, _drop))| vec![k; v.len()]),
-            )
-            .finish()
     }
 }
 
@@ -499,13 +616,14 @@ fn compute_type_info<T: Construct>(
     );
 
     let type_former = T::type_former();
-    let shallow_ctors = match type_former {
+    let (shallow_ctors, eliminator) = match type_former {
         TypeFormer::Algebraic(Algebraic {
-            introduction_rules, ..
-        }) => introduction_rules,
+            introduction_rules,
+            elimination_rule,
+        }) => (introduction_rules, elimination_rule),
         TypeFormer::Literal(Literal { generate, .. }) => {
             return TypeInfo {
-                constructors: Constructors::literal(generate),
+                type_former: PrecomputedTypeFormer::literal(generate),
                 dependencies: TypeDependencies {
                     ctor_idx: None,
                     id: self_id,
@@ -589,7 +707,7 @@ fn compute_type_info<T: Construct>(
     }
 
     TypeInfo {
-        constructors: Constructors::algebraic(constructors),
+        type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
         dependencies: TypeDependencies {
             ctor_idx: None,
             id: self_id,

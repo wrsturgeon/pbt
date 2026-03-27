@@ -3,8 +3,8 @@ use {
         hash::{Map, SEED, Set},
         multiset::Multiset,
         reflection::{
-            AlgebraicConstructors, Constructors, Erased, TermsOfVariousTypes, Type, TypeInfo,
-            type_of,
+            AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type,
+            TypeInfo, type_of,
         },
     },
     core::{
@@ -33,10 +33,15 @@ pub struct IndexedCtorFn<T> {
     pub index: NonZero<usize>,
 }
 
+/// Decompose this value into a
+/// constructor (by index) and
+/// its associated fields.
 #[non_exhaustive]
 #[repr(transparent)]
 #[derive(Clone, Copy, Hash)]
-pub struct ElimFn<T>(fn(T) -> Decomposition);
+pub struct ElimFn<T> {
+    pub call: fn(T) -> Decomposition,
+}
 
 #[derive(/* NOT Copy */ Clone, Debug)]
 pub struct Prng {
@@ -88,14 +93,14 @@ pub struct IntroductionRule<T> {
     pub immediate_dependencies: Multiset<Type>,
 }
 
-pub trait Construct: 'static + Clone {
+pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     /// Generate arbitrary fields for a constructor chosen at runtime.
     fn arbitrary_fields_for_ctor(ctor_idx: NonZero<usize>, prng: &mut Prng) -> TermsOfVariousTypes;
 
     /// Cached type-level information from registration during initialization.
     /// It's always valid (and recommended) to copy and paste the following:
     /// ```
-    /// # #[derive(Clone)]
+    /// # #[derive(Clone, Debug, Eq, PartialEq)]
     /// # struct NewType;
     /// # impl pbt::construct::Construct for NewType {
     /// # fn arbitrary_fields_for_ctor(ctor_idx: core::num::NonZero<usize>, prng: &mut pbt::construct::Prng) -> pbt::reflection::TermsOfVariousTypes { todo!() }
@@ -204,8 +209,8 @@ impl<T> ElimFn<T> {
     }
 
     #[inline]
-    pub const fn new(f: fn(T) -> Decomposition) -> Self {
-        Self(f)
+    pub const fn new(call: fn(T) -> Decomposition) -> Self {
+        Self { call }
     }
 }
 
@@ -224,7 +229,16 @@ impl ElimFn<Erased> {
     #[must_use]
     pub const unsafe fn unerase<T>(self) -> fn(T) -> Decomposition {
         // SAFETY: Same size, still a function pointer with the same arguments.
-        unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(self) }.0
+        unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(self) }.call
+    }
+}
+
+impl<T> Deref for ElimFn<T> {
+    type Target = fn(T) -> Decomposition;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.call
     }
 }
 
@@ -262,6 +276,17 @@ impl Prng {
     }
 
     #[inline]
+    pub fn stream_expanding(prng: &mut WyRand) -> impl Iterator<Item = Self> {
+        (0..).map(|u| {
+            let size = NonZero::new(u);
+            Self {
+                size,
+                state: WyRand::new(prng.rand()),
+            }
+        })
+    }
+
+    #[inline]
     pub const fn u64(&mut self) -> u64 {
         self.state.rand()
     }
@@ -290,20 +315,15 @@ impl DerefMut for Prng {
 )]
 pub fn arbitrary<T: Construct>(prng: &mut Prng) -> Option<T> {
     let info = T::info();
-    match info.constructors {
-        Constructors::Algebraic(AlgebraicConstructors {
+    match info.type_former {
+        PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
             ref potential_leaves,
             ref potential_loops,
             ..
         }) => {
-            let ctor = if prng.should_recurse() {
-                #[expect(
-                    clippy::expect_used,
-                    clippy::unwrap_in_result,
-                    reason = "internal invariant"
-                )]
-                let n = NonZero::new(potential_loops.len())
-                    .expect("internal `pbt` error: attempting to recurse on non-inductive type");
+            let ctor = if prng.should_recurse()
+                && let Some(n) = NonZero::new(potential_loops.len())
+            {
                 #[expect(
                     clippy::as_conversions,
                     clippy::cast_possible_truncation,
@@ -336,7 +356,7 @@ pub fn arbitrary<T: Construct>(prng: &mut Prng) -> Option<T> {
             );
             Some(result)
         }
-        Constructors::Literal { generate } => {
+        PrecomputedTypeFormer::Literal { generate } => {
             // SAFETY: Undoing an earlier transmute.
             let generate = unsafe {
                 mem::transmute::<fn(&mut WyRand) -> Erased, fn(&mut WyRand) -> T>(generate)
@@ -344,6 +364,68 @@ pub fn arbitrary<T: Construct>(prng: &mut Prng) -> Option<T> {
             // All literals are instantiable.
             Some(generate(prng))
         }
+    }
+}
+
+/// Check that constructing a term and them
+/// immediately eliminating that term
+/// is a no-op, i.e. the identity function.
+/// # Panics
+/// If that's not the case.
+#[inline]
+pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
+    let info = T::info();
+    let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
+        eliminator,
+        ref potential_leaves,
+        ref potential_loops,
+        ..
+    }) = info.type_former
+    else {
+        return;
+    };
+    // SAFETY: Undoing an earlier transmute.
+    let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
+    for mut prng in Prng::stream_expanding(prng).take(100) {
+        let ctor = if prng.should_recurse()
+            && let Some(n) = NonZero::new(potential_loops.len())
+        {
+            #[expect(
+                clippy::as_conversions,
+                clippy::cast_possible_truncation,
+                reason = "fine: definitely not > `u64::MAX` constructors"
+            )]
+            let i = prng.rand() as usize % n;
+            // SAFETY: Bounded by length above (see `% n`).
+            unsafe { potential_loops.get_unchecked(i) }
+        } else {
+            let Some(n) = NonZero::new(potential_leaves.len()) else {
+                return;
+            };
+            #[expect(
+                clippy::as_conversions,
+                clippy::cast_possible_truncation,
+                reason = "fine: definitely not > `u64::MAX` constructors"
+            )]
+            let i = prng.rand() as usize % n;
+            // SAFETY: Bounded by length above (see `% n`).
+            unsafe { potential_leaves.get_unchecked(i) }
+        };
+        let orig_fields = T::arbitrary_fields_for_ctor(ctor.index, &mut prng.clone());
+        let mut fields = orig_fields.clone();
+        // SAFETY: By the soundness of the type-`TypeId` relation,
+        // which holds as long as no lifetime subtyping takes place,
+        // and since only `'static` types have IDs and we can't generate functions,
+        // it holds here.
+        let f = unsafe { ctor.unerase::<T>() };
+        let constructed = f(&mut fields);
+        assert!(
+            fields.is_empty(),
+            "internal `pbt` error: leftover terms after applying a constructor",
+        );
+        let eliminated = eliminator(constructed);
+        pretty_assertions::assert_eq!(eliminated.ctor_idx, ctor.index);
+        pretty_assertions::assert_eq!(eliminated.fields, orig_fields);
     }
 }
 

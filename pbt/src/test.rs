@@ -6,29 +6,30 @@
 
 use {
     crate::{
-        construct::{Construct as _, Prng, arbitrary},
-        hash::empty_set,
-        reflection::{Constructors, TermsOfVariousTypes, TypeInfo, type_of},
+        construct::{Construct as _, Prng, arbitrary, check_beta_reduction},
+        hash::{SEED, empty_set},
+        reflection::{PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, type_of},
     },
     core::{
         any::{TypeId, type_name},
         iter,
     },
     pretty_assertions::assert_eq,
+    wyrand::WyRand,
 };
 
 #[test]
 fn info_bool() {
     type T = bool;
     let TypeInfo {
-        ref constructors,
+        ref type_former,
         ref dependencies,
         name,
         trivial,
     } = *T::info();
     assert_eq!(name, type_name::<T>());
-    let Constructors::Literal { .. } = *constructors else {
-        panic!("expected literal (non-algebraic) constructors but found {constructors:#?}")
+    let PrecomputedTypeFormer::Literal { .. } = *type_former else {
+        panic!("expected literal (non-algebraic) type former but found {type_former:#?}")
     };
     assert_eq!(dependencies.ctor_idx, None);
     assert_eq!(
@@ -47,14 +48,14 @@ fn info_bool() {
 fn info_box_bool() {
     type T = Box<bool>;
     let TypeInfo {
-        ref constructors,
+        ref type_former,
         ref dependencies,
         name,
         trivial,
     } = *T::info();
     assert_eq!(name, type_name::<T>());
-    let Constructors::Algebraic(ref constructors) = *constructors else {
-        panic!("expected algebraic constructors but found {constructors:#?}")
+    let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
+        panic!("expected algebraic constructors but found {type_former:#?}")
     };
     assert_eq!(constructors.all_tagged.len(), 1);
     assert_eq!(constructors.guaranteed_leaves.len(), 1);
@@ -198,4 +199,14 @@ fn arbitrary_box_bool() {
         .map(Box::new)
         .collect::<Vec<_>>(),
     );
+}
+
+#[test]
+fn beta_reduction_bool() {
+    let () = check_beta_reduction::<bool>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
+fn beta_reduction_box_bool() {
+    let () = check_beta_reduction::<Box<bool>>(&mut WyRand::new(u64::from(SEED)));
 }

@@ -13,10 +13,8 @@ version.workspace = true
 
 [dependencies]
 ahash = "~0.8"
-wyrand = "~0.4"
-
-[dev-dependencies]
 pretty_assertions = "~1.4"
+wyrand = "~0.4"
 
 
 [lints]
