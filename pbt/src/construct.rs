@@ -429,6 +429,48 @@ pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
     }
 }
 
+/// Check that eliminating a term and them
+/// immediately constructing it again
+/// is a no-op, i.e. the identity function.
+/// # Panics
+/// If that's not the case.
+#[inline]
+pub fn check_eta_expansion<T: Construct>(prng: &mut WyRand) {
+    let info = T::info();
+    let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
+        ref all_tagged,
+        eliminator,
+        ..
+    }) = info.type_former
+    else {
+        return;
+    };
+    // SAFETY: Undoing an earlier transmute.
+    let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
+    for mut prng in Prng::stream_expanding(prng).take(100) {
+        let Some(orig) = arbitrary::<T>(&mut prng) else {
+            return;
+        };
+        let Decomposition {
+            ctor_idx,
+            mut fields,
+        } = eliminator(orig.clone());
+        #[expect(clippy::indexing_slicing, reason = "failing tests ought to panic")]
+        let (ctor, _) = all_tagged[ctor_idx.get() - 1];
+        // SAFETY: By the soundness of the type-`TypeId` relation,
+        // which holds as long as no lifetime subtyping takes place,
+        // and since only `'static` types have IDs and we can't generate functions,
+        // it holds here.
+        let f = unsafe { ctor.unerase::<T>() };
+        let constructed = f(&mut fields);
+        assert!(
+            fields.is_empty(),
+            "internal `pbt` error: leftover terms after applying a constructor",
+        );
+        pretty_assertions::assert_eq!(constructed, orig);
+    }
+}
+
 #[inline]
 pub fn visit_self<V: Construct, S: Construct>(s: &S) -> impl Iterator<Item = &V> {
     visit_self_opt::<V, S>(s).into_iter()

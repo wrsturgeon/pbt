@@ -6,7 +6,7 @@
 
 use {
     crate::{
-        construct::{Construct as _, Prng, arbitrary, check_beta_reduction},
+        construct::{Construct as _, Prng, arbitrary, check_beta_reduction, check_eta_expansion},
         hash::{SEED, empty_set},
         reflection::{PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, type_of},
     },
@@ -209,4 +209,14 @@ fn beta_reduction_bool() {
 #[test]
 fn beta_reduction_box_bool() {
     let () = check_beta_reduction::<Box<bool>>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
+fn eta_expansion_bool() {
+    let () = check_eta_expansion::<bool>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
+fn eta_expansion_box_bool() {
+    let () = check_eta_expansion::<Box<bool>>(&mut WyRand::new(u64::from(SEED)));
 }
