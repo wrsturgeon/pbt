@@ -1,10 +1,7 @@
 use ahash::{HashMap, HashSet, RandomState};
 
-/// The 128-bit hash seed, to be truncated for various platforms.
-const SEED_U128: u128 = 0x_1337_1337_1337_1337_1337_1337_1337_1337;
-/// The seed with which to initialize hash-related states.
-#[expect(clippy::as_conversions, reason = "truncation is fine")]
-const SEED: usize = SEED_U128 as usize;
+/// The 16-bit hash seed, to be zero-extended for various platforms.
+pub(crate) const SEED: u16 = 0x1337;
 
 pub type Set<T> = HashSet<T>;
 pub type Map<K, V> = HashMap<K, V>;
@@ -13,7 +10,7 @@ pub type Map<K, V> = HashMap<K, V>;
 #[inline]
 #[must_use]
 fn new_state() -> RandomState {
-    RandomState::with_seed(SEED)
+    RandomState::with_seed(usize::from(SEED))
 }
 
 /// Deterministically initialize an empty set.

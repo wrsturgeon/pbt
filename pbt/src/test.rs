@@ -1,8 +1,12 @@
-#![expect(clippy::panic, reason = "failing tests ought to panic")]
+#![expect(
+    clippy::panic,
+    clippy::unwrap_used,
+    reason = "failing tests ought to panic"
+)]
 
 use {
     crate::{
-        construct::Construct as _,
+        construct::{Construct as _, Prng, arbitrary},
         hash::empty_set,
         reflection::{Constructors, TermsOfVariousTypes, TypeInfo, type_of},
     },
@@ -143,4 +147,55 @@ fn terms_of_various_types() {
     assert_eq!(terms.pop(), Some(42_u64));
     assert_eq!(terms.pop(), Option::<u64>::None);
     // leave `true` intact to test that `Drop` doesn't leak:
+}
+
+#[test]
+fn arbitrary_bool() {
+    let mut prng = Prng::new(None);
+    assert_eq!(
+        iter::repeat_with(|| arbitrary(&mut prng).unwrap())
+            .take(10)
+            .collect::<Vec<bool>>(),
+        vec![
+            false, false, false, true, false, true, false, true, true, false,
+        ],
+    );
+}
+
+#[test]
+fn arbitrary_u64() {
+    let mut prng = Prng::new(None);
+    assert_eq!(
+        iter::repeat_with(|| arbitrary(&mut prng).unwrap())
+            .take(10)
+            .collect::<Vec<u64>>(),
+        vec![
+            6_502_630_866_907_404_834,
+            18_353_055_445_182_403_062,
+            10_599_744_798_405_285_088,
+            974_438_577_008_164_883,
+            366_399_349_974_675_270,
+            15_480_388_469_539_559_217,
+            17_528_150_796_657_311_260,
+            14_774_801_171_373_612_679,
+            9_171_889_233_211_178_199,
+            15_721_880_942_338_967_310,
+        ],
+    );
+}
+
+#[test]
+fn arbitrary_box_bool() {
+    let mut prng = Prng::new(None);
+    assert_eq!(
+        iter::repeat_with(|| arbitrary(&mut prng).unwrap())
+            .take(10)
+            .collect::<Vec<Box<bool>>>(),
+        [
+            false, true, true, true, false, false, true, true, true, false,
+        ]
+        .into_iter()
+        .map(Box::new)
+        .collect::<Vec<_>>(),
+    );
 }

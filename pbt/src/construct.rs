@@ -1,6 +1,6 @@
 use {
     crate::{
-        hash::{Map, Set},
+        hash::{Map, SEED, Set},
         multiset::Multiset,
         reflection::{
             AlgebraicConstructors, Constructors, Erased, TermsOfVariousTypes, Type, TypeInfo,
@@ -231,8 +231,11 @@ impl ElimFn<Erased> {
 impl Prng {
     #[must_use]
     #[inline(always)]
-    pub const fn new(size: Option<NonZero<usize>>, state: WyRand) -> Self {
-        Self { size, state }
+    pub fn new(size: Option<NonZero<usize>>) -> Self {
+        Self {
+            size,
+            state: WyRand::new(u64::from(SEED)),
+        }
     }
 
     /// Whether to choose a potential leaf or loop constructor.
