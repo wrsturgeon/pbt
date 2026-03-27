@@ -1,14 +1,11 @@
-#![expect(
-    clippy::panic,
-    clippy::unwrap_used,
-    reason = "failing tests ought to panic"
-)]
+#![expect(clippy::panic, reason = "failing tests ought to panic")]
 
 use {
     crate::{
-        construct::{Construct as _, Prng, arbitrary, check_beta_reduction, check_eta_expansion},
+        construct::{Construct as _, arbitrary, check_beta_reduction, check_eta_expansion},
         hash::{SEED, empty_set},
         reflection::{PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, type_of},
+        size::Size,
     },
     core::{
         any::{TypeId, type_name},
@@ -152,10 +149,11 @@ fn terms_of_various_types() {
 
 #[test]
 fn arbitrary_bool() {
-    let mut prng = Prng::new(None);
+    let mut prng = WyRand::new(u64::from(SEED));
     assert_eq!(
-        iter::repeat_with(|| arbitrary(&mut prng).unwrap())
+        Size::expanding()
             .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
             .collect::<Vec<bool>>(),
         vec![
             false, false, false, true, false, true, false, true, true, false,
@@ -165,10 +163,11 @@ fn arbitrary_bool() {
 
 #[test]
 fn arbitrary_u64() {
-    let mut prng = Prng::new(None);
+    let mut prng = WyRand::new(u64::from(SEED));
     assert_eq!(
-        iter::repeat_with(|| arbitrary(&mut prng).unwrap())
+        Size::expanding()
             .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
             .collect::<Vec<u64>>(),
         vec![
             6_502_630_866_907_404_834,
@@ -187,13 +186,14 @@ fn arbitrary_u64() {
 
 #[test]
 fn arbitrary_box_bool() {
-    let mut prng = Prng::new(None);
+    let mut prng = WyRand::new(u64::from(SEED));
     assert_eq!(
-        iter::repeat_with(|| arbitrary(&mut prng).unwrap())
+        Size::expanding()
             .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
             .collect::<Vec<Box<bool>>>(),
         [
-            false, true, true, true, false, false, true, true, true, false,
+            false, false, true, true, true, true, false, false, true, true,
         ]
         .into_iter()
         .map(Box::new)

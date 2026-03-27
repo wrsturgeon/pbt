@@ -1,10 +1,11 @@
 use {
     crate::{
         construct::{
-            Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal, Prng,
+            Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
             TypeFormer,
         },
         hash::{Map, Set, empty_map, empty_set},
+        size::Size,
     },
     core::{
         any::{TypeId, type_name},
@@ -275,7 +276,8 @@ impl Construct for Erased {
     #[inline]
     fn arbitrary_fields_for_ctor(
         _ctor_idx: NonZero<usize>,
-        _prng: &mut Prng,
+        _prng: &mut WyRand,
+        _size: Size,
     ) -> TermsOfVariousTypes {
         panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
     }

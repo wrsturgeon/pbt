@@ -3,11 +3,12 @@
 use {
     crate::{
         construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, Prng,
-            TypeFormer, arbitrary, visit_self, visit_self_or,
+            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+            arbitrary, visit_self, visit_self_or,
         },
         hash::{Map, Set, empty_set},
         reflection::{_registry_mut, TermsOfVariousTypes, Type, TypeInfo, register, type_of},
+        size::Size,
     },
     core::{any::type_name, iter, num::NonZero},
     std::sync::{Arc, OnceLock},
@@ -15,12 +16,16 @@ use {
 
 impl<T: Construct> Construct for Box<T> {
     #[inline]
-    fn arbitrary_fields_for_ctor(ctor_idx: NonZero<usize>, prng: &mut Prng) -> TermsOfVariousTypes {
+    fn arbitrary_fields_for_ctor(
+        ctor_idx: NonZero<usize>,
+        prng: &mut wyrand::WyRand,
+        size: Size,
+    ) -> TermsOfVariousTypes {
         let mut fields = TermsOfVariousTypes::new();
         match ctor_idx.get() {
             1 => {
                 #[expect(clippy::panic, reason = "internal invariant violated")]
-                let Some(unboxed) = arbitrary::<T>(prng) else {
+                let Some(unboxed) = arbitrary::<T>(prng, size) else {
                     panic!(
                         "uninstantiable type `{}` in constructor #{ctor_idx} of `{}`",
                         type_name::<T>(),

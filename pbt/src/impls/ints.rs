@@ -2,9 +2,10 @@
 
 use {
     crate::{
-        construct::{Construct, Literal, Prng, TypeFormer, visit_self},
+        construct::{Construct, Literal, TypeFormer, visit_self},
         hash::{Map, Set, empty_set},
         reflection::{_registry_mut, TermsOfVariousTypes, Type, TypeInfo, register},
+        size::Size,
     },
     core::num::NonZero,
     std::sync::{Arc, OnceLock},
@@ -30,7 +31,8 @@ impl Construct for bool {
     #[inline]
     fn arbitrary_fields_for_ctor(
         _ctor_idx: NonZero<usize>,
-        _prng: &mut Prng,
+        _prng: &mut WyRand,
+        _size: Size,
     ) -> TermsOfVariousTypes {
         TermsOfVariousTypes::new()
     }
@@ -74,7 +76,8 @@ impl Construct for u64 {
     #[inline]
     fn arbitrary_fields_for_ctor(
         _ctor_idx: NonZero<usize>,
-        _prng: &mut Prng,
+        _prng: &mut WyRand,
+        _size: Size,
     ) -> TermsOfVariousTypes {
         TermsOfVariousTypes::new()
     }

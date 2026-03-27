@@ -1,18 +1,14 @@
 use {
     crate::{
-        hash::{Map, SEED, Set},
+        hash::{Map, Set},
         multiset::Multiset,
         reflection::{
             AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type,
             TypeInfo, type_of,
         },
+        size::Size,
     },
-    core::{
-        fmt, mem,
-        num::NonZero,
-        ops::{Deref, DerefMut},
-        ptr,
-    },
+    core::{fmt, mem, num::NonZero, ops::Deref, ptr},
     std::sync::Arc,
     wyrand::WyRand,
 };
@@ -41,16 +37,6 @@ pub struct IndexedCtorFn<T> {
 #[derive(Clone, Copy, Hash)]
 pub struct ElimFn<T> {
     pub call: fn(T) -> Decomposition,
-}
-
-#[derive(/* NOT Copy */ Clone, Debug)]
-pub struct Prng {
-    /// The expected size of a term generated
-    /// with this pseudorandom number generator.
-    size: Option<NonZero<usize>>,
-    /// The internal pseudorandom state
-    /// used to generate arbitrary integers.
-    state: WyRand,
 }
 
 #[non_exhaustive]
@@ -95,7 +81,11 @@ pub struct IntroductionRule<T> {
 
 pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     /// Generate arbitrary fields for a constructor chosen at runtime.
-    fn arbitrary_fields_for_ctor(ctor_idx: NonZero<usize>, prng: &mut Prng) -> TermsOfVariousTypes;
+    fn arbitrary_fields_for_ctor(
+        ctor_idx: NonZero<usize>,
+        prng: &mut WyRand,
+        size: Size,
+    ) -> TermsOfVariousTypes;
 
     /// Cached type-level information from registration during initialization.
     /// It's always valid (and recommended) to copy and paste the following:
@@ -103,7 +93,7 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     /// # #[derive(Clone, Debug, Eq, PartialEq)]
     /// # struct NewType;
     /// # impl pbt::construct::Construct for NewType {
-    /// # fn arbitrary_fields_for_ctor(ctor_idx: core::num::NonZero<usize>, prng: &mut pbt::construct::Prng) -> pbt::reflection::TermsOfVariousTypes { todo!() }
+    /// # fn arbitrary_fields_for_ctor(ctor_idx: core::num::NonZero<usize>, prng: &mut wyrand::WyRand, size: pbt::size::Size) -> pbt::reflection::TermsOfVariousTypes { todo!() }
     /// #[inline]
     /// fn info() -> &'static pbt::reflection::TypeInfo {
     ///     static CACHE: std::sync::OnceLock<std::sync::Arc<pbt::reflection::TypeInfo>> =
@@ -242,78 +232,12 @@ impl<T> Deref for ElimFn<T> {
     }
 }
 
-impl Prng {
-    #[must_use]
-    #[inline(always)]
-    pub fn new(size: Option<NonZero<usize>>) -> Self {
-        Self {
-            size,
-            state: WyRand::new(u64::from(SEED)),
-        }
-    }
-
-    /// Whether to choose a potential leaf or loop constructor.
-    #[must_use]
-    #[inline]
-    fn should_recurse(&mut self) -> bool {
-        let Some(n) = self.size else {
-            return false;
-        };
-        {
-            #![expect(
-                clippy::as_conversions,
-                clippy::cast_possible_truncation,
-                reason = "fine: definitely not > `u64::MAX` constructors"
-            )]
-            self.state.rand() as usize % n != 0
-        }
-    }
-
-    #[must_use]
-    #[inline(always)]
-    pub const fn size(&self) -> Option<NonZero<usize>> {
-        self.size
-    }
-
-    #[inline]
-    pub fn stream_expanding(prng: &mut WyRand) -> impl Iterator<Item = Self> {
-        (0..).map(|u| {
-            let size = NonZero::new(u);
-            Self {
-                size,
-                state: WyRand::new(prng.rand()),
-            }
-        })
-    }
-
-    #[inline]
-    pub const fn u64(&mut self) -> u64 {
-        self.state.rand()
-    }
-}
-
-impl Deref for Prng {
-    type Target = WyRand;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.state
-    }
-}
-
-impl DerefMut for Prng {
-    #[inline]
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.state
-    }
-}
-
 #[inline]
 #[expect(
     clippy::missing_panics_doc,
     reason = "no user-facing panics; only internal errors"
 )]
-pub fn arbitrary<T: Construct>(prng: &mut Prng) -> Option<T> {
+pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
     let info = T::info();
     match info.type_former {
         PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
@@ -321,7 +245,7 @@ pub fn arbitrary<T: Construct>(prng: &mut Prng) -> Option<T> {
             ref potential_loops,
             ..
         }) => {
-            let ctor = if prng.should_recurse()
+            let ctor = if size.should_recurse(prng)
                 && let Some(n) = NonZero::new(potential_loops.len())
             {
                 #[expect(
@@ -343,7 +267,7 @@ pub fn arbitrary<T: Construct>(prng: &mut Prng) -> Option<T> {
                 // SAFETY: Bounded by length above (see `% n`).
                 unsafe { potential_leaves.get_unchecked(i) }
             };
-            let mut fields = T::arbitrary_fields_for_ctor(ctor.index, prng);
+            let mut fields = T::arbitrary_fields_for_ctor(ctor.index, prng, size);
             // SAFETY: By the soundness of the type-`TypeId` relation,
             // which holds as long as no lifetime subtyping takes place,
             // and since only `'static` types have IDs and we can't generate functions,
@@ -386,8 +310,8 @@ pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
     };
     // SAFETY: Undoing an earlier transmute.
     let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
-    for mut prng in Prng::stream_expanding(prng).take(100) {
-        let ctor = if prng.should_recurse()
+    for size in Size::expanding().take(100) {
+        let ctor = if size.should_recurse(prng)
             && let Some(n) = NonZero::new(potential_loops.len())
         {
             #[expect(
@@ -411,7 +335,7 @@ pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
             // SAFETY: Bounded by length above (see `% n`).
             unsafe { potential_leaves.get_unchecked(i) }
         };
-        let orig_fields = T::arbitrary_fields_for_ctor(ctor.index, &mut prng.clone());
+        let orig_fields = T::arbitrary_fields_for_ctor(ctor.index, prng, size);
         let mut fields = orig_fields.clone();
         // SAFETY: By the soundness of the type-`TypeId` relation,
         // which holds as long as no lifetime subtyping takes place,
@@ -447,8 +371,8 @@ pub fn check_eta_expansion<T: Construct>(prng: &mut WyRand) {
     };
     // SAFETY: Undoing an earlier transmute.
     let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
-    for mut prng in Prng::stream_expanding(prng).take(100) {
-        let Some(orig) = arbitrary::<T>(&mut prng) else {
+    for size in Size::expanding().take(100) {
+        let Some(orig) = arbitrary::<T>(prng, size) else {
             return;
         };
         let Decomposition {
