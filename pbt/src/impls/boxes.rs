@@ -3,12 +3,13 @@
 use {
     crate::{
         construct::{
-            Construct, CtorFn, IntroductionRules, ShallowConstructor, visit_self, visit_self_or,
+            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+            visit_self, visit_self_or,
         },
         hash::{Map, Set, empty_set},
-        reflection::{_registry_mut, Type, TypeInfo, register, type_of},
+        reflection::{_registry_mut, TermsOfVariousTypes, Type, TypeInfo, register, type_of},
     },
-    core::{any::type_name, iter},
+    core::{any::type_name, iter, num::NonZero},
     std::sync::{Arc, OnceLock},
 };
 
@@ -17,16 +18,6 @@ impl<T: Construct> Construct for Box<T> {
     fn info() -> &'static TypeInfo {
         static CACHE: OnceLock<Arc<TypeInfo>> = OnceLock::new();
         CACHE.get_or_init(|| register::<Self>(empty_set(), &mut _registry_mut()))
-    }
-
-    #[inline]
-    fn introduction_rules() -> IntroductionRules<Self> {
-        IntroductionRules::Algebraic {
-            constructors: vec![ShallowConstructor {
-                construct: CtorFn::new(|mut terms| Box::new(terms.must_pop())),
-                immediate_dependencies: iter::once(type_of::<T>()).collect(),
-            }],
-        }
     }
 
     #[inline]
@@ -43,6 +34,25 @@ impl<T: Construct> Construct for Box<T> {
             type_name::<Self>(),
         );
         register::<T>(visited, registry);
+    }
+
+    #[inline]
+    fn type_former() -> TypeFormer<Self> {
+        TypeFormer::Algebraic(Algebraic {
+            introduction_rules: vec![IntroductionRule {
+                construct: CtorFn::new(|mut terms| Box::new(terms.must_pop())),
+                immediate_dependencies: iter::once(type_of::<T>()).collect(),
+            }],
+            elimination_rule: ElimFn::new(|boxed| {
+                let mut fields = TermsOfVariousTypes::new();
+                let () = fields.push::<T>(*boxed);
+                Decomposition {
+                    // SAFETY: 1 != 0
+                    ctor_idx: unsafe { NonZero::new_unchecked(1) },
+                    fields,
+                }
+            }),
+        })
     }
 
     #[inline]

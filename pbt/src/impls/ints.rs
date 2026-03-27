@@ -2,13 +2,28 @@
 
 use {
     crate::{
-        construct::{Construct, IntroductionRules, visit_self},
+        construct::{Construct, Literal, TypeFormer, visit_self},
         hash::{Map, Set, empty_set},
         reflection::{_registry_mut, Type, TypeInfo, register},
     },
     std::sync::{Arc, OnceLock},
     wyrand::WyRand,
 };
+
+/// Subtract the entire term from itself (=> 0),
+/// then subtract half *less* each time thereafter:
+/// e.g. for 100, this would return [0, 50, 75, 88, 94, 97, 99].
+macro_rules! shrink_int {
+    () => {
+        |&u| -> Box<dyn Iterator<Item = Self>> {
+            Box::new((0_u16..).map_while(move |shr| {
+                let subtrahend = u >> shr;
+                #[expect(clippy::arithmetic_side_effects, reason = "`u >> _` is always <= `u`")]
+                (subtrahend != 0).then(|| u - subtrahend)
+            }))
+        }
+    };
+}
 
 impl Construct for bool {
     #[inline]
@@ -18,17 +33,21 @@ impl Construct for bool {
     }
 
     #[inline]
-    fn introduction_rules() -> IntroductionRules<Self> {
-        IntroductionRules::Literal {
-            generate: |prng| (prng.rand() & 1) != 0,
-        }
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(
         _visited: &Set<Type>,
         _registry: &mut Map<Type, Arc<TypeInfo>>,
     ) {
+        // n/a
+    }
+
+    #[inline]
+    fn type_former() -> TypeFormer<Self> {
+        TypeFormer::Literal(Literal {
+            generate: |prng| (prng.rand() & 1) != 0,
+            shrink: |&b| -> Box<dyn Iterator<Item = Self>> {
+                Box::new(b.then_some(false).into_iter())
+            },
+        })
     }
 
     #[inline]
@@ -50,17 +69,19 @@ impl Construct for u64 {
     }
 
     #[inline]
-    fn introduction_rules() -> IntroductionRules<Self> {
-        IntroductionRules::Literal {
-            generate: WyRand::rand,
-        }
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(
         _visited: &Set<Type>,
         _registry: &mut Map<Type, Arc<TypeInfo>>,
     ) {
+        // n/a
+    }
+
+    #[inline]
+    fn type_former() -> TypeFormer<Self> {
+        TypeFormer::Literal(Literal {
+            generate: WyRand::rand,
+            shrink: shrink_int!(),
+        })
     }
 
     #[inline]

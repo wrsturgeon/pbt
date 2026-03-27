@@ -14,6 +14,11 @@ use {
 #[derive(Clone, Copy, Hash)]
 pub struct CtorFn<T>(fn(TermsOfVariousTypes) -> T);
 
+#[non_exhaustive]
+#[repr(transparent)]
+#[derive(Clone, Copy, Hash)]
+pub struct ElimFn<T>(fn(T) -> Decomposition);
+
 #[derive(/* NOT Copy */ Clone, Debug)]
 pub struct Prng {
     /// The expected size of a term generated
@@ -26,18 +31,37 @@ pub struct Prng {
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
-pub enum IntroductionRules<T> {
-    Algebraic {
-        constructors: Vec<ShallowConstructor<T>>,
-    },
-    Literal {
-        generate: for<'prng> fn(&'prng mut WyRand) -> T,
-    },
+pub struct Algebraic<T> {
+    pub elimination_rule: ElimFn<T>,
+    pub introduction_rules: Vec<IntroductionRule<T>>,
 }
 
 #[non_exhaustive]
 #[derive(Clone, Debug)]
-pub struct ShallowConstructor<T> {
+pub struct Literal<T> {
+    pub generate: for<'prng> fn(&'prng mut WyRand) -> T,
+    pub shrink: for<'orig> fn(&'orig T) -> Box<dyn Iterator<Item = T>>,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub enum TypeFormer<T> {
+    Algebraic(Algebraic<T>),
+    Literal(Literal<T>),
+}
+
+/// Decomposition of an algebraic value into its
+/// constructor index and all immediate fields.
+#[non_exhaustive]
+#[derive(Debug)]
+pub struct Decomposition {
+    pub ctor_idx: NonZero<usize>,
+    pub fields: TermsOfVariousTypes,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub struct IntroductionRule<T> {
     pub construct: CtorFn<T>,
     pub immediate_dependencies: Multiset<Type>,
 }
@@ -61,16 +85,12 @@ pub trait Construct: 'static + Clone {
     ///     })
     /// }
     /// # fn register_all_immediate_dependencies(_: &pbt::hash::Set<pbt::reflection::Type>, _: &mut pbt::hash::Map<pbt::reflection::Type, std::sync::Arc<pbt::reflection::TypeInfo>>) {}
-    /// # fn introduction_rules() -> pbt::construct::IntroductionRules<Self> { todo!() }
+    /// # fn type_former() -> pbt::construct::TypeFormer<Self> { todo!() }
     /// # fn visit_deep<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
     /// # fn visit_shallow<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
     /// # }
     /// ```
     fn info() -> &'static TypeInfo;
-
-    /// The exhaustive disjoint set of methods
-    /// to construct a term of this type.
-    fn introduction_rules() -> IntroductionRules<Self>;
 
     /// Run depth-first search on the global type dependency graph.
     /// All this needs to do in practice is to
@@ -82,6 +102,10 @@ pub trait Construct: 'static + Clone {
         visited: &Set<Type>,
         registry: &mut Map<Type, Arc<TypeInfo>>,
     );
+
+    /// The exhaustive disjoint set of methods
+    /// to construct a term of this type.
+    fn type_former() -> TypeFormer<Self>;
 
     /// Visit all terms of type `V` in this abstract syntax tree.
     /// Your implementation should always follow this formula:
@@ -124,6 +148,39 @@ impl CtorFn<Erased> {
     pub const unsafe fn unerase<T>(self) -> CtorFn<T> {
         // SAFETY: Same size, still a function pointer with the same arguments.
         unsafe { mem::transmute::<CtorFn<Erased>, CtorFn<T>>(self) }
+    }
+}
+
+impl<T> ElimFn<T> {
+    #[inline]
+    #[must_use]
+    pub const fn erase(self) -> ElimFn<Erased> {
+        // SAFETY: Same size, still a function pointer with the same arguments.
+        unsafe { mem::transmute::<ElimFn<T>, ElimFn<Erased>>(self) }
+    }
+
+    #[inline]
+    pub const fn new(f: fn(T) -> Decomposition) -> Self {
+        Self(f)
+    }
+}
+
+impl<T> fmt::Debug for ElimFn<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("(|ctor| ...)")
+    }
+}
+
+impl ElimFn<Erased> {
+    /// Interpret this type-erased generator as a generator for a specific type.
+    /// # Safety
+    /// You'd better be damn well sure that you're specifying the right type.
+    #[inline]
+    #[must_use]
+    pub const unsafe fn unerase<T>(self) -> ElimFn<T> {
+        // SAFETY: Same size, still a function pointer with the same arguments.
+        unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(self) }
     }
 }
 

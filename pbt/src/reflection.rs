@@ -1,6 +1,6 @@
 use {
     crate::{
-        construct::{Construct, CtorFn, IntroductionRules, ShallowConstructor},
+        construct::{Algebraic, Construct, CtorFn, IntroductionRule, Literal, TypeFormer},
         hash::{Map, Set, empty_map, empty_set},
     },
     core::{
@@ -222,6 +222,19 @@ impl TermsOfVariousTypes {
         Some(v)
     }
 
+    #[inline]
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+            || {
+                debug_assert!(
+                    !self.map.iter().any(|(_, &(ref v, _))| v.is_empty()),
+                    "internal `pbt` error: `TermsOfVariousTypes` contained an empty vector; it should have been removed from the map after `pop`",
+                );
+                false
+            }
+    }
+
     /// Remove the last-pushed term of a given type (usually inferred).
     /// # Panics
     /// If no terms of that type remain.
@@ -417,6 +430,10 @@ pub fn _registry_mut<'lock>() -> RwLockWriteGuard<'lock, Map<Type, Arc<TypeInfo>
 /// and the return value of this function will be *automatically* added to the registry.
 /// Do not attempt either operation manually from within this function.
 #[inline]
+#[expect(
+    clippy::too_many_lines,
+    reason = "TODO: split into a few encapsulated functions"
+)]
 fn compute_type_info<T: Construct>(
     mut visited: Set<Type>,
     registry: &mut Map<Type, Arc<TypeInfo>>,
@@ -431,10 +448,12 @@ fn compute_type_info<T: Construct>(
         type_name::<T>(),
     );
 
-    let intros = T::introduction_rules();
-    let shallow_ctors = match intros {
-        IntroductionRules::Algebraic { constructors } => constructors,
-        IntroductionRules::Literal { generate } => {
+    let type_former = T::type_former();
+    let shallow_ctors = match type_former {
+        TypeFormer::Algebraic(Algebraic {
+            introduction_rules, ..
+        }) => introduction_rules,
+        TypeFormer::Literal(Literal { generate, .. }) => {
             return TypeInfo {
                 constructors: Constructors::literal(generate),
                 dependencies: TypeDependencies {
@@ -453,7 +472,7 @@ fn compute_type_info<T: Construct>(
     // we care only whether this type wraps a single other type,
     // not anything about the type that's being wrapped or any transitive dependencies.
     let trivial = if let [
-        ShallowConstructor {
+        IntroductionRule {
             ref immediate_dependencies,
             ..
         },
@@ -477,7 +496,7 @@ fn compute_type_info<T: Construct>(
     let mut unavoidable: Option<Set<Type>> = None;
     for (
         i,
-        ShallowConstructor {
+        IntroductionRule {
             construct,
             immediate_dependencies,
         },
