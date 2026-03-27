@@ -3,8 +3,8 @@
 use {
     crate::{
         construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_or,
+            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, Prng,
+            TypeFormer, arbitrary, visit_self, visit_self_or,
         },
         hash::{Map, Set, empty_set},
         reflection::{_registry_mut, TermsOfVariousTypes, Type, TypeInfo, register, type_of},
@@ -14,6 +14,30 @@ use {
 };
 
 impl<T: Construct> Construct for Box<T> {
+    #[inline]
+    fn arbitrary_fields_for_ctor(ctor_idx: NonZero<usize>, prng: &mut Prng) -> TermsOfVariousTypes {
+        let mut fields = TermsOfVariousTypes::new();
+        match ctor_idx.get() {
+            1 => {
+                #[expect(clippy::panic, reason = "internal invariant violated")]
+                let Some(unboxed) = arbitrary::<T>(prng) else {
+                    panic!(
+                        "uninstantiable type `{}` in constructor #{ctor_idx} of `{}`",
+                        type_name::<T>(),
+                        type_name::<Self>(),
+                    )
+                };
+                let () = fields.push(unboxed);
+            }
+            #[expect(clippy::panic, reason = "internal invariant violated")]
+            _ => panic!(
+                "internal `pbt` error: unknown `{}` constructor index #{ctor_idx}",
+                type_name::<Self>(),
+            ),
+        }
+        fields
+    }
+
     #[inline]
     fn info() -> &'static TypeInfo {
         static CACHE: OnceLock<Arc<TypeInfo>> = OnceLock::new();
@@ -40,7 +64,7 @@ impl<T: Construct> Construct for Box<T> {
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
-                construct: CtorFn::new(|mut terms| Box::new(terms.must_pop())),
+                call: CtorFn::new(|terms| Box::new(terms.must_pop())),
                 immediate_dependencies: iter::once(type_of::<T>()).collect(),
             }],
             elimination_rule: ElimFn::new(|boxed| {

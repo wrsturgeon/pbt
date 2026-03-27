@@ -2,10 +2,11 @@
 
 use {
     crate::{
-        construct::{Construct, Literal, TypeFormer, visit_self},
+        construct::{Construct, Literal, Prng, TypeFormer, visit_self},
         hash::{Map, Set, empty_set},
-        reflection::{_registry_mut, Type, TypeInfo, register},
+        reflection::{_registry_mut, TermsOfVariousTypes, Type, TypeInfo, register},
     },
+    core::num::NonZero,
     std::sync::{Arc, OnceLock},
     wyrand::WyRand,
 };
@@ -26,6 +27,14 @@ macro_rules! shrink_int {
 }
 
 impl Construct for bool {
+    #[inline]
+    fn arbitrary_fields_for_ctor(
+        _ctor_idx: NonZero<usize>,
+        _prng: &mut Prng,
+    ) -> TermsOfVariousTypes {
+        TermsOfVariousTypes::new()
+    }
+
     #[inline]
     fn info() -> &'static TypeInfo {
         static CACHE: OnceLock<Arc<TypeInfo>> = OnceLock::new();
@@ -62,6 +71,14 @@ impl Construct for bool {
 }
 
 impl Construct for u64 {
+    #[inline]
+    fn arbitrary_fields_for_ctor(
+        _ctor_idx: NonZero<usize>,
+        _prng: &mut Prng,
+    ) -> TermsOfVariousTypes {
+        TermsOfVariousTypes::new()
+    }
+
     #[inline]
     fn info() -> &'static TypeInfo {
         static CACHE: OnceLock<Arc<TypeInfo>> = OnceLock::new();

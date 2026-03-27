@@ -1,6 +1,8 @@
 use {
     crate::{
-        construct::{Algebraic, Construct, CtorFn, IntroductionRule, Literal, TypeFormer},
+        construct::{
+            Algebraic, Construct, CtorFn, IndexedCtorFn, IntroductionRule, Literal, TypeFormer,
+        },
         hash::{Map, Set, empty_map, empty_set},
     },
     core::{
@@ -85,21 +87,21 @@ pub struct AlgebraicConstructors {
     /// All constructors for which `Self` is *unreachable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly smaller* value (in some sense).
-    pub guaranteed_leaves: Vec<CtorFn<Erased>>,
+    pub guaranteed_leaves: Vec<IndexedCtorFn<Erased>>,
     /// All constructors for which `Self` is *unavoidable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly larger* value (in some sense).
-    pub guaranteed_loops: Vec<CtorFn<Erased>>,
+    pub guaranteed_loops: Vec<IndexedCtorFn<Erased>>,
     /// All constructors for which `Self` is *avoidable*.
     /// This is guaranteed to be non-empty because
     /// Rust disallows coinductive types (i.e. streams, infinite-size types, etc.)
     /// Use this (when non-empty) to *allow* generation of
     /// a smaller value (in some sense).
-    pub potential_leaves: Vec<CtorFn<Erased>>,
+    pub potential_leaves: Vec<IndexedCtorFn<Erased>>,
     /// All constructors for which `Self` is *reachable*.
     /// Use this (when non-empty) to *allow* generation of
     /// a *larger* value (in some sense).
-    pub potential_loops: Vec<CtorFn<Erased>>,
+    pub potential_loops: Vec<IndexedCtorFn<Erased>>,
 }
 
 #[non_exhaustive]
@@ -163,21 +165,69 @@ impl AlgebraicConstructors {
                 "Constructor indices are out of order (should be 1, 2, ...): {all_tagged:#?}",
             );
         }
-        let guaranteed_leaves: Vec<CtorFn<Erased>> = all_tagged
+        let guaranteed_leaves: Vec<IndexedCtorFn<Erased>> = all_tagged
             .iter()
-            .filter_map(|&(f, ref deps)| deps.is_guaranteed_leaf().then_some(f))
+            .enumerate()
+            .filter(|&(_, &(_, ref deps))| deps.is_guaranteed_leaf())
+            .map(|(index, &(call, _))| {
+                IndexedCtorFn {
+                    call,
+                    #[expect(
+                        clippy::arithmetic_side_effects,
+                        reason = "in-memory list length cannot exceed `usize`"
+                    )]
+                    // SAFETY: in-memory list length cannot exceed `usize`
+                    index: unsafe { NonZero::new_unchecked(index + 1) },
+                }
+            })
             .collect();
-        let guaranteed_loops: Vec<CtorFn<Erased>> = all_tagged
+        let guaranteed_loops: Vec<IndexedCtorFn<Erased>> = all_tagged
             .iter()
-            .filter_map(|&(f, ref deps)| deps.is_guaranteed_loop().then_some(f))
+            .enumerate()
+            .filter(|&(_, &(_, ref deps))| deps.is_guaranteed_loop())
+            .map(|(index, &(call, _))| {
+                IndexedCtorFn {
+                    call,
+                    #[expect(
+                        clippy::arithmetic_side_effects,
+                        reason = "in-memory list length cannot exceed `usize`"
+                    )]
+                    // SAFETY: in-memory list length cannot exceed `usize`
+                    index: unsafe { NonZero::new_unchecked(index + 1) },
+                }
+            })
             .collect();
-        let potential_leaves: Vec<CtorFn<Erased>> = all_tagged
+        let potential_leaves: Vec<IndexedCtorFn<Erased>> = all_tagged
             .iter()
-            .filter_map(|&(f, ref deps)| deps.is_potential_leaf().then_some(f))
+            .enumerate()
+            .filter(|&(_, &(_, ref deps))| deps.is_potential_leaf())
+            .map(|(index, &(call, _))| {
+                IndexedCtorFn {
+                    call,
+                    #[expect(
+                        clippy::arithmetic_side_effects,
+                        reason = "in-memory list length cannot exceed `usize`"
+                    )]
+                    // SAFETY: in-memory list length cannot exceed `usize`
+                    index: unsafe { NonZero::new_unchecked(index + 1) },
+                }
+            })
             .collect();
-        let potential_loops: Vec<CtorFn<Erased>> = all_tagged
+        let potential_loops: Vec<IndexedCtorFn<Erased>> = all_tagged
             .iter()
-            .filter_map(|&(f, ref deps)| deps.is_potential_loop().then_some(f))
+            .enumerate()
+            .filter(|&(_, &(_, ref deps))| deps.is_potential_loop())
+            .map(|(index, &(call, _))| {
+                IndexedCtorFn {
+                    call,
+                    #[expect(
+                        clippy::arithmetic_side_effects,
+                        reason = "in-memory list length cannot exceed `usize`"
+                    )]
+                    // SAFETY: in-memory list length cannot exceed `usize`
+                    index: unsafe { NonZero::new_unchecked(index + 1) },
+                }
+            })
             .collect();
         debug_assert!(
             !potential_leaves.is_empty(),
@@ -497,7 +547,7 @@ fn compute_type_info<T: Construct>(
     for (
         i,
         IntroductionRule {
-            construct,
+            call,
             immediate_dependencies,
         },
     ) in shallow_ctors.into_iter().enumerate()
@@ -535,7 +585,7 @@ fn compute_type_info<T: Construct>(
                 unavoidable
             },
         ));
-        let () = constructors.push((construct, deps));
+        let () = constructors.push((call, deps));
     }
 
     TypeInfo {

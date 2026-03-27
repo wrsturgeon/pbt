@@ -2,17 +2,36 @@ use {
     crate::{
         hash::{Map, Set},
         multiset::Multiset,
-        reflection::{Erased, TermsOfVariousTypes, Type, TypeInfo, type_of},
+        reflection::{
+            AlgebraicConstructors, Constructors, Erased, TermsOfVariousTypes, Type, TypeInfo,
+            type_of,
+        },
     },
-    core::{fmt, mem, num::NonZero, ptr},
+    core::{
+        fmt, mem,
+        num::NonZero,
+        ops::{Deref, DerefMut},
+        ptr,
+    },
     std::sync::Arc,
     wyrand::WyRand,
 };
 
 #[non_exhaustive]
-#[repr(transparent)]
 #[derive(Clone, Copy, Hash)]
-pub struct CtorFn<T>(fn(TermsOfVariousTypes) -> T);
+pub struct CtorFn<T> {
+    /// Function to invoke this constructor on a collection of fields.
+    pub call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Hash)]
+pub struct IndexedCtorFn<T> {
+    /// Function to invoke this constructor on a collection of fields.
+    pub call: CtorFn<T>,
+    /// 1-indexed constructor/variant index.
+    pub index: NonZero<usize>,
+}
 
 #[non_exhaustive]
 #[repr(transparent)]
@@ -55,6 +74,7 @@ pub enum TypeFormer<T> {
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct Decomposition {
+    /// 1-indexed constructor/variant index.
     pub ctor_idx: NonZero<usize>,
     pub fields: TermsOfVariousTypes,
 }
@@ -62,17 +82,23 @@ pub struct Decomposition {
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct IntroductionRule<T> {
-    pub construct: CtorFn<T>,
+    /// Function to invoke this constructor on a collection of fields.
+    pub call: CtorFn<T>,
+    /// The multiset of types necessary to call this constructor.
     pub immediate_dependencies: Multiset<Type>,
 }
 
 pub trait Construct: 'static + Clone {
+    /// Generate arbitrary fields for a constructor chosen at runtime.
+    fn arbitrary_fields_for_ctor(ctor_idx: NonZero<usize>, prng: &mut Prng) -> TermsOfVariousTypes;
+
     /// Cached type-level information from registration during initialization.
     /// It's always valid (and recommended) to copy and paste the following:
     /// ```
     /// # #[derive(Clone)]
     /// # struct NewType;
     /// # impl pbt::construct::Construct for NewType {
+    /// # fn arbitrary_fields_for_ctor(ctor_idx: core::num::NonZero<usize>, prng: &mut pbt::construct::Prng) -> pbt::reflection::TermsOfVariousTypes { todo!() }
     /// #[inline]
     /// fn info() -> &'static pbt::reflection::TypeInfo {
     ///     static CACHE: std::sync::OnceLock<std::sync::Arc<pbt::reflection::TypeInfo>> =
@@ -127,8 +153,20 @@ impl<T> CtorFn<T> {
     }
 
     #[inline]
-    pub const fn new(f: fn(TermsOfVariousTypes) -> T) -> Self {
-        Self(f)
+    pub const fn new(call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T) -> Self {
+        Self { call }
+    }
+}
+
+impl CtorFn<Erased> {
+    /// Interpret this type-erased generator as a generator for a specific type.
+    /// # Safety
+    /// You'd better be damn well sure that you're specifying the right type.
+    #[inline]
+    #[must_use]
+    pub const unsafe fn unerase<T>(self) -> for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T {
+        // SAFETY: Same size, still a function pointer with the same arguments.
+        unsafe { mem::transmute::<CtorFn<Erased>, CtorFn<T>>(self) }.call
     }
 }
 
@@ -139,15 +177,21 @@ impl<T> fmt::Debug for CtorFn<T> {
     }
 }
 
-impl CtorFn<Erased> {
-    /// Interpret this type-erased generator as a generator for a specific type.
-    /// # Safety
-    /// You'd better be damn well sure that you're specifying the right type.
+impl<T> Deref for CtorFn<T> {
+    type Target = for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T;
+
     #[inline]
-    #[must_use]
-    pub const unsafe fn unerase<T>(self) -> CtorFn<T> {
-        // SAFETY: Same size, still a function pointer with the same arguments.
-        unsafe { mem::transmute::<CtorFn<Erased>, CtorFn<T>>(self) }
+    fn deref(&self) -> &Self::Target {
+        &self.call
+    }
+}
+
+impl<T> Deref for IndexedCtorFn<T> {
+    type Target = CtorFn<T>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.call
     }
 }
 
@@ -178,9 +222,9 @@ impl ElimFn<Erased> {
     /// You'd better be damn well sure that you're specifying the right type.
     #[inline]
     #[must_use]
-    pub const unsafe fn unerase<T>(self) -> ElimFn<T> {
+    pub const unsafe fn unerase<T>(self) -> fn(T) -> Decomposition {
         // SAFETY: Same size, still a function pointer with the same arguments.
-        unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(self) }
+        unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(self) }.0
     }
 }
 
@@ -189,6 +233,23 @@ impl Prng {
     #[inline(always)]
     pub const fn new(size: Option<NonZero<usize>>, state: WyRand) -> Self {
         Self { size, state }
+    }
+
+    /// Whether to choose a potential leaf or loop constructor.
+    #[must_use]
+    #[inline]
+    fn should_recurse(&mut self) -> bool {
+        let Some(n) = self.size else {
+            return false;
+        };
+        {
+            #![expect(
+                clippy::as_conversions,
+                clippy::cast_possible_truncation,
+                reason = "fine: definitely not > `u64::MAX` constructors"
+            )]
+            self.state.rand() as usize % n != 0
+        }
     }
 
     #[must_use]
@@ -200,6 +261,86 @@ impl Prng {
     #[inline]
     pub const fn u64(&mut self) -> u64 {
         self.state.rand()
+    }
+}
+
+impl Deref for Prng {
+    type Target = WyRand;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.state
+    }
+}
+
+impl DerefMut for Prng {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.state
+    }
+}
+
+#[inline]
+#[expect(
+    clippy::missing_panics_doc,
+    reason = "no user-facing panics; only internal errors"
+)]
+pub fn arbitrary<T: Construct>(prng: &mut Prng) -> Option<T> {
+    let info = T::info();
+    match info.constructors {
+        Constructors::Algebraic(AlgebraicConstructors {
+            ref potential_leaves,
+            ref potential_loops,
+            ..
+        }) => {
+            let ctor = if prng.should_recurse() {
+                #[expect(
+                    clippy::expect_used,
+                    clippy::unwrap_in_result,
+                    reason = "internal invariant"
+                )]
+                let n = NonZero::new(potential_loops.len())
+                    .expect("internal `pbt` error: attempting to recurse on non-inductive type");
+                #[expect(
+                    clippy::as_conversions,
+                    clippy::cast_possible_truncation,
+                    reason = "fine: definitely not > `u64::MAX` constructors"
+                )]
+                let i = prng.rand() as usize % n;
+                // SAFETY: Bounded by length above (see `% n`).
+                unsafe { potential_loops.get_unchecked(i) }
+            } else {
+                let n = NonZero::new(potential_leaves.len())?;
+                #[expect(
+                    clippy::as_conversions,
+                    clippy::cast_possible_truncation,
+                    reason = "fine: definitely not > `u64::MAX` constructors"
+                )]
+                let i = prng.rand() as usize % n;
+                // SAFETY: Bounded by length above (see `% n`).
+                unsafe { potential_leaves.get_unchecked(i) }
+            };
+            let mut fields = T::arbitrary_fields_for_ctor(ctor.index, prng);
+            // SAFETY: By the soundness of the type-`TypeId` relation,
+            // which holds as long as no lifetime subtyping takes place,
+            // and since only `'static` types have IDs and we can't generate functions,
+            // it holds here.
+            let f = unsafe { ctor.unerase::<T>() };
+            let result = f(&mut fields);
+            assert!(
+                fields.is_empty(),
+                "internal `pbt` error: leftover terms after applying a constructor",
+            );
+            Some(result)
+        }
+        Constructors::Literal { generate } => {
+            // SAFETY: Undoing an earlier transmute.
+            let generate = unsafe {
+                mem::transmute::<fn(&mut WyRand) -> Erased, fn(&mut WyRand) -> T>(generate)
+            };
+            // All literals are instantiable.
+            Some(generate(prng))
+        }
     }
 }
 
