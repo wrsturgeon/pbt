@@ -49,6 +49,7 @@ pub struct Algebraic<T> {
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Literal<T> {
+    pub corners: Vec<T>,
     pub generate: for<'prng> fn(&'prng mut WyRand) -> T,
     pub shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
 }

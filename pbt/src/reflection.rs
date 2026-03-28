@@ -138,6 +138,7 @@ pub struct AlgebraicTypeFormer {
 pub enum PrecomputedTypeFormer {
     Algebraic(AlgebraicTypeFormer),
     Literal {
+        corners: Vec<Erased>,
         generate: for<'prng> fn(&'prng mut WyRand) -> Erased,
         shrink: fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
     },
@@ -273,10 +274,13 @@ impl PrecomputedTypeFormer {
     #[inline]
     #[must_use]
     pub fn literal<T>(
+        corners: Vec<T>,
         generate: for<'prng> fn(&'prng mut WyRand) -> T,
         shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
     ) -> Self {
         Self::Literal {
+            // SAFETY: Never used in its erased state.
+            corners: unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(corners) },
             // SAFETY: Same size, still a function pointer with the same arguments.
             generate: unsafe {
                 mem::transmute::<
@@ -790,6 +794,10 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
 /// and the return value of this function will be *automatically* added to the registry.
 /// Do not attempt either operation manually from within this function.
 #[inline]
+#[expect(
+    clippy::too_many_lines,
+    reason = "TODO: split into a few encapsulated functions"
+)]
 fn compute_type_info<T: Construct>(
     mut visited: Set<Type>,
     registry: &mut Map<Type, Arc<TypeInfo>>,
@@ -810,9 +818,13 @@ fn compute_type_info<T: Construct>(
             introduction_rules,
             elimination_rule,
         }) => (introduction_rules, elimination_rule),
-        TypeFormer::Literal(Literal { generate, shrink }) => {
+        TypeFormer::Literal(Literal {
+            corners,
+            generate,
+            shrink,
+        }) => {
             return TypeInfo {
-                type_former: PrecomputedTypeFormer::literal(generate, shrink),
+                type_former: PrecomputedTypeFormer::literal(corners, generate, shrink),
                 dependencies: TypeDependencies {
                     constructor: None,
                     id: self_id,

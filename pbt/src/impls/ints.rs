@@ -12,6 +12,13 @@ use {
     wyrand::WyRand,
 };
 
+/// The corner cases of a signed fixed-width integer type.
+macro_rules! int_corners {
+    ($ty:ty) => {
+        [0, 1, -1, <$ty>::MAX, <$ty>::MIN]
+    };
+}
+
 /// Subtract the entire term from itself (=> 0),
 /// then subtract half *less* each time thereafter:
 /// e.g. for 100, this would return [0, 50, 75, 88, 94, 97, 99].
@@ -48,6 +55,7 @@ impl Construct for bool {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            corners: vec![false, true],
             generate: |prng| (prng.rand() & 1) != 0,
             shrink: |b| -> Box<dyn Iterator<Item = Self>> {
                 Box::new(b.then_some(false).into_iter())
@@ -87,6 +95,10 @@ impl Construct for u64 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            corners: int_corners!(i64)
+                .into_iter()
+                .map(i64::cast_unsigned)
+                .collect(),
             generate: WyRand::rand,
             shrink: shrink_int!(),
         })
