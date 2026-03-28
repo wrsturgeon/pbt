@@ -15,7 +15,10 @@ use {
         num::NonZero,
         ptr,
     },
-    std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    std::{
+        collections::BTreeMap,
+        sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
+    },
     wyrand::WyRand,
 };
 
@@ -49,7 +52,7 @@ pub struct Terms {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TermsOfVariousTypes {
     /// A map from types to ordered collections of terms of those types.
-    pub map: Map<Type, Terms>,
+    pub map: BTreeMap<Type, Terms>, // Map<Type, Terms>,
 }
 
 #[non_exhaustive]
@@ -488,7 +491,9 @@ impl TermsOfVariousTypes {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        Self { map: empty_map() }
+        Self {
+            map: BTreeMap::new(),
+        }
     }
 
     /// Remove the last-pushed term of a given type (usually inferred).
@@ -614,10 +619,8 @@ impl TermsOfVariousTypes {
 
         // Restore each collection's associated type
         // (note that this is almost comically dangerous):
-        let iterator_over_maps =
-            iterator_over_values.map(move |values: Vec<Terms>| -> Map<Type, Terms> {
-                keys.iter().copied().zip(values).collect()
-            });
+        let iterator_over_maps = iterator_over_values
+            .map(move |values: Vec<Terms>| keys.iter().copied().zip(values).collect());
 
         iterator_over_maps.map(|map| Self { map })
     }
@@ -871,17 +874,19 @@ fn compute_type_info<T: Construct>(
         },
     ) in shallow_ctors.into_iter().enumerate()
     {
+        let mut ctor_reachable = empty_set();
         let mut ctor_unavoidable = empty_set();
         for (&id, _count) in immediate_dependencies.iter() {
-            let _: bool = reachable.insert(id);
+            let _: bool = ctor_reachable.insert(id);
             let _: bool = ctor_unavoidable.insert(id);
             if !visited.contains(&id) {
                 let info = info_by_id(id, registry);
-                let () = reachable.extend(&info.dependencies.reachable);
+                let () = ctor_reachable.extend(&info.dependencies.reachable);
                 let () = ctor_unavoidable
                     .extend(info.dependencies.unavoidable.as_ref().into_iter().flatten());
             }
         }
+        let () = reachable.extend(&ctor_reachable);
         unavoidable = Some(unavoidable.map_or_else(
             || ctor_unavoidable.clone(),
             |mut unavoidable| {
@@ -899,7 +904,7 @@ fn compute_type_info<T: Construct>(
                 immediate: immediate_dependencies,
             }),
             id: self_id,
-            reachable: empty_set(),
+            reachable: ctor_reachable,
             unavoidable: Some(ctor_unavoidable),
         };
         let () = constructors.push((call, deps));

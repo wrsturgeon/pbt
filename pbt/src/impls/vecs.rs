@@ -1,40 +1,34 @@
-//! Implementation for `Option<_>`.
+//! Implementation for `Vec<_>`.
 
 use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            arbitrary, visit_self, visit_self_or,
+            visit_self, visit_self_or,
         },
         hash::{Map, Set},
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, TypeInfo, register, type_of},
         size::Size,
     },
-    core::{any::type_name, iter, num::NonZero},
+    core::{any::type_name, num::NonZero},
     std::sync::Arc,
 };
 
-impl<T: Construct> Construct for Option<T> {
+impl<T: Construct> Construct for Vec<T> {
     #[inline]
     fn arbitrary_fields_for_ctor(
         ctor_idx: NonZero<usize>,
         prng: &mut wyrand::WyRand,
         size: Size,
     ) -> TermsOfVariousTypes {
+        let mut sizes = size.partition::<Self>(ctor_idx, prng);
         let mut fields = TermsOfVariousTypes::new();
         match ctor_idx.get() {
             1 => {}
             2 => {
-                #[expect(clippy::panic, reason = "internal invariant violated")]
-                let Some(some) = arbitrary::<T>(prng, size) else {
-                    panic!(
-                        "uninstantiable type `{}` in constructor #{ctor_idx} of `{}`",
-                        type_name::<T>(),
-                        type_name::<Self>(),
-                    )
-                };
-                let () = fields.push(some);
+                let () = fields.push(sizes.arbitrary::<T>(prng));
+                let () = fields.push(sizes.arbitrary::<Self>(prng));
             }
             #[expect(clippy::panic, reason = "internal invariant violated")]
             _ => panic!(
@@ -66,22 +60,28 @@ impl<T: Construct> Construct for Option<T> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    call: CtorFn::new(|_| None),
+                    call: CtorFn::new(|_| vec![]),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
-                    call: CtorFn::new(|terms| Some(terms.must_pop())),
-                    immediate_dependencies: iter::once(type_of::<T>()).collect(),
+                    call: CtorFn::new(|terms| {
+                        let mut acc = terms.must_pop::<Self>(); // tail
+                        acc.push(terms.must_pop::<T>()); // head
+                        acc
+                    }),
+                    immediate_dependencies: [type_of::<T>(), type_of::<Self>()]
+                        .into_iter()
+                        .collect(),
                 },
             ],
-            elimination_rule: ElimFn::new(|opt| {
+            elimination_rule: ElimFn::new(|mut v| {
                 let mut fields = TermsOfVariousTypes::new();
-                let ctor_idx = match opt {
-                    None => 1,
-                    Some(t) => {
-                        let () = fields.push::<T>(t);
-                        2
-                    }
+                let ctor_idx = if let Some(head) = v.pop() {
+                    let () = fields.push::<T>(head);
+                    let () = fields.push::<Self>(v);
+                    2
+                } else {
+                    1
                 };
                 Decomposition {
                     // SAFETY: 1 != 0
@@ -94,13 +94,15 @@ impl<T: Construct> Construct for Option<T> {
 
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self(self).chain(self.as_ref().map(T::visit_deep).into_iter().flatten())
+        // TODO: Can't visit all the recursive tails of this
+        // vec viewed as a Haskell-style linked list, since
+        // references can't escape into an iterator --
+        // at least not without `collect`ing and fucking all efficiency.
+        visit_self(self).chain(self.iter().flat_map(T::visit_deep))
     }
 
     #[inline]
     fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_or(self, || {
-            self.as_ref().map(T::visit_shallow).into_iter().flatten()
-        })
+        visit_self_or(self, || self.iter().flat_map(T::visit_shallow))
     }
 }

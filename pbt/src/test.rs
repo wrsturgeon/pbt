@@ -1,4 +1,8 @@
-#![expect(clippy::panic, reason = "failing tests ought to panic")]
+#![expect(
+    clippy::panic,
+    clippy::indexing_slicing,
+    reason = "failing tests ought to panic"
+)]
 
 use {
     crate::{
@@ -43,6 +47,7 @@ fn info_bool() {
     assert_eq!(dependencies.reachable, empty_set());
     assert_eq!(dependencies.unavoidable, Some(empty_set()));
     assert!(trivial);
+    assert!(!dependencies.is_inductive());
 }
 
 #[test]
@@ -80,6 +85,7 @@ fn info_box_bool() {
         Some(iter::once(type_of::<bool>()).collect()),
     );
     assert!(trivial);
+    assert!(!dependencies.is_inductive());
 }
 
 #[test]
@@ -112,8 +118,56 @@ fn info_option_u64() {
         dependencies.reachable,
         iter::once(type_of::<u64>()).collect(),
     );
-    assert_eq!(dependencies.unavoidable, Some(iter::empty().collect()));
+    assert_eq!(dependencies.unavoidable, Some(empty_set()));
     assert!(!trivial);
+    assert!(!dependencies.is_inductive());
+}
+
+#[test]
+fn info_vec_u64() {
+    type T = Vec<u64>;
+    let TypeInfo {
+        ref type_former,
+        ref dependencies,
+        name,
+        trivial,
+    } = *info::<T>();
+    assert_eq!(name, type_name::<T>());
+    let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
+        panic!("expected algebraic constructors but found {type_former:#?}")
+    };
+    assert_eq!(
+        dependencies.reachable,
+        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
+    );
+    assert_eq!(dependencies.unavoidable, Some(empty_set()));
+    assert_eq!(constructors.all_tagged.len(), 2);
+    assert_eq!(constructors.all_tagged[0].1.is_inductive(), false);
+    assert_eq!(constructors.all_tagged[0].1.unavoidable, Some(empty_set()));
+    assert_eq!(constructors.all_tagged[0].1.reachable, empty_set());
+    assert_eq!(constructors.all_tagged[1].1.is_inductive(), true);
+    assert_eq!(
+        constructors.all_tagged[1].1.unavoidable,
+        Some([type_of::<u64>(), type_of::<T>()].into_iter().collect()),
+    );
+    assert_eq!(
+        constructors.all_tagged[1].1.reachable,
+        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
+    );
+    assert_eq!(constructors.guaranteed_leaves.len(), 1);
+    assert_eq!(constructors.guaranteed_loops.len(), 1);
+    assert_eq!(constructors.potential_leaves.len(), 1);
+    assert_eq!(constructors.potential_loops.len(), 1);
+    assert_eq!(dependencies.constructor, None);
+    assert_eq!(
+        dependencies.id,
+        type_of::<T>(),
+        "{:?} =/= {:?}",
+        dependencies.id.id(),
+        TypeId::of::<T>(),
+    );
+    assert!(!trivial);
+    assert!(dependencies.is_inductive());
 }
 
 #[test]
@@ -268,6 +322,29 @@ fn arbitrary_option_u64() {
 }
 
 #[test]
+fn arbitrary_vec_bool() {
+    let mut prng = WyRand::new(u64::from(SEED));
+    assert_eq!(
+        Size::expanding()
+            .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
+            .collect::<Vec<Vec<bool>>>(),
+        vec![
+            vec![],
+            vec![],
+            vec![true],
+            vec![],
+            vec![false],
+            vec![false, true, true, true],
+            vec![true, false, false],
+            vec![true, true, true, true, false],
+            vec![false, false, false],
+            vec![false, true, true, true],
+        ],
+    );
+}
+
+#[test]
 fn beta_reduction_bool() {
     let () = check_beta_reduction::<bool>(&mut WyRand::new(u64::from(SEED)));
 }
@@ -283,6 +360,11 @@ fn beta_reduction_option_u64() {
 }
 
 #[test]
+fn beta_reduction_vec_u64() {
+    let () = check_beta_reduction::<Vec<u64>>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
 fn eta_expansion_bool() {
     let () = check_eta_expansion::<bool>(&mut WyRand::new(u64::from(SEED)));
 }
@@ -295,6 +377,11 @@ fn eta_expansion_box_bool() {
 #[test]
 fn eta_expansion_option_u64() {
     let () = check_eta_expansion::<Option<u64>>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
+fn eta_expansion_vec_u64() {
+    let () = check_eta_expansion::<Vec<u64>>(&mut WyRand::new(u64::from(SEED)));
 }
 
 #[test]
@@ -365,6 +452,50 @@ fn shrink_option_u64() {
             Some(94),
             Some(97),
             Some(99),
+        ],
+    );
+}
+
+#[test]
+fn shrink_vec_u64() {
+    assert_eq!(
+        shrink(vec![]).collect::<Vec<Vec<u64>>>(),
+        Vec::<Vec<u64>>::new(),
+    );
+    assert_eq!(
+        shrink(vec![100]).collect::<Vec<Vec<u64>>>(),
+        vec![
+            vec![],
+            vec![0],
+            vec![50],
+            vec![75],
+            vec![88],
+            vec![94],
+            vec![97],
+            vec![99],
+        ]
+    );
+    assert_eq!(
+        shrink(vec![10, 20, 40]).collect::<Vec<Vec<u64>>>(),
+        vec![
+            vec![],
+            vec![10, 20, 0],
+            vec![40],
+            vec![10, 20, 20],
+            vec![10, 0, 40],
+            vec![10, 20, 30],
+            vec![20, 40],
+            vec![10, 20, 35],
+            vec![10, 10, 40],
+            vec![10, 20, 38],
+            vec![0, 20, 40],
+            vec![10, 20, 39],
+            vec![10, 15, 40],
+            vec![5, 20, 40],
+            vec![10, 18, 40],
+            vec![8, 20, 40],
+            vec![10, 19, 40],
+            vec![9, 20, 40],
         ],
     );
 }

@@ -4,3 +4,4 @@
 mod boxes;
 mod ints;
 mod options;
+mod vecs;
