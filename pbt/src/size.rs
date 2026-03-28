@@ -2,9 +2,7 @@ use {
     crate::{
         construct::{Construct, arbitrary},
         hash::{Map, empty_map},
-        reflection::{
-            _registry, AlgebraicTypeFormer, PrecomputedTypeFormer, Type, info_by_id, type_of,
-        },
+        reflection::{AlgebraicTypeFormer, PrecomputedTypeFormer, Type, info_by_id, type_of},
     },
     core::{any::type_name, cmp, fmt, iter, num::NonZero},
     std::collections::BinaryHeap,
@@ -41,8 +39,7 @@ impl Size {
     /// minus one for this node itself iff not a trivial wrapper.
     #[inline]
     fn partition_by_id(self, id: Type, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes {
-        let registry = _registry();
-        let info = info_by_id(id, &registry);
+        let info = info_by_id(id);
         let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer { ref all_tagged, .. }) =
             info.type_former
         else {
@@ -73,7 +70,7 @@ impl Size {
                 reason = "fields bounded by system hardware, defined to match the capacity of `usize`"
             )]
             // TODO: precompute `is_inductive`
-            if info_by_id(ty, &registry).dependencies.is_inductive() {
+            if info_by_id(ty).dependencies.is_inductive() {
                 n_ind += count.get();
             }
         }
@@ -128,7 +125,7 @@ impl Size {
         // Use each size for an inductive type:
         let mut map = empty_map::<Type, Vec<Size>>();
         for (&ty, count) in immediate_deps.iter() {
-            if info_by_id(ty, &registry).dependencies.is_inductive() {
+            if info_by_id(ty).dependencies.is_inductive() {
                 let v = map.entry(ty).or_default();
                 for _ in 0..count.get() {
                     #[expect(

@@ -4,11 +4,12 @@ use {
             Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
             TypeFormer,
         },
-        hash::{Map, Set, empty_map, empty_set},
+        hash::{SEED, Set, empty_set},
         multiset::Multiset,
         shrink::shrink,
         size::Size,
     },
+    ahash::RandomState,
     core::{
         any::{TypeId, type_name},
         fmt, iter, mem,
@@ -17,7 +18,7 @@ use {
     },
     std::{
         collections::BTreeMap,
-        sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
+        sync::{Arc, OnceLock},
     },
     wyrand::WyRand,
 };
@@ -318,10 +319,7 @@ impl Construct for Erased {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(
-        _visited: &Set<Type>,
-        _registry: &mut Map<Type, Arc<TypeInfo>>,
-    ) {
+    fn register_all_immediate_dependencies(_visited: &Set<Type>) {
         panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
     }
 
@@ -699,44 +697,11 @@ impl TypeDependencies {
 impl fmt::Debug for Type {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match registry_locked().try_read() {
-            Ok(registry) => match try_info_by_id(*self, &registry) {
-                None => write!(f, "[unregistered type with ID {:?}]", self.0),
-                Some(info) => f.write_str(info.name),
-            },
-            Err(locked) => write!(
-                f,
-                "[type with ID {:?} (registry is locked: {locked})]",
-                self.0,
-            ),
+        match try_info_by_id(*self) {
+            None => write!(f, "[unregistered type with ID {:?}]", self.0),
+            Some(info) => f.write_str(info.name),
         }
     }
-}
-
-/// Read-lock the global type-information registry
-/// and return an immutable reference to it.
-/// **Do not use this unless you are a `pbt` maintainer.**
-/// # Panics
-/// If the lock has been poisoned.
-#[inline]
-pub fn _registry<'lock>() -> RwLockReadGuard<'lock, Map<Type, Arc<TypeInfo>>> {
-    #[expect(clippy::expect_used, reason = "extremely unlikely")]
-    registry_locked()
-        .read()
-        .expect("internal `pbt` error: type registry lock poisoned")
-}
-
-/// Lock the global type-information registry
-/// and return a mutable reference to it.
-/// **Do not use this unless you are a `pbt` maintainer.**
-/// # Panics
-/// If the lock has been poisoned.
-#[inline]
-pub fn _registry_mut<'lock>() -> RwLockWriteGuard<'lock, Map<Type, Arc<TypeInfo>>> {
-    #[expect(clippy::expect_used, reason = "extremely unlikely")]
-    registry_locked()
-        .write()
-        .expect("internal `pbt` error: type registry lock poisoned")
 }
 
 /// Given some collection of iterators,
@@ -801,11 +766,8 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
     clippy::too_many_lines,
     reason = "TODO: split into a few encapsulated functions"
 )]
-fn compute_type_info<T: Construct>(
-    mut visited: Set<Type>,
-    registry: &mut Map<Type, Arc<TypeInfo>>,
-) -> TypeInfo {
-    let () = T::register_all_immediate_dependencies(&visited, registry);
+fn compute_type_info<T: Construct>(mut visited: Set<Type>) -> TypeInfo {
+    let () = T::register_all_immediate_dependencies(&visited);
 
     let self_id = type_of::<T>();
     let not_already_visited = visited.insert(self_id);
@@ -854,7 +816,7 @@ fn compute_type_info<T: Construct>(
             .iter()
             .filter_map(|(&id, count)| {
                 // Count only inductive (i.e. interesting) types:
-                (visited.contains(&id) || info_by_id(id, registry).dependencies.is_inductive())
+                (visited.contains(&id) || info_by_id(id).dependencies.is_inductive())
                     .then_some(count.get())
             })
             .sum();
@@ -880,7 +842,7 @@ fn compute_type_info<T: Construct>(
             let _: bool = ctor_reachable.insert(id);
             let _: bool = ctor_unavoidable.insert(id);
             if !visited.contains(&id) {
-                let info = info_by_id(id, registry);
+                let info = info_by_id(id);
                 let () = ctor_reachable.extend(&info.dependencies.reachable);
                 let () = ctor_unavoidable
                     .extend(info.dependencies.unavoidable.as_ref().into_iter().flatten());
@@ -929,19 +891,13 @@ fn compute_type_info<T: Construct>(
     clippy::implicit_hasher,
     reason = "this is actually a great lint, but there should be exactly one generic parameter here"
 )]
-pub fn register<T: Construct>(
-    visited: Set<Type>,
-    registry: &mut Map<Type, Arc<TypeInfo>>,
-) -> Arc<TypeInfo> {
-    // `mut`, so TOCTOU is a non-issue
-    let id = type_of::<T>();
-    let info = if let Some(info) = registry.get(&id) {
-        info
-    } else {
-        let info = Arc::new(compute_type_info::<T>(visited, registry));
-        registry.entry(id).or_insert(info)
-    };
-    Arc::clone(info)
+#[expect(clippy::must_use_candidate, reason = "side effects are important")]
+pub fn register<T: Construct>(visited: Set<Type>) -> Arc<TypeInfo> {
+    let pinned = _registry().pin();
+    let in_registry = pinned.get_or_insert_with(type_of::<T>(), || -> Arc<TypeInfo> {
+        Arc::new(compute_type_info::<T>(visited))
+    });
+    Arc::clone(in_registry)
 }
 
 /// Get a handle to the global type-information registry without trying to lock it.
@@ -949,27 +905,20 @@ pub fn register<T: Construct>(
 /// # Panics
 /// If the lock has been poisoned.
 #[inline]
-fn registry_locked() -> &'static RwLock<Map<Type, Arc<TypeInfo>>> {
-    // TODO: benchmark vs `papaya`
-    static REGISTRY: OnceLock<RwLock<Map<Type, Arc<TypeInfo>>>> = OnceLock::new();
-    REGISTRY.get_or_init(|| RwLock::new(empty_map()))
+pub fn _registry() -> &'static papaya::HashMap<Type, Arc<TypeInfo>, RandomState> {
+    static REGISTRY: OnceLock<papaya::HashMap<Type, Arc<TypeInfo>, RandomState>> = OnceLock::new();
+    REGISTRY.get_or_init(|| papaya::HashMap::with_hasher(RandomState::with_seed(usize::from(SEED))))
 }
 
-/// Get type-level characteristics of a type.
-/// # Panics
-/// If the type has not yet been registered with `pbt`.
+/// Get type-level characteristics of a type,
+/// or compute and cache them if they
+/// haven't yet been determined.
 #[inline]
 #[must_use]
 pub fn info<T: Construct>() -> Arc<TypeInfo> {
-    if let Some(cached) = {
-        let registry = _registry();
-        try_info_by_id(type_of::<T>(), &registry)
-        // drop the registry lock
-    } {
-        cached
-    } else {
-        register::<T>(empty_set(), &mut _registry_mut())
-    }
+    let pinned = _registry().pin();
+    let in_registry = pinned.get_or_insert_with(type_of::<T>(), || register::<T>(empty_set()));
+    Arc::clone(in_registry)
 }
 
 /// Get type-level characteristics of a type by its unique but opaque type ID.
@@ -977,24 +926,17 @@ pub fn info<T: Construct>() -> Arc<TypeInfo> {
 /// If the type has not yet been registered with `pbt`.
 #[inline]
 #[must_use]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "consistency; see the comment on `register`"
-)]
-pub fn info_by_id(id: Type, registry: &Map<Type, Arc<TypeInfo>>) -> Arc<TypeInfo> {
+pub fn info_by_id(id: Type) -> Arc<TypeInfo> {
     #[expect(clippy::expect_used, reason = "extremely unlikely")]
-    try_info_by_id(id, registry).expect("internal `pbt` error: unregistered type")
+    try_info_by_id(id).expect("internal `pbt` error: unregistered type")
 }
 
 /// Get type-level characteristics of a type by its unique but opaque type ID.
 /// Returns `None` if the type has not yet been registered with `pbt`.
 #[inline]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "consistency; see the comment on `register`"
-)]
-pub fn try_info_by_id(id: Type, registry: &Map<Type, Arc<TypeInfo>>) -> Option<Arc<TypeInfo>> {
-    registry.get(&id).map(Arc::clone)
+pub fn try_info_by_id(id: Type) -> Option<Arc<TypeInfo>> {
+    let pinned = _registry().pin();
+    pinned.get(&id).map(Arc::clone)
 }
 
 #[inline]

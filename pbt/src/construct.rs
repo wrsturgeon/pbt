@@ -1,15 +1,14 @@
 use {
     crate::{
-        hash::{Map, Set},
+        hash::Set,
         multiset::Multiset,
         reflection::{
-            AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type,
-            TypeInfo, info, type_of,
+            AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type, info,
+            type_of,
         },
         size::Size,
     },
     core::{fmt, mem, num::NonZero, ops::Deref, ptr},
-    std::sync::Arc,
     wyrand::WyRand,
 };
 
@@ -94,10 +93,7 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     /// then call `::pbt::reflection::register::<T>(visited)`
     /// for each `T` in the `immediate_dependencies` fields of `Self::_constructors()`.
     /// Induction and caching take care of the rest.
-    fn register_all_immediate_dependencies(
-        visited: &Set<Type>,
-        registry: &mut Map<Type, Arc<TypeInfo>>,
-    );
+    fn register_all_immediate_dependencies(visited: &Set<Type>);
 
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type.

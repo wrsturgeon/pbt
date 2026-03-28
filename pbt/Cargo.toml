@@ -13,6 +13,7 @@ version.workspace = true
 
 [dependencies]
 ahash = "~0.8"
+papaya = "~0.2"
 pretty_assertions = "~1.4"
 wyrand = "~0.4"
 

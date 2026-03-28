@@ -3,12 +3,11 @@
 use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self},
-        hash::{Map, Set},
-        reflection::{TermsOfVariousTypes, Type, TypeInfo},
+        hash::Set,
+        reflection::{TermsOfVariousTypes, Type},
         size::Size,
     },
     core::num::NonZero,
-    std::sync::Arc,
     wyrand::WyRand,
 };
 
@@ -45,10 +44,7 @@ impl Construct for bool {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(
-        _visited: &Set<Type>,
-        _registry: &mut Map<Type, Arc<TypeInfo>>,
-    ) {
+    fn register_all_immediate_dependencies(_visited: &Set<Type>) {
         // n/a
     }
 
@@ -85,10 +81,7 @@ impl Construct for u64 {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(
-        _visited: &Set<Type>,
-        _registry: &mut Map<Type, Arc<TypeInfo>>,
-    ) {
+    fn register_all_immediate_dependencies(_visited: &Set<Type>) {
         // n/a
     }
 

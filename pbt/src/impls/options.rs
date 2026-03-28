@@ -6,13 +6,12 @@ use {
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
             arbitrary, visit_self, visit_self_or,
         },
-        hash::{Map, Set},
+        hash::Set,
         multiset::Multiset,
-        reflection::{TermsOfVariousTypes, Type, TypeInfo, register, type_of},
+        reflection::{TermsOfVariousTypes, Type, register, type_of},
         size::Size,
     },
     core::{any::type_name, iter, num::NonZero},
-    std::sync::Arc,
 };
 
 impl<T: Construct> Construct for Option<T> {
@@ -46,10 +45,7 @@ impl<T: Construct> Construct for Option<T> {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(
-        visited: &Set<Type>,
-        registry: &mut Map<Type, Arc<TypeInfo>>,
-    ) {
+    fn register_all_immediate_dependencies(visited: &Set<Type>) {
         let id = type_of::<Self>();
         let mut visited = visited.clone();
         let not_already_visited = visited.insert(id);
@@ -58,7 +54,7 @@ impl<T: Construct> Construct for Option<T> {
             "internal `pbt` error: `visited` already contained `Self = {}` (`visited` was {visited:?})",
             type_name::<Self>(),
         );
-        register::<T>(visited, registry);
+        register::<T>(visited);
     }
 
     #[inline]
