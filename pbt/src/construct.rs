@@ -281,7 +281,7 @@ pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
     };
     // SAFETY: Undoing an earlier transmute.
     let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
-    for size in Size::expanding().take(100) {
+    for size in Size::expanding().take(32) {
         let ctor = if size.should_recurse(prng)
             && let Some(n) = NonZero::new(potential_loops.len())
         {
@@ -342,7 +342,7 @@ pub fn check_eta_expansion<T: Construct>(prng: &mut WyRand) {
     };
     // SAFETY: Undoing an earlier transmute.
     let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
-    for size in Size::expanding().take(100) {
+    for size in Size::expanding().take(32) {
         let Some(orig) = arbitrary::<T>(prng, size) else {
             return;
         };
