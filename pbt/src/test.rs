@@ -83,6 +83,40 @@ fn info_box_bool() {
 }
 
 #[test]
+fn info_option_u64() {
+    type T = Option<u64>;
+    let TypeInfo {
+        ref type_former,
+        ref dependencies,
+        name,
+        trivial,
+    } = *info::<T>();
+    assert_eq!(name, type_name::<T>());
+    let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
+        panic!("expected algebraic constructors but found {type_former:#?}")
+    };
+    assert_eq!(constructors.all_tagged.len(), 2);
+    assert_eq!(constructors.guaranteed_leaves.len(), 2);
+    assert_eq!(constructors.guaranteed_loops.len(), 0);
+    assert_eq!(constructors.potential_leaves.len(), 2);
+    assert_eq!(constructors.potential_loops.len(), 0);
+    assert_eq!(dependencies.constructor, None);
+    assert_eq!(
+        dependencies.id,
+        type_of::<T>(),
+        "{:?} =/= {:?}",
+        dependencies.id.id(),
+        TypeId::of::<T>(),
+    );
+    assert_eq!(
+        dependencies.reachable,
+        iter::once(type_of::<u64>()).collect(),
+    );
+    assert_eq!(dependencies.unavoidable, Some(iter::empty().collect()));
+    assert!(!trivial);
+}
+
+#[test]
 fn visit_deep_bool() {
     let t = true;
     let f = false;
@@ -143,12 +177,17 @@ fn terms_of_various_types() {
     let mut terms = TermsOfVariousTypes::new();
     let () = terms.push(42_u64);
     let () = terms.push(true);
+    let () = terms.push(Some(0x_1337_u64));
+    let () = terms.push(Some(0x_1337_1337_u64));
     let () = terms.push(false);
     assert_eq!(terms.pop(), Some(false));
     assert_eq!(terms.pop(), Option::<Box<bool>>::None);
+    assert_eq!(terms.pop(), Some(Some(0x_1337_1337_u64)));
     assert_eq!(terms.pop(), Some(42_u64));
     assert_eq!(terms.pop(), Option::<u64>::None);
-    // leave `true` intact to test that `Drop` doesn't leak:
+    assert_eq!(terms.pop(), Some(true));
+    assert_eq!(terms.pop(), Option::<bool>::None);
+    // leave `Some(0x1337)` intact to test that `Drop` doesn't leak:
 }
 
 #[test]
@@ -206,6 +245,29 @@ fn arbitrary_box_bool() {
 }
 
 #[test]
+fn arbitrary_option_u64() {
+    let mut prng = WyRand::new(u64::from(SEED));
+    assert_eq!(
+        Size::expanding()
+            .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
+            .collect::<Vec<Option<u64>>>(),
+        vec![
+            None,
+            None,
+            None,
+            None,
+            Some(15_721_880_942_338_967_310),
+            None,
+            Some(3_005_949_388_590_734_596),
+            Some(16_429_615_213_713_786_723),
+            None,
+            None,
+        ],
+    );
+}
+
+#[test]
 fn beta_reduction_bool() {
     let () = check_beta_reduction::<bool>(&mut WyRand::new(u64::from(SEED)));
 }
@@ -213,6 +275,11 @@ fn beta_reduction_bool() {
 #[test]
 fn beta_reduction_box_bool() {
     let () = check_beta_reduction::<Box<bool>>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
+fn beta_reduction_option_u64() {
+    let () = check_beta_reduction::<Option<u64>>(&mut WyRand::new(u64::from(SEED)));
 }
 
 #[test]
@@ -226,12 +293,17 @@ fn eta_expansion_box_bool() {
 }
 
 #[test]
+fn eta_expansion_option_u64() {
+    let () = check_eta_expansion::<Option<u64>>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
 fn breadth_first_iteration() {
     let values: Vec<u64> = vec![10, 20, 40];
     let iterators = values.into_iter().map(|u| (u, shrink(u))).collect();
     let iterator = breadth_first_transpose(iterators);
     let iterated: Vec<Vec<u64>> = iterator.collect();
-    ::std::assert_eq!(
+    assert_eq!(
         iterated,
         vec![
             vec![0, 20, 40],
@@ -275,5 +347,24 @@ fn shrink_box_u64() {
             .into_iter()
             .map(Box::new)
             .collect::<Vec<_>>(),
+    );
+}
+
+#[test]
+fn shrink_option_u64() {
+    assert_eq!(shrink(None).collect::<Vec<Option<u64>>>(), vec![]);
+    assert_eq!(shrink(Some(0)).collect::<Vec<Option<u64>>>(), vec![None]);
+    assert_eq!(
+        shrink(Some(100)).collect::<Vec<Option<u64>>>(),
+        vec![
+            None,
+            Some(0),
+            Some(50),
+            Some(75),
+            Some(88),
+            Some(94),
+            Some(97),
+            Some(99),
+        ],
     );
 }
