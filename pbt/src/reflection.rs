@@ -5,6 +5,8 @@ use {
             TypeFormer,
         },
         hash::{Map, Set, empty_map, empty_set},
+        multiset::Multiset,
+        shrink::shrink,
         size::Size,
     },
     core::{
@@ -13,7 +15,7 @@ use {
         num::NonZero,
         ptr,
     },
-    std::sync::{Arc, OnceLock, RwLock, RwLockWriteGuard},
+    std::sync::{Arc, OnceLock, RwLock, RwLockReadGuard, RwLockWriteGuard},
     wyrand::WyRand,
 };
 
@@ -34,6 +36,7 @@ pub struct Terms {
     pub debug: for<'t, 'm, 'f> fn(&'t Vec<Erased>, &'m mut fmt::Formatter<'f>) -> fmt::Result,
     pub drop: fn(Vec<Erased>),
     pub eq: for<'lhs, 'rhs> fn(&'lhs Vec<Erased>, &'rhs Vec<Erased>) -> bool,
+    pub shrink: fn(Vec<Erased>) -> Box<dyn Iterator<Item = Vec<Erased>>>,
     pub terms: Vec<Erased>,
 }
 
@@ -57,11 +60,11 @@ pub struct Type(TypeId);
 /// The set of types that either *may* or *must*
 /// be contained in any term of this type.
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TypeDependencies {
-    /// 1-indexed constructor/variant index, if applicable.
+    /// Constructor information, if applicable.
     /// For dependencies of a type as a whole, this is `None`.
-    pub ctor_idx: Option<NonZero<usize>>,
+    pub constructor: Option<CtorInfo>,
     /// The opaque Rust ID for this type.
     pub id: Type,
     /// The set of all types that *may* be contained in any term of this type.
@@ -88,6 +91,15 @@ pub struct TypeInfo {
     /// Note that uninstantiable types *are* interesting, i.e. nontrivial.
     pub trivial: bool,
     pub type_former: PrecomputedTypeFormer,
+}
+
+#[non_exhaustive]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CtorInfo {
+    /// The multiset of types necessary to call this constructor.
+    pub immediate: Multiset<Type>,
+    /// 1-indexed constructor/variant index.
+    pub index: NonZero<usize>,
 }
 
 #[non_exhaustive]
@@ -127,6 +139,7 @@ pub enum PrecomputedTypeFormer {
     Algebraic(AlgebraicTypeFormer),
     Literal {
         generate: for<'prng> fn(&'prng mut WyRand) -> Erased,
+        shrink: fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
     },
 }
 
@@ -149,9 +162,14 @@ impl AlgebraicTypeFormer {
         };
         #[cfg(debug_assertions)]
         {
-            let ctor_indices = all_tagged
-                .iter()
-                .map(|&(_, TypeDependencies { ctor_idx, .. })| ctor_idx);
+            let ctor_indices = all_tagged.iter().map(
+                |&(
+                    _,
+                    TypeDependencies {
+                        ref constructor, ..
+                    },
+                )| { constructor.as_ref().map(|&CtorInfo { index, .. }| index) },
+            );
             // SAFETY: Starts from one, monotonically increasing, ergo never zero
             let expected_indices =
                 (1..=all_tagged.len()).map(|i| Some(unsafe { NonZero::new_unchecked(i) }));
@@ -254,7 +272,10 @@ impl PrecomputedTypeFormer {
 
     #[inline]
     #[must_use]
-    pub fn literal<T>(generate: for<'prng> fn(&'prng mut WyRand) -> T) -> Self {
+    pub fn literal<T>(
+        generate: for<'prng> fn(&'prng mut WyRand) -> T,
+        shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
+    ) -> Self {
         Self::Literal {
             // SAFETY: Same size, still a function pointer with the same arguments.
             generate: unsafe {
@@ -262,6 +283,13 @@ impl PrecomputedTypeFormer {
                     for<'prng> fn(&'prng mut WyRand) -> T,
                     for<'prng> fn(&'prng mut WyRand) -> Erased,
                 >(generate)
+            },
+            // SAFETY: Same size, still a function pointer.
+            shrink: unsafe {
+                mem::transmute::<
+                    fn(T) -> Box<dyn Iterator<Item = T>>,
+                    fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
+                >(shrink)
             },
         }
     }
@@ -279,11 +307,6 @@ impl Construct for Erased {
         _prng: &mut WyRand,
         _size: Size,
     ) -> TermsOfVariousTypes {
-        panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
-    }
-
-    #[inline]
-    fn info() -> &'static TypeInfo {
         panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
     }
 
@@ -330,18 +353,20 @@ impl Clone for Terms {
     #[inline]
     fn clone(&self) -> Self {
         let Self {
-            ref terms,
             clone,
             debug,
             drop,
             eq,
+            shrink,
+            ref terms,
         } = *self;
         Self {
-            terms: (self.clone)(terms),
             clone,
             debug,
             drop,
             eq,
+            shrink,
+            terms: (self.clone)(terms),
         }
     }
 }
@@ -368,6 +393,35 @@ impl PartialEq for Terms {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         (self.eq)(&self.terms, &other.terms)
+    }
+}
+
+impl Terms {
+    #[inline]
+    pub fn shrink(self) -> impl Iterator<Item = Self> {
+        let Self {
+            clone,
+            debug,
+            drop,
+            eq,
+            shrink,
+            ref terms,
+        } = self;
+        // SAFETY: Not double-dropped b/c `mem::forget` below.
+        let terms = unsafe { ptr::read(terms) };
+        #[expect(
+            clippy::mem_forget,
+            reason = "to avoid double-dropping the `Vec<Erased>` moved above"
+        )]
+        let () = mem::forget(self);
+        shrink(terms).map(move |terms| Self {
+            clone,
+            debug,
+            drop,
+            eq,
+            shrink,
+            terms,
+        })
     }
 }
 
@@ -484,6 +538,19 @@ impl TermsOfVariousTypes {
                     unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(rhs) },
                 )
             },
+            shrink: |v| {
+                // SAFETY: Never used in its erased form, and
+                // `Box<_>`es all have the same size+alignment.
+                let v = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) };
+                let vec_of_iterators = v.into_iter().map(|t| (t.clone(), shrink(t))).collect(); // beautiful -- rust <3
+                let iterator_of_vecs = breadth_first_transpose(vec_of_iterators);
+                let iterator_of_erased_vecs = iterator_of_vecs.map(|v| {
+                    // SAFETY: Never used in its erased form, and
+                    // `Box<_>`es all have the same size+alignment.
+                    unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) }
+                });
+                Box::new(iterator_of_erased_vecs)
+            },
         });
         let v: *mut Vec<Erased> = ptr::from_mut(&mut terms.terms);
         let v: *mut Vec<T> = v.cast();
@@ -491,6 +558,64 @@ impl TermsOfVariousTypes {
         // no operations are ever performed on the erased `Vec<Erased>` state.
         let v = unsafe { v.as_mut_unchecked() };
         v.push(t)
+    }
+
+    #[inline]
+    pub fn shrink(self) -> impl Iterator<Item = Self> {
+        let Self { map } = self;
+
+        // The general idea here is "breadth-first iteration":
+        // given some collection of iterators,
+        // call `next` (at most) *once* for each
+        // before closing the loop and iterating once more,
+        // until all iterators have been exhausted.
+        //
+        // This leaves open the question of what to do with
+        // the elements that were *not* just `next`'d:
+        // in the specific case of shrinking, I tentatively believe
+        // it's both acceptable and probably optimal to
+        // pin those elements to their *original* values,
+        // leaving only one degree of freedom per iteration.
+        //
+        // It's also worth noting that we have
+        // two layers of collections here:
+        //   1. the map from types to collections of terms, and
+        //   2. the collections of terms themselves.
+        // So, for any given iteration, we pick *one* type,
+        // and we vary only *one* term of that type.
+        // Since shrinking (if implemented well)
+        // cuts about half the remaining "size" of the value
+        // per iteration and restarts on success,
+        // this should be pretty efficient in practice,
+        // given the unsolvable nature of the real
+        // global optimization problem.
+
+        // Split the map into keys and *iterators over* values
+        // so we can apply breadth-first iteration to the latter:
+        let (keys, value_iterators): (Vec<Type>, Vec<_>) = map
+            .into_iter()
+            .map(|(k, v)| {
+                (
+                    k,
+                    // Ask `Terms::shrink` to do the heavy lifting,
+                    // giving us a vector of *iterators over* collections of terms:
+                    (v.clone(), v.shrink()),
+                )
+            })
+            .unzip();
+
+        // Transpose from a collection of iterators
+        // to an iterator over collections:
+        let iterator_over_values = breadth_first_transpose(value_iterators);
+
+        // Restore each collection's associated type
+        // (note that this is almost comically dangerous):
+        let iterator_over_maps =
+            iterator_over_values.map(move |values: Vec<Terms>| -> Map<Type, Terms> {
+                keys.iter().copied().zip(values).collect()
+            });
+
+        iterator_over_maps.map(|map| Self { map })
     }
 }
 
@@ -581,6 +706,19 @@ impl fmt::Debug for Type {
     }
 }
 
+/// Read-lock the global type-information registry
+/// and return an immutable reference to it.
+/// **Do not use this unless you are a `pbt` maintainer.**
+/// # Panics
+/// If the lock has been poisoned.
+#[inline]
+pub fn _registry<'lock>() -> RwLockReadGuard<'lock, Map<Type, Arc<TypeInfo>>> {
+    #[expect(clippy::expect_used, reason = "extremely unlikely")]
+    registry_locked()
+        .read()
+        .expect("internal `pbt` error: type registry lock poisoned")
+}
+
 /// Lock the global type-information registry
 /// and return a mutable reference to it.
 /// **Do not use this unless you are a `pbt` maintainer.**
@@ -594,15 +732,64 @@ pub fn _registry_mut<'lock>() -> RwLockWriteGuard<'lock, Map<Type, Arc<TypeInfo>
         .expect("internal `pbt` error: type registry lock poisoned")
 }
 
+/// Given some collection of iterators,
+/// call `next` (at most) *once* for each
+/// before closing the loop and iterating once more,
+/// until all iterators have been exhausted.
+#[inline]
+pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
+    initial_values_and_iterators: Vec<(I::Item, I)>,
+) -> impl Iterator<Item = Vec<I::Item>> {
+    let (initial_values, mut iterators): (Vec<I::Item>, Vec<I>) =
+        initial_values_and_iterators.into_iter().unzip();
+    // Q about the above: Why not just take two vectors?
+    // A: to constrain the length of both to be equal.
+    // TODO: maybe just add an assertion to avoid reallocating?
+    let mut any_iterators_still_active_this_round = false;
+    let mut i = 0;
+    iter::from_fn(move || {
+        'restart: loop {
+            #[expect(clippy::mixed_read_write_in_expression, reason = "initialized above")]
+            let Some(iterator) = iterators.get_mut(i) else {
+                if !any_iterators_still_active_this_round {
+                    return None;
+                }
+                any_iterators_still_active_this_round = false;
+                i = 0;
+                continue 'restart;
+            };
+            {
+                #![expect(
+                    clippy::arithmetic_side_effects,
+                    reason = "bounded by `Vec::len`, in turn by system hardware, matching the capacity of `usize` by definition"
+                )]
+                i += 1; // for next time
+            }
+            if let Some(next) = iterator.next() {
+                any_iterators_still_active_this_round = true;
+                #[expect(
+                    clippy::arithmetic_side_effects,
+                    reason = "safely incremented earlier, so decrementing is safe"
+                )]
+                return Some(
+                    initial_values
+                        .iter()
+                        .take(i - 1)
+                        .cloned()
+                        .chain(iter::once(next))
+                        .chain(initial_values.iter().skip(i).cloned())
+                        .collect(),
+                );
+            }
+        }
+    })
+}
+
 /// Register a type with the global registry of type dependency information.
 /// If this function is called, then the function is *not* already in the registry,
 /// and the return value of this function will be *automatically* added to the registry.
 /// Do not attempt either operation manually from within this function.
 #[inline]
-#[expect(
-    clippy::too_many_lines,
-    reason = "TODO: split into a few encapsulated functions"
-)]
 fn compute_type_info<T: Construct>(
     mut visited: Set<Type>,
     registry: &mut Map<Type, Arc<TypeInfo>>,
@@ -623,11 +810,11 @@ fn compute_type_info<T: Construct>(
             introduction_rules,
             elimination_rule,
         }) => (introduction_rules, elimination_rule),
-        TypeFormer::Literal(Literal { generate, .. }) => {
+        TypeFormer::Literal(Literal { generate, shrink }) => {
             return TypeInfo {
-                type_former: PrecomputedTypeFormer::literal(generate),
+                type_former: PrecomputedTypeFormer::literal(generate, shrink),
                 dependencies: TypeDependencies {
-                    ctor_idx: None,
+                    constructor: None,
                     id: self_id,
                     reachable: empty_set(),
                     unavoidable: Some(empty_set()),
@@ -672,22 +859,8 @@ fn compute_type_info<T: Construct>(
         },
     ) in shallow_ctors.into_iter().enumerate()
     {
-        let mut deps = TypeDependencies {
-            ctor_idx: Some(
-                #[expect(clippy::expect_used, reason = "extremely unlikely")]
-                ONE.checked_add(i)
-                    .expect("internal `pbt` error: more than `usize::MAX` constructors"),
-            ),
-            id: self_id,
-            reachable: empty_set(),
-            unavoidable: Some(empty_set()),
-        };
-        #[expect(clippy::expect_used, reason = "extremely unlikely")]
-        let ctor_unavoidable: &mut Set<Type> = deps
-            .unavoidable
-            .as_mut()
-            .expect("internal `pbt` error: the pope is no longer catholic");
-        for (id, _count) in immediate_dependencies {
+        let mut ctor_unavoidable = empty_set();
+        for (&id, _count) in immediate_dependencies.iter() {
             let _: bool = reachable.insert(id);
             let _: bool = ctor_unavoidable.insert(id);
             if !visited.contains(&id) {
@@ -705,13 +878,25 @@ fn compute_type_info<T: Construct>(
                 unavoidable
             },
         ));
+        let deps = TypeDependencies {
+            constructor: Some(CtorInfo {
+                #[expect(clippy::expect_used, reason = "extremely unlikely")]
+                index: ONE
+                    .checked_add(i)
+                    .expect("internal `pbt` error: more than `usize::MAX` constructors"),
+                immediate: immediate_dependencies,
+            }),
+            id: self_id,
+            reachable: empty_set(),
+            unavoidable: Some(ctor_unavoidable),
+        };
         let () = constructors.push((call, deps));
     }
 
     TypeInfo {
         type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
         dependencies: TypeDependencies {
-            ctor_idx: None,
+            constructor: None,
             id: self_id,
             reachable,
             unavoidable,
@@ -748,8 +933,26 @@ pub fn register<T: Construct>(
 /// If the lock has been poisoned.
 #[inline]
 fn registry_locked() -> &'static RwLock<Map<Type, Arc<TypeInfo>>> {
+    // TODO: benchmark vs `papaya`
     static REGISTRY: OnceLock<RwLock<Map<Type, Arc<TypeInfo>>>> = OnceLock::new();
     REGISTRY.get_or_init(|| RwLock::new(empty_map()))
+}
+
+/// Get type-level characteristics of a type.
+/// # Panics
+/// If the type has not yet been registered with `pbt`.
+#[inline]
+#[must_use]
+pub fn info<T: Construct>() -> Arc<TypeInfo> {
+    if let Some(cached) = {
+        let registry = _registry();
+        try_info_by_id(type_of::<T>(), &registry)
+        // drop the registry lock
+    } {
+        cached
+    } else {
+        register::<T>(empty_set(), &mut _registry_mut())
+    }
 }
 
 /// Get type-level characteristics of a type by its unique but opaque type ID.

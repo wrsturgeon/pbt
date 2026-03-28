@@ -1,6 +1,6 @@
 use {
     crate::hash::{Map, Set, empty_map, empty_set},
-    core::{hash::Hash, num::NonZero},
+    core::{cmp, hash::Hash, num::NonZero},
     std::collections::hash_map,
 };
 
@@ -74,6 +74,26 @@ impl<T: Eq + Hash> Multiset<T> {
             }
         }
         acc
+    }
+
+    /// Check whether this multiset is entirely contained in another multiset.
+    /// If this is not a subset of `other`, this function returns `None`;
+    /// if this function is a subset, this function returns `Some(strict)`,
+    /// where `strict` is `false` iff `self` and `other` are *precisely equal*.
+    #[inline]
+    #[must_use]
+    pub fn is_subset_of(&self, other: &Self) -> Option<bool> {
+        // diferentiate equality from *strict* subset-ness:
+        let mut strict = false; // set when `other` has *more* of some element than `self`
+
+        for (ty, count) in self.iter() {
+            match count.cmp(&other.count(ty)?) {
+                cmp::Ordering::Greater => return None,
+                cmp::Ordering::Equal => {}
+                cmp::Ordering::Less => strict = true,
+            }
+        }
+        Some(strict)
     }
 
     #[inline]

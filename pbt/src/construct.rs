@@ -4,7 +4,7 @@ use {
         multiset::Multiset,
         reflection::{
             AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type,
-            TypeInfo, type_of,
+            TypeInfo, info, type_of,
         },
         size::Size,
     },
@@ -50,7 +50,7 @@ pub struct Algebraic<T> {
 #[derive(Clone, Debug)]
 pub struct Literal<T> {
     pub generate: for<'prng> fn(&'prng mut WyRand) -> T,
-    pub shrink: for<'orig> fn(&'orig T) -> Box<dyn Iterator<Item = T>>,
+    pub shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
 }
 
 #[non_exhaustive]
@@ -86,32 +86,6 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
         prng: &mut WyRand,
         size: Size,
     ) -> TermsOfVariousTypes;
-
-    /// Cached type-level information from registration during initialization.
-    /// It's always valid (and recommended) to copy and paste the following:
-    /// ```
-    /// # #[derive(Clone, Debug, Eq, PartialEq)]
-    /// # struct NewType;
-    /// # impl pbt::construct::Construct for NewType {
-    /// # fn arbitrary_fields_for_ctor(ctor_idx: core::num::NonZero<usize>, prng: &mut wyrand::WyRand, size: pbt::size::Size) -> pbt::reflection::TermsOfVariousTypes { todo!() }
-    /// #[inline]
-    /// fn info() -> &'static pbt::reflection::TypeInfo {
-    ///     static CACHE: std::sync::OnceLock<std::sync::Arc<pbt::reflection::TypeInfo>> =
-    ///         std::sync::OnceLock::new();
-    ///     CACHE.get_or_init(|| {
-    ///         pbt::reflection::register::<Self>(
-    ///             pbt::hash::empty_set(),
-    ///             &mut *pbt::reflection::_registry_mut(),
-    ///         )
-    ///     })
-    /// }
-    /// # fn register_all_immediate_dependencies(_: &pbt::hash::Set<pbt::reflection::Type>, _: &mut pbt::hash::Map<pbt::reflection::Type, std::sync::Arc<pbt::reflection::TypeInfo>>) {}
-    /// # fn type_former() -> pbt::construct::TypeFormer<Self> { todo!() }
-    /// # fn visit_deep<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
-    /// # fn visit_shallow<V: pbt::construct::Construct>(&self) -> impl Iterator<Item = &V> { pbt::construct::visit_self(self) }
-    /// # }
-    /// ```
-    fn info() -> &'static TypeInfo;
 
     /// Run depth-first search on the global type dependency graph.
     /// All this needs to do in practice is to
@@ -238,7 +212,7 @@ impl<T> Deref for ElimFn<T> {
     reason = "no user-facing panics; only internal errors"
 )]
 pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
-    let info = T::info();
+    let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
             ref potential_leaves,
@@ -280,7 +254,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
             );
             Some(result)
         }
-        PrecomputedTypeFormer::Literal { generate } => {
+        PrecomputedTypeFormer::Literal { generate, .. } => {
             // SAFETY: Undoing an earlier transmute.
             let generate = unsafe {
                 mem::transmute::<fn(&mut WyRand) -> Erased, fn(&mut WyRand) -> T>(generate)
@@ -298,7 +272,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
 /// If that's not the case.
 #[inline]
 pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
-    let info = T::info();
+    let info = info::<T>();
     let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
         eliminator,
         ref potential_leaves,
@@ -360,7 +334,7 @@ pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
 /// If that's not the case.
 #[inline]
 pub fn check_eta_expansion<T: Construct>(prng: &mut WyRand) {
-    let info = T::info();
+    let info = info::<T>();
     let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
         ref all_tagged,
         eliminator,

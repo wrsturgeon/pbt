@@ -3,12 +3,12 @@
 use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self},
-        hash::{Map, Set, empty_set},
-        reflection::{_registry_mut, TermsOfVariousTypes, Type, TypeInfo, register},
+        hash::{Map, Set},
+        reflection::{TermsOfVariousTypes, Type, TypeInfo},
         size::Size,
     },
     core::num::NonZero,
-    std::sync::{Arc, OnceLock},
+    std::sync::Arc,
     wyrand::WyRand,
 };
 
@@ -17,7 +17,7 @@ use {
 /// e.g. for 100, this would return [0, 50, 75, 88, 94, 97, 99].
 macro_rules! shrink_int {
     () => {
-        |&u| -> Box<dyn Iterator<Item = Self>> {
+        |u| -> Box<dyn Iterator<Item = Self>> {
             Box::new((0_u16..).map_while(move |shr| {
                 let subtrahend = u >> shr;
                 #[expect(clippy::arithmetic_side_effects, reason = "`u >> _` is always <= `u`")]
@@ -38,12 +38,6 @@ impl Construct for bool {
     }
 
     #[inline]
-    fn info() -> &'static TypeInfo {
-        static CACHE: OnceLock<Arc<TypeInfo>> = OnceLock::new();
-        CACHE.get_or_init(|| register::<Self>(empty_set(), &mut _registry_mut()))
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(
         _visited: &Set<Type>,
         _registry: &mut Map<Type, Arc<TypeInfo>>,
@@ -55,7 +49,7 @@ impl Construct for bool {
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
             generate: |prng| (prng.rand() & 1) != 0,
-            shrink: |&b| -> Box<dyn Iterator<Item = Self>> {
+            shrink: |b| -> Box<dyn Iterator<Item = Self>> {
                 Box::new(b.then_some(false).into_iter())
             },
         })
@@ -80,12 +74,6 @@ impl Construct for u64 {
         _size: Size,
     ) -> TermsOfVariousTypes {
         TermsOfVariousTypes::new()
-    }
-
-    #[inline]
-    fn info() -> &'static TypeInfo {
-        static CACHE: OnceLock<Arc<TypeInfo>> = OnceLock::new();
-        CACHE.get_or_init(|| register::<Self>(empty_set(), &mut _registry_mut()))
     }
 
     #[inline]

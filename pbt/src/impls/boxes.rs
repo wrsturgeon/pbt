@@ -6,12 +6,12 @@ use {
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
             arbitrary, visit_self, visit_self_or,
         },
-        hash::{Map, Set, empty_set},
-        reflection::{_registry_mut, TermsOfVariousTypes, Type, TypeInfo, register, type_of},
+        hash::{Map, Set},
+        reflection::{TermsOfVariousTypes, Type, TypeInfo, register, type_of},
         size::Size,
     },
     core::{any::type_name, iter, num::NonZero},
-    std::sync::{Arc, OnceLock},
+    std::sync::Arc,
 };
 
 impl<T: Construct> Construct for Box<T> {
@@ -41,12 +41,6 @@ impl<T: Construct> Construct for Box<T> {
             ),
         }
         fields
-    }
-
-    #[inline]
-    fn info() -> &'static TypeInfo {
-        static CACHE: OnceLock<Arc<TypeInfo>> = OnceLock::new();
-        CACHE.get_or_init(|| register::<Self>(empty_set(), &mut _registry_mut()))
     }
 
     #[inline]

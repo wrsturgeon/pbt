@@ -4,7 +4,11 @@ use {
     crate::{
         construct::{Construct as _, arbitrary, check_beta_reduction, check_eta_expansion},
         hash::{SEED, empty_set},
-        reflection::{PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, type_of},
+        reflection::{
+            PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, breadth_first_transpose, info,
+            type_of,
+        },
+        shrink::shrink,
         size::Size,
     },
     core::{
@@ -23,12 +27,12 @@ fn info_bool() {
         ref dependencies,
         name,
         trivial,
-    } = *T::info();
+    } = *info::<T>();
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Literal { .. } = *type_former else {
         panic!("expected literal (non-algebraic) type former but found {type_former:#?}")
     };
-    assert_eq!(dependencies.ctor_idx, None);
+    assert_eq!(dependencies.constructor, None);
     assert_eq!(
         dependencies.id,
         type_of::<T>(),
@@ -49,7 +53,7 @@ fn info_box_bool() {
         ref dependencies,
         name,
         trivial,
-    } = *T::info();
+    } = *info::<T>();
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
@@ -59,7 +63,7 @@ fn info_box_bool() {
     assert_eq!(constructors.guaranteed_loops.len(), 0);
     assert_eq!(constructors.potential_leaves.len(), 1);
     assert_eq!(constructors.potential_loops.len(), 0);
-    assert_eq!(dependencies.ctor_idx, None);
+    assert_eq!(dependencies.constructor, None);
     assert_eq!(
         dependencies.id,
         type_of::<T>(),
@@ -219,4 +223,57 @@ fn eta_expansion_bool() {
 #[test]
 fn eta_expansion_box_bool() {
     let () = check_eta_expansion::<Box<bool>>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
+fn breadth_first_iteration() {
+    let values: Vec<u64> = vec![10, 20, 40];
+    let iterators = values.into_iter().map(|u| (u, shrink(u))).collect();
+    let iterator = breadth_first_transpose(iterators);
+    let iterated: Vec<Vec<u64>> = iterator.collect();
+    ::std::assert_eq!(
+        iterated,
+        vec![
+            vec![0, 20, 40],
+            vec![10, 0, 40],
+            vec![10, 20, 0],
+            vec![5, 20, 40],
+            vec![10, 10, 40],
+            vec![10, 20, 20],
+            vec![8, 20, 40],
+            vec![10, 15, 40],
+            vec![10, 20, 30],
+            vec![9, 20, 40],
+            vec![10, 18, 40],
+            vec![10, 20, 35],
+            vec![10, 19, 40],
+            vec![10, 20, 38],
+            vec![10, 20, 39],
+        ],
+    );
+}
+
+#[test]
+fn shrink_bool() {
+    assert_eq!(shrink(false).collect::<Vec<_>>(), vec![]);
+    assert_eq!(shrink(true).collect::<Vec<_>>(), vec![false]);
+}
+
+#[test]
+fn shrink_u64() {
+    assert_eq!(
+        shrink(100_u64).collect::<Vec<_>>(),
+        vec![0, 50, 75, 88, 94, 97, 99],
+    );
+}
+
+#[test]
+fn shrink_box_u64() {
+    assert_eq!(
+        shrink(Box::new(100_u64)).collect::<Vec<_>>(),
+        [0, 50, 75, 88, 94, 97, 99]
+            .into_iter()
+            .map(Box::new)
+            .collect::<Vec<_>>(),
+    );
 }
