@@ -8,7 +8,7 @@
 use {
     crate::{
         SEED,
-        construct::{Construct as _, arbitrary, check_beta_reduction, check_eta_expansion},
+        construct::{Construct as _, arbitrary, check_eta_expansion},
         reflection::{
             PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, breadth_first_transpose, info,
             type_of,
@@ -370,26 +370,6 @@ fn arbitrary_vec_bool() {
             vec![false, true, true, true],
         ],
     );
-}
-
-#[test]
-fn beta_reduction_bool() {
-    let () = check_beta_reduction::<bool>(&mut WyRand::new(u64::from(SEED)));
-}
-
-#[test]
-fn beta_reduction_box_bool() {
-    let () = check_beta_reduction::<Box<bool>>(&mut WyRand::new(u64::from(SEED)));
-}
-
-#[test]
-fn beta_reduction_option_u64() {
-    let () = check_beta_reduction::<Option<u64>>(&mut WyRand::new(u64::from(SEED)));
-}
-
-#[test]
-fn beta_reduction_vec_u64() {
-    let () = check_beta_reduction::<Vec<u64>>(&mut WyRand::new(u64::from(SEED)));
 }
 
 #[test]

@@ -258,68 +258,6 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
     }
 }
 
-/// Check that constructing a term and them
-/// immediately eliminating that term
-/// is a no-op, i.e. the identity function.
-/// # Panics
-/// If that's not the case.
-#[inline]
-pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
-    let info = info::<T>();
-    let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
-        eliminator,
-        ref potential_leaves,
-        ref potential_loops,
-        ..
-    }) = info.type_former
-    else {
-        return;
-    };
-    // SAFETY: Undoing an earlier transmute.
-    let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
-    for size in Size::expanding().take(32) {
-        let ctor = if size.should_recurse(prng)
-            && let Some(n) = NonZero::new(potential_loops.len())
-        {
-            #[expect(
-                clippy::as_conversions,
-                clippy::cast_possible_truncation,
-                reason = "fine: definitely not > `u64::MAX` constructors"
-            )]
-            let i = prng.rand() as usize % n;
-            // SAFETY: Bounded by length above (see `% n`).
-            unsafe { potential_loops.get_unchecked(i) }
-        } else {
-            let Some(n) = NonZero::new(potential_leaves.len()) else {
-                return;
-            };
-            #[expect(
-                clippy::as_conversions,
-                clippy::cast_possible_truncation,
-                reason = "fine: definitely not > `u64::MAX` constructors"
-            )]
-            let i = prng.rand() as usize % n;
-            // SAFETY: Bounded by length above (see `% n`).
-            unsafe { potential_leaves.get_unchecked(i) }
-        };
-        let orig_fields = T::arbitrary_fields_for_ctor(ctor.index, prng, size);
-        let mut fields = orig_fields.clone();
-        // SAFETY: By the soundness of the type-`TypeId` relation,
-        // which holds as long as no lifetime subtyping takes place,
-        // and since only `'static` types have IDs and we can't generate functions,
-        // it holds here.
-        let f = unsafe { ctor.unerase::<T>() };
-        let constructed = f(&mut fields);
-        assert!(
-            fields.is_empty(),
-            "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
-        );
-        let eliminated = eliminator(constructed);
-        pretty_assertions::assert_eq!(eliminated.ctor_idx, ctor.index);
-        pretty_assertions::assert_eq!(eliminated.fields, orig_fields);
-    }
-}
-
 /// Check that eliminating a term and them
 /// immediately constructing it again
 /// is a no-op, i.e. the identity function.

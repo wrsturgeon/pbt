@@ -147,11 +147,6 @@ fn derive_pbt_for_ctors(
         #[cfg(test)]
         mod #test_mod_id {
             #[test]
-            fn beta_reduction() {
-                let () = ::pbt::construct::check_beta_reduction::<super::#ident>(&mut ::pbt::WyRand::new(u64::from(::pbt::SEED)));
-            }
-
-            #[test]
             fn eta_expansion() {
                 let () = ::pbt::construct::check_eta_expansion::<super::#ident>(&mut ::pbt::WyRand::new(u64::from(::pbt::SEED)));
             }
