@@ -22,7 +22,7 @@ use {
         iter,
     },
     pretty_assertions::assert_eq,
-    std::collections::BTreeSet,
+    std::collections::{BTreeMap, BTreeSet},
     wyrand::WyRand,
 };
 
@@ -446,6 +446,29 @@ fn arbitrary_btree_set_u64() {
 }
 
 #[test]
+fn arbitrary_btree_map_u64_u64() {
+    let mut prng = WyRand::new(u64::from(SEED));
+    assert_eq!(
+        Size::expanding()
+            .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
+            .collect::<Vec<BTreeMap<u64, u64>>>(),
+        vec![
+            BTreeMap::new(),
+            BTreeMap::new(),
+            [(4, 1)].into_iter().collect(),
+            [(40, 1), (358, 79)].into_iter().collect(),
+            [(3, 1), (11, 28_884), (46, 75)].into_iter().collect(),
+            BTreeMap::new(),
+            [(1_218_752_142, 55)].into_iter().collect(),
+            [(0, 51_258_761), (2, 0)].into_iter().collect(),
+            [(0, 0), (2_160, 0), (24_697, 5)].into_iter().collect(),
+            BTreeMap::new(),
+        ],
+    );
+}
+
+#[test]
 fn eta_expansion_bool() {
     let () = check_eta_expansion::<bool>();
 }
@@ -468,6 +491,11 @@ fn eta_expansion_vec_u64() {
 #[test]
 fn eta_expansion_btree_set_u64() {
     let () = check_eta_expansion::<BTreeSet<u64>>();
+}
+
+#[test]
+fn eta_expansion_btree_map_u64() {
+    let () = check_eta_expansion::<BTreeMap<u64, u64>>();
 }
 
 #[test]
