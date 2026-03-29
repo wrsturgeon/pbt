@@ -13,10 +13,15 @@ version.workspace = true
 
 [dependencies]
 ahash = "~0.8"
+malachite = { version = "~0.9", optional = true }
 papaya = "~0.2"
 pbt-macros = { path = "../pbt-macros" }
 pretty_assertions = "~1.4"
 wyrand = "~0.4"
+
+
+[features]
+malachite = ["dep:malachite"]
 
 
 [lints]
