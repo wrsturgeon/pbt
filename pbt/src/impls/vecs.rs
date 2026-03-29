@@ -4,13 +4,13 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_or,
+            visit_self, visit_self_opt, visit_self_or,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         size::Size,
     },
-    core::{any::type_name, num::NonZero},
+    core::{any::type_name, iter, num::NonZero},
     std::collections::BTreeSet,
 };
 
@@ -81,12 +81,16 @@ impl<T: Construct> Construct for Vec<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        // TODO: Can't visit all the recursive tails of this
-        // vec viewed as a Haskell-style linked list, since
-        // references can't escape into an iterator --
-        // at least not without `collect`ing and fucking all efficiency.
-        visit_self(self).chain(self.iter().flat_map(T::visit_deep))
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+        visit_self::<V, Self>(self)
+            .chain(self.iter().flat_map(T::visit_deep))
+            .chain({
+                let mut v = self.clone();
+                iter::from_fn(move || {
+                    let _: T = v.pop()?;
+                    visit_self_opt::<V, Self>(&v).cloned()
+                })
+            })
     }
 
     #[inline]

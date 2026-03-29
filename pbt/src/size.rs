@@ -76,31 +76,63 @@ impl Size {
             }
         }
 
-        // We want `n_ind` sections, so we'll use the spaces between
-        // the beginning, the end, and `n_ind - 1` stars:
-        let Some(n_bars) = n_ind.checked_sub(1) else {
+        let Some(mut sizes) = self.partition_into(n_ind, prng, !info.trivial) else {
             return Sizes {
                 map: BTreeMap::new(),
             };
         };
 
+        // Use each size for an inductive type:
+        let mut map = BTreeMap::<Type, Vec<Size>>::new();
+        for (&ty, count) in immediate_deps.iter() {
+            if info_by_id(ty).dependencies.is_inductive() {
+                let v = map.entry(ty).or_default();
+                for _ in 0..count.get() {
+                    #[expect(
+                        clippy::expect_used,
+                        reason = "internal invariants; violation should panic"
+                    )]
+                    v.push(
+                        sizes
+                            .next()
+                            .expect("internal `pbt` error: inductive type mis-count"),
+                    );
+                }
+            }
+        }
+        Sizes { map }
+    }
+
+    /// Partition this total size into `n` sizes
+    /// which add up to the original size,
+    /// optionally minus one iff `minus_one`.
+    /// # Panics
+    /// If `size` is `usize::MAX` and `!minus_one`.
+    #[inline]
+    pub fn partition_into(
+        self,
+        n: usize,
+        prng: &mut WyRand,
+        minus_one: bool,
+    ) -> Option<impl 'static + Iterator<Item = Self>> {
+        // We want `n` sections, so we'll use the spaces between
+        // the beginning, the end, and `n - 1` stars:
+        let n_bars = n.checked_sub(1)?;
+
         // If this is a trivial wrapper and/or non-inductive type,
         // don't account for it while tracking full AST size;
         // otherwise, this AST node counts, so we should
         // decrement the remaining size for the rest of the structure.
-        let Some(n_inclusive) = NonZero::new(
+        let n_inclusive = NonZero::new(
             #[expect(
                 clippy::expect_used,
+                clippy::unwrap_in_result,
                 reason = "internal invariants; violation should panic"
             )]
             self.size
-                .checked_add(usize::from(info.trivial))
+                .checked_add(usize::from(!minus_one))
                 .expect("internal `pbt` error: size of `usize::MAX`"),
-        ) else {
-            return Sizes {
-                map: BTreeMap::new(),
-            };
-        };
+        )?;
         #[expect(
             clippy::as_conversions,
             clippy::cast_possible_truncation,
@@ -114,56 +146,18 @@ impl Size {
         // Compute sizes by measuring the spaces between bars (+ beginning & end),
         // noting that the binary heap can efficiently drain in sorted order:
         let mut prev = 0;
-        let mut end @ Some(_) = self.size.checked_sub(usize::from(!info.trivial)) else {
-            return Sizes {
-                map: BTreeMap::new(),
-            };
-        };
+        let mut end = Some(self.size.checked_sub(usize::from(minus_one))?);
         #[expect(clippy::arithmetic_side_effects, reason = "sorted")]
-        let mut sizes = iter::from_fn(move || {
-            if let Some(cmp::Reverse(bar)) = bars.pop() {
+        Some(iter::from_fn(move || {
+            let size = if let Some(cmp::Reverse(bar)) = bars.pop() {
                 let difference = bar - prev;
                 prev = bar;
-                return Some(difference);
-            }
-            end.take().map(|end| end - prev)
-        });
-
-        // Use each size for an inductive type:
-        let mut map = BTreeMap::<Type, Vec<Size>>::new();
-        for (&ty, count) in immediate_deps.iter() {
-            if info_by_id(ty).dependencies.is_inductive() {
-                let v = map.entry(ty).or_default();
-                for _ in 0..count.get() {
-                    #[expect(
-                        clippy::expect_used,
-                        reason = "internal invariants; violation should panic"
-                    )]
-                    v.push(Size {
-                        size: sizes
-                            .next()
-                            .expect("internal `pbt` error: inductive type mis-count"),
-                    });
-                }
-            }
-        }
-        /*
-        debug_assert_eq!(
-            sizes.next(),
-            None,
-            "internal `pbt` error: inductive type mis-count",
-        );
-        debug_assert_eq!(
-            Some(
-                map.values()
-                    .flatten()
-                    .map(|&Size { size }| size)
-                    .sum::<usize>(),
-            ),
-            self.size.checked_sub(usize::from(!info.trivial)),
-        );
-        */
-        Sizes { map }
+                difference
+            } else {
+                end.take()? - prev
+            };
+            Some(Self { size })
+        }))
     }
 
     /// Whether to choose a potential leaf or loop constructor.
@@ -176,6 +170,12 @@ impl Size {
             reason = "fine: definitely not > `u64::MAX` constructors"
         )]
         NonZero::new(self.size).is_some_and(|size| prng.rand() as usize % size != 0)
+    }
+
+    #[inline]
+    #[must_use]
+    pub fn zero() -> Self {
+        Self { size: 0 }
     }
 }
 

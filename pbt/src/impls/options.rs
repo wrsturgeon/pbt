@@ -81,7 +81,7 @@ impl<T: Construct> Construct for Option<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V> {
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(self.as_ref().map(T::visit_deep).into_iter().flatten())
     }
 

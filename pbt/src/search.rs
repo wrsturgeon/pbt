@@ -1,0 +1,81 @@
+use {
+    crate::{
+        SEED,
+        construct::{Construct, arbitrary},
+        shrink::shrink,
+        size::Size,
+    },
+    core::fmt,
+    wyrand::WyRand,
+};
+
+#[inline]
+pub fn witness<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> Option<T> {
+    let mut prng = WyRand::new(u64::from(SEED));
+    for size in Size::expanding().take(n_cases) {
+        let t = arbitrary::<T>(&mut prng, size)?;
+        if property(&t) {
+            let mut best_yet = t;
+            'restart: loop {
+                for candidate in shrink::<T>(best_yet.clone()) {
+                    if property(&candidate) {
+                        best_yet = candidate;
+                        continue 'restart;
+                    }
+                }
+                // nothing better, so return our best-yet as the best overall:
+                return Some(best_yet);
+            }
+        }
+    }
+    None
+}
+
+/// Assert that some property always holds (i.e. returns `true`).
+/// # Panics
+/// If a minimal witness can be found
+/// by checking up to `n_cases` cases
+/// for which the property returns `false`.
+#[inline]
+#[expect(clippy::panic, reason = "failing assertions ought to panic")]
+pub fn assert<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) {
+    if let Some(t) = witness(n_cases, |t| !property(t)) {
+        assert!(
+            property(&t),
+            "\r\n\r\nnot always true: for example, the input\r\n{t:#?}\r\nreturned `{:?}`\r\n\r\n",
+            false,
+        );
+        panic!(
+            "\r\n\r\nflaky test! the input\r\n{t:#?}\r\noriginally returned `{:?}`, but when run again, it returned `{:?}`\r\n\r\n",
+            false, true,
+        )
+    }
+}
+
+/// Assert that two terms (which may vary
+/// depending on some input) are always equal.
+/// # Panics
+/// If a minimal witness can be found
+/// by checking up to `n_cases` cases
+/// for which the two terms differ.
+#[inline]
+#[expect(clippy::panic, reason = "failing assertions ought to panic")]
+pub fn assert_eq<X: Construct, Y: fmt::Debug + Eq, P: Fn(&X) -> (Y, Y)>(
+    n_cases: usize,
+    property: P,
+) {
+    if let Some(x) = witness(n_cases, |x| {
+        let (lhs, rhs) = property(x);
+        lhs != rhs
+    }) {
+        let (lhs, rhs) = property(&x);
+        pretty_assertions::assert_eq!(
+            lhs,
+            rhs,
+            "\r\n\r\nnot always equal: for example, the input\r\n{x:#?}\r\nproduced\r\n{lhs:#?}\r\nand\r\n{rhs:#?}\r\n\r\n",
+        );
+        panic!(
+            "\r\n\r\nflaky test! the input\r\n{x:#?}\r\noriginally failed, but when run again, it produced\r\n{lhs:#?}\r\nand\r\n{rhs:#?}\r\nwhich were judged to be equal\r\n\r\n",
+        )
+    }
+}

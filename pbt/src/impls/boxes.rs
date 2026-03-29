@@ -67,7 +67,7 @@ impl<T: Construct> Construct for Box<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V> {
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(self.as_ref().visit_deep())
     }
 

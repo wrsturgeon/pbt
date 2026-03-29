@@ -102,7 +102,7 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     /// Visit all terms of type `V` in this abstract syntax tree.
     /// Your implementation should always follow this formula:
     /// `pbt::construct::visit_self(self).chain(... recurse into fields ...)`.
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V>;
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V>;
 
     /// Visit all *non-nested* terms of type `V` in this abstract syntax tree.
     /// Your implementation should always follow this formula:
@@ -243,7 +243,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
             let result = f(&mut fields);
             debug_assert!(
                 fields.is_empty(),
-                "internal `pbt` error: leftover terms after applying a constructor",
+                "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
             );
             Some(result)
         }
@@ -312,7 +312,7 @@ pub fn check_beta_reduction<T: Construct>(prng: &mut WyRand) {
         let constructed = f(&mut fields);
         assert!(
             fields.is_empty(),
-            "internal `pbt` error: leftover terms after applying a constructor",
+            "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
         );
         let eliminated = eliminator(constructed);
         pretty_assertions::assert_eq!(eliminated.ctor_idx, ctor.index);
@@ -356,15 +356,15 @@ pub fn check_eta_expansion<T: Construct>(prng: &mut WyRand) {
         let constructed = f(&mut fields);
         assert!(
             fields.is_empty(),
-            "internal `pbt` error: leftover terms after applying a constructor",
+            "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
         );
         pretty_assertions::assert_eq!(constructed, orig);
     }
 }
 
 #[inline]
-pub fn visit_self<V: Construct, S: Construct>(s: &S) -> impl Iterator<Item = &V> {
-    visit_self_opt::<V, S>(s).into_iter()
+pub fn visit_self<V: Construct, S: Construct>(s: &S) -> impl Iterator<Item = V> {
+    visit_self_opt::<V, S>(s).cloned().into_iter()
 }
 
 #[inline]

@@ -334,7 +334,7 @@ impl Construct for Erased {
         unused_variables,
         reason = "to constrain the anonymous return type"
     )]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = &V> {
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         let panic: iter::Empty<_> =
             panic!("internal `pbt` error: do not call `Construct` methods on `Erased`");
         panic

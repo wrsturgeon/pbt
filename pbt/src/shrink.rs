@@ -6,12 +6,13 @@ use {
     core::mem,
 };
 
+// TODO: Take a reference instead of a moved value.
 /// Iterate over values that are "smaller" than this one in some sense.
 /// This iterator is designed to cut about half the remaining "size" of the type
 /// on the first go, then to cut only about a quarter, then only an eighth, etc.,
 /// until they almost reach (but do not equal) the original term.
-/// # Panics
 #[inline]
+#[expect(clippy::missing_panics_doc, reason = "won't panic")]
 pub fn shrink<T: Construct>(t: T) -> Box<dyn Iterator<Item = T>> {
     let info = info::<T>();
     let AlgebraicTypeFormer {
@@ -57,7 +58,6 @@ pub fn shrink<T: Construct>(t: T) -> Box<dyn Iterator<Item = T>> {
     let nested_selves = t
         .visit_deep::<T>()
         .skip(1) // skip `t` itself
-        .cloned()
         .collect::<Vec<_>>(); // need to collect b/c `t` is local :(
 
     let shrink_fields = fields

@@ -1,6 +1,7 @@
 #![expect(
-    clippy::panic,
+    clippy::expect_used,
     clippy::indexing_slicing,
+    clippy::panic,
     reason = "failing tests ought to panic"
 )]
 
@@ -12,6 +13,7 @@ use {
             PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, breadth_first_transpose, info,
             type_of,
         },
+        search::witness,
         shrink::shrink,
         size::Size,
     },
@@ -178,10 +180,10 @@ fn info_vec_u64() {
 fn visit_deep_bool() {
     let t = true;
     let f = false;
-    assert_eq!(t.visit_deep().collect::<Vec<&bool>>(), vec![&true]);
-    assert_eq!(f.visit_deep().collect::<Vec<&bool>>(), vec![&false]);
-    assert_eq!(t.visit_deep().collect::<Vec<&u64>>(), Vec::<&u64>::new());
-    assert_eq!(f.visit_deep().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(t.visit_deep().collect::<Vec<bool>>(), vec![true]);
+    assert_eq!(f.visit_deep().collect::<Vec<bool>>(), vec![false]);
+    assert_eq!(t.visit_deep().collect::<Vec<u64>>(), Vec::<u64>::new());
+    assert_eq!(f.visit_deep().collect::<Vec<u64>>(), Vec::<u64>::new());
 }
 
 #[test]
@@ -189,17 +191,17 @@ fn visit_deep_box_bool() {
     let t = Box::new(true);
     let f = Box::new(false);
     assert_eq!(
-        t.visit_deep().collect::<Vec<&Box<bool>>>(),
-        vec![&Box::new(true)],
+        t.visit_deep().collect::<Vec<Box<bool>>>(),
+        vec![Box::new(true)],
     );
     assert_eq!(
-        f.visit_deep().collect::<Vec<&Box<bool>>>(),
-        vec![&Box::new(false)],
+        f.visit_deep().collect::<Vec<Box<bool>>>(),
+        vec![Box::new(false)],
     );
-    assert_eq!(t.visit_deep().collect::<Vec<&bool>>(), vec![&true]);
-    assert_eq!(f.visit_deep().collect::<Vec<&bool>>(), vec![&false]);
-    assert_eq!(t.visit_deep().collect::<Vec<&u64>>(), Vec::<&u64>::new());
-    assert_eq!(f.visit_deep().collect::<Vec<&u64>>(), Vec::<&u64>::new());
+    assert_eq!(t.visit_deep().collect::<Vec<bool>>(), vec![true]);
+    assert_eq!(f.visit_deep().collect::<Vec<bool>>(), vec![false]);
+    assert_eq!(t.visit_deep().collect::<Vec<u64>>(), Vec::<u64>::new());
+    assert_eq!(f.visit_deep().collect::<Vec<u64>>(), Vec::<u64>::new());
 }
 
 #[test]
@@ -267,20 +269,42 @@ fn arbitrary_u64() {
     let mut prng = WyRand::new(u64::from(SEED));
     assert_eq!(
         Size::expanding()
-            .take(10)
+            .take(32)
             .filter_map(|size| arbitrary(&mut prng, size))
             .collect::<Vec<u64>>(),
         vec![
-            6_502_630_866_907_404_834,
-            18_353_055_445_182_403_062,
-            10_599_744_798_405_285_088,
-            974_438_577_008_164_883,
-            366_399_349_974_675_270,
-            15_480_388_469_539_559_217,
-            17_528_150_796_657_311_260,
-            14_774_801_171_373_612_679,
-            9_171_889_233_211_178_199,
-            15_721_880_942_338_967_310,
+            u64::MAX,
+            2_831_526_533_816_853,
+            2780,
+            198_093_122,
+            3,
+            40,
+            10,
+            1,
+            2160,
+            u64::MAX,
+            0,
+            0,
+            1,
+            460_252_415_470_178_231,
+            0,
+            65,
+            331,
+            u64::MAX,
+            2,
+            1,
+            u64::MAX,
+            409_780,
+            11,
+            0,
+            0,
+            30,
+            74,
+            7,
+            3,
+            0,
+            5,
+            11,
         ],
     );
 }
@@ -315,11 +339,11 @@ fn arbitrary_option_u64() {
             None,
             None,
             None,
-            Some(15_721_880_942_338_967_310),
+            Some(23),
+            Some(0),
+            Some(161),
             None,
-            Some(3_005_949_388_590_734_596),
-            Some(16_429_615_213_713_786_723),
-            None,
+            Some(0),
             None,
         ],
     );
@@ -470,6 +494,7 @@ fn shrink_vec_u64() {
         shrink(vec![100]).collect::<Vec<Vec<u64>>>(),
         vec![
             vec![],
+            vec![], // <-- artifact of special-casing `Vec<_>`
             vec![0],
             vec![50],
             vec![75],
@@ -482,24 +507,42 @@ fn shrink_vec_u64() {
     assert_eq!(
         shrink(vec![10, 20, 40]).collect::<Vec<Vec<u64>>>(),
         vec![
+            vec![10, 20],
+            vec![10],
             vec![],
+            vec![], // <-- artifact of special-casing `Vec<_>`
             vec![10, 20, 0],
-            vec![40],
+            vec![10, 40],
             vec![10, 20, 20],
-            vec![10, 0, 40],
+            vec![40],
             vec![10, 20, 30],
-            vec![20, 40],
+            vec![40],
             vec![10, 20, 35],
-            vec![10, 10, 40],
+            vec![10, 0, 40],
             vec![10, 20, 38],
-            vec![0, 20, 40],
+            vec![20, 40],
             vec![10, 20, 39],
+            vec![10, 10, 40],
+            vec![20, 40],
             vec![10, 15, 40],
-            vec![5, 20, 40],
+            vec![0, 20, 40],
             vec![10, 18, 40],
-            vec![8, 20, 40],
+            vec![5, 20, 40],
             vec![10, 19, 40],
+            vec![8, 20, 40],
             vec![9, 20, 40],
         ],
     );
+}
+
+#[test]
+fn search_witness_vec_contains_42() {
+    let witness = witness(10_000, |v: &Vec<u64>| v.contains(&42)).expect("witness not found");
+    assert_eq!(witness, vec![42]);
+}
+
+#[test]
+fn search_witness_vec_contains_u64_max() {
+    let witness = witness(10_000, |v: &Vec<u64>| v.contains(&u64::MAX)).expect("witness not found");
+    assert_eq!(witness, vec![u64::MAX]);
 }
