@@ -22,7 +22,7 @@ use {
         iter,
     },
     pretty_assertions::assert_eq,
-    std::collections::{BTreeMap, BTreeSet},
+    std::collections::{BTreeMap, BTreeSet, HashMap, HashSet},
     wyrand::WyRand,
 };
 
@@ -469,6 +469,52 @@ fn arbitrary_btree_map_u64_u64() {
 }
 
 #[test]
+fn arbitrary_hash_set_u64() {
+    let mut prng = WyRand::new(u64::from(SEED));
+    assert_eq!(
+        Size::expanding()
+            .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
+            .collect::<Vec<HashSet<u64>>>(),
+        vec![
+            HashSet::new(),
+            HashSet::new(),
+            [1].into_iter().collect(),
+            HashSet::new(),
+            HashSet::new(),
+            [414].into_iter().collect(),
+            [0, 10_410_362_529].into_iter().collect(),
+            [0, 849_508_256_479_470_101].into_iter().collect(),
+            [0, 1, 5, 22].into_iter().collect(),
+            [1].into_iter().collect(),
+        ],
+    );
+}
+
+#[test]
+fn arbitrary_hash_map_u64_u64() {
+    let mut prng = WyRand::new(u64::from(SEED));
+    assert_eq!(
+        Size::expanding()
+            .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
+            .collect::<Vec<HashMap<u64, u64>>>(),
+        vec![
+            HashMap::new(),
+            HashMap::new(),
+            [(4, 1)].into_iter().collect(),
+            [(40, 1), (358, 79)].into_iter().collect(),
+            [(3, 1), (11, 28_884), (46, 75)].into_iter().collect(),
+            HashMap::new(),
+            [(1_218_752_142, 55)].into_iter().collect(),
+            [(0, 51_258_761), (2, 0)].into_iter().collect(),
+            [(0, 0), (2_160, 0), (24_697, 5)].into_iter().collect(),
+            HashMap::new(),
+        ],
+    );
+}
+
+#[test]
 fn eta_expansion_bool() {
     let () = check_eta_expansion::<bool>();
 }
@@ -495,6 +541,16 @@ fn eta_expansion_btree_set_u64() {
 
 #[test]
 fn eta_expansion_btree_map_u64() {
+    let () = check_eta_expansion::<BTreeMap<u64, u64>>();
+}
+
+#[test]
+fn eta_expansion_hash_set_u64() {
+    let () = check_eta_expansion::<BTreeSet<u64>>();
+}
+
+#[test]
+fn eta_expansion_hash_map_u64() {
     let () = check_eta_expansion::<BTreeMap<u64, u64>>();
 }
 

@@ -3,6 +3,7 @@
 
 mod boxes;
 mod btrees;
+mod hash_collections;
 mod ints;
 mod options;
 mod vecs;
