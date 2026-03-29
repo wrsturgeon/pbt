@@ -38,7 +38,7 @@ mod test {
                 Doggo::Subwoofer {
                     many_wow: 358,
                     such_amaze: 79,
-                    pals: vec![Doggo::Woofer,],
+                    pals: vec![Doggo::Woofer],
                 },
                 Doggo::Subwoofer {
                     many_wow: 0,
@@ -56,8 +56,8 @@ mod test {
                             many_wow: 3,
                             such_amaze: 15952,
                             pals: vec![],
-                        },],
-                    },],
+                        }],
+                    }],
                 },
                 Doggo::Subwoofer {
                     many_wow: 2116,
@@ -77,8 +77,8 @@ mod test {
                     pals: vec![Doggo::Subwoofer {
                         many_wow: 18446744073709551615,
                         such_amaze: 12,
-                        pals: vec![Doggo::Woofer, Doggo::Woofer,],
-                    },],
+                        pals: vec![Doggo::Woofer, Doggo::Woofer],
+                    }],
                 },
                 Doggo::Subwoofer {
                     many_wow: 6,
@@ -87,7 +87,7 @@ mod test {
                         many_wow: 10,
                         such_amaze: 945336233,
                         pals: vec![],
-                    },],
+                    }],
                 },
             ],
         );
