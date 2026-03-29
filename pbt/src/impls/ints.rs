@@ -99,6 +99,101 @@ mod malachite {
     }
 }
 
+#[cfg(feature = "num-bigint")]
+mod num_bigint {
+    #![allow(
+        clippy::allow_attributes,
+        clippy::wildcard_imports,
+        reason = "the purpose of this effectively transparent module is only feature-gating"
+    )]
+
+    //! Implementations for numeric types from the `num_bigint` crate.
+
+    use {super::*, ::num_bigint::BigUint};
+
+    impl Construct for BigUint {
+        #[inline]
+        fn arbitrary_fields_for_ctor(
+            _ctor_idx: NonZero<usize>,
+            _prng: &mut WyRand,
+            _size: Size,
+        ) -> TermsOfVariousTypes {
+            TermsOfVariousTypes::new()
+        }
+
+        #[inline]
+        fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+
+        #[inline]
+        fn type_former() -> TypeFormer<Self> {
+            TypeFormer::Literal(Literal {
+                corners: vec![
+                    Self::ZERO,
+                    Self::from(1_u8),
+                    Self::from_slice(&[u32::MAX]),
+                    Self::from_slice(&[0, 1]),
+                    Self::from_slice(&[0, 0, 1]),
+                    Self::from_slice(&[0, 0, 0, 1]),
+                    Self::from_slice(&[0, 0, 0, 0, 1]),
+                    Self::from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 1]), // very, very large
+                ],
+                generate: |prng| {
+                    // Copied with small (unfortunately incompatible)
+                    // modifications from `arbitrary_unsigned` above.
+
+                    // SAFETY: 4 != 0
+                    let mut one_in_n = unsafe { NonZero::new_unchecked(4_u64) };
+
+                    if (prng.rand() % one_in_n) == 0 {
+                        return Self::ZERO;
+                    }
+                    one_in_n = one_in_n.saturating_add(1);
+
+                    let mut acc: Self = Self::from(1_u8);
+
+                    #[expect(clippy::arithmetic_side_effects, reason = "not with `malachite`")]
+                    while (prng.rand() % one_in_n) != 0 {
+                        acc <<= 1_u8;
+                        acc |= Self::from((prng.rand() & 1) != 0);
+
+                        one_in_n = one_in_n.saturating_add(1);
+                    }
+                    acc
+                },
+                shrink: |u| -> Box<dyn Iterator<Item = Self>> {
+                    // Copied with small (unfortunately incompatible)
+                    // modifications from `shrink_int` above.
+
+                    Box::new((0_usize..).map_while(move |shr| {
+                        #[expect(clippy::arithmetic_side_effects, reason = "not with `malachite`")]
+                        let subtrahend = &u >> shr;
+                        #[allow(
+                            clippy::allow_attributes,
+                            clippy::default_numeric_fallback,
+                            reason = "type varies"
+                        )]
+                        #[expect(
+                            clippy::arithmetic_side_effects,
+                            reason = "`u >> _` is always <= `u`"
+                        )]
+                        (subtrahend != Self::ZERO).then(|| &u - subtrahend)
+                    }))
+                },
+            })
+        }
+
+        #[inline]
+        fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+            visit_self(self)
+        }
+
+        #[inline]
+        fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
+            visit_self_opt(self).into_iter()
+        }
+    }
+}
+
 use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self, visit_self_opt},
