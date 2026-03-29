@@ -15,12 +15,12 @@ use {
     quote::{ToTokens as _, quote},
     syn::{
         AngleBracketedGenericArguments, Arm, Block, ConstParam, Expr, ExprArray, ExprBlock,
-        ExprCall, ExprClosure, ExprLit, ExprMatch, ExprPath, ExprStruct, Field, FieldPat,
-        FieldValue, Fields, GenericArgument, GenericParam, Generics, Ident, Item, LifetimeParam,
-        Lit, LitInt, Local, LocalInit, Macro, MacroDelimiter, Member, Pat, PatIdent, PatLit,
-        PatStruct, PatTuple, PatTupleStruct, PatWild, Path, PathArguments, PathSegment, ReturnType,
-        Stmt, Token, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypePath,
-        parse_macro_input,
+        ExprCall, ExprClosure, ExprLit, ExprMatch, ExprMethodCall, ExprPath, ExprStruct, Field,
+        FieldPat, FieldValue, Fields, GenericArgument, GenericParam, Generics, Ident, Item,
+        LifetimeParam, Lit, LitInt, Local, LocalInit, Macro, MacroDelimiter, Member, Pat, PatIdent,
+        PatLit, PatStruct, PatTuple, PatTupleStruct, PatWild, Path, PathArguments, PathSegment,
+        ReturnType, Stmt, Token, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound,
+        TypePath, parse_macro_input,
         punctuated::Punctuated,
         spanned::Spanned as _,
         token::{Brace, Bracket, Paren, PathSep},
@@ -687,11 +687,33 @@ fn visit(ctors: &[(Path, &Fields)], visit_fn: &Ident) -> ExprMatch {
                 guard: None,
                 fat_arrow_token: <Token![=>]>::default(),
                 body: {
-                    let iter = fields.iter().fold(
+                    let iter = fields.iter().enumerate().fold(
                         Expr::Verbatim(quote! { ::core::iter::empty() }),
-                        |acc, &Field { ref ident, .. }| {
-                            Expr::Verbatim(quote! {
-                                #ident.#visit_fn().chain(#acc)
+                        |acc, (i, &Field { ref ident, .. })| {
+                            let ident = force_ident(ident.as_ref(), i);
+                            Expr::MethodCall(ExprMethodCall {
+                                attrs: vec![],
+                                receiver: Box::new(Expr::MethodCall(ExprMethodCall {
+                                    attrs: vec![],
+                                    receiver: Box::new(Expr::Path(ExprPath {
+                                        attrs: vec![],
+                                        qself: None,
+                                        path: Path {
+                                            leading_colon: None,
+                                            segments: iter::once(seg(ident)).collect(),
+                                        },
+                                    })),
+                                    dot_token: <Token![.]>::default(),
+                                    method: visit_fn.clone(),
+                                    turbofish: None,
+                                    paren_token: Paren::default(),
+                                    args: Punctuated::new(),
+                                })),
+                                dot_token: <Token![.]>::default(),
+                                method: id("chain"),
+                                turbofish: None,
+                                paren_token: Paren::default(),
+                                args: iter::once(acc).collect(),
                             })
                         },
                     );
