@@ -177,6 +177,56 @@ fn info_vec_u64() {
 }
 
 #[test]
+fn info_btree_set_u64() {
+    type T = BTreeSet<u64>;
+    let TypeInfo {
+        ref type_former,
+        ref dependencies,
+        name,
+        trivial,
+    } = *info::<T>();
+    assert_eq!(name, type_name::<T>());
+    let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
+        panic!("expected algebraic constructors but found {type_former:#?}")
+    };
+    assert_eq!(
+        dependencies.reachable,
+        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
+    );
+    assert_eq!(dependencies.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(constructors.all_tagged.len(), 2);
+    assert_eq!(constructors.all_tagged[0].1.is_inductive(), false);
+    assert_eq!(
+        constructors.all_tagged[0].1.unavoidable,
+        Some(BTreeSet::new()),
+    );
+    assert_eq!(constructors.all_tagged[0].1.reachable, BTreeSet::new());
+    assert_eq!(constructors.all_tagged[1].1.is_inductive(), true);
+    assert_eq!(
+        constructors.all_tagged[1].1.unavoidable,
+        Some([type_of::<u64>(), type_of::<T>()].into_iter().collect()),
+    );
+    assert_eq!(
+        constructors.all_tagged[1].1.reachable,
+        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
+    );
+    assert_eq!(constructors.guaranteed_leaves.len(), 1);
+    assert_eq!(constructors.guaranteed_loops.len(), 1);
+    assert_eq!(constructors.potential_leaves.len(), 1);
+    assert_eq!(constructors.potential_loops.len(), 1);
+    assert_eq!(dependencies.constructor, None);
+    assert_eq!(
+        dependencies.id,
+        type_of::<T>(),
+        "{:?} =/= {:?}",
+        dependencies.id.id(),
+        TypeId::of::<T>(),
+    );
+    assert!(!trivial);
+    assert!(dependencies.is_inductive());
+}
+
+#[test]
 fn visit_deep_bool() {
     let t = true;
     let f = false;
@@ -373,6 +423,29 @@ fn arbitrary_vec_bool() {
 }
 
 #[test]
+fn arbitrary_btree_set_u64() {
+    let mut prng = WyRand::new(u64::from(SEED));
+    assert_eq!(
+        Size::expanding()
+            .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
+            .collect::<Vec<BTreeSet<u64>>>(),
+        vec![
+            BTreeSet::new(),
+            BTreeSet::new(),
+            [1].into_iter().collect(),
+            BTreeSet::new(),
+            BTreeSet::new(),
+            [414].into_iter().collect(),
+            [0, 10_410_362_529].into_iter().collect(),
+            [0, 849_508_256_479_470_101].into_iter().collect(),
+            [0, 1, 5, 22].into_iter().collect(),
+            [1].into_iter().collect(),
+        ],
+    );
+}
+
+#[test]
 fn eta_expansion_bool() {
     let () = check_eta_expansion::<bool>(&mut WyRand::new(u64::from(SEED)));
 }
@@ -390,6 +463,11 @@ fn eta_expansion_option_u64() {
 #[test]
 fn eta_expansion_vec_u64() {
     let () = check_eta_expansion::<Vec<u64>>(&mut WyRand::new(u64::from(SEED)));
+}
+
+#[test]
+fn eta_expansion_btree_set_u64() {
+    let () = check_eta_expansion::<BTreeSet<u64>>(&mut WyRand::new(u64::from(SEED)));
 }
 
 #[test]

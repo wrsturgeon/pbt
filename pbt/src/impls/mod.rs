@@ -2,6 +2,7 @@
 //! unreachable because of Rust's orphan rule.
 
 mod boxes;
+mod btrees;
 mod ints;
 mod options;
 mod vecs;
