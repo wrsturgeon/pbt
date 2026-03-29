@@ -5,6 +5,7 @@ use {
             AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type, info,
             type_of,
         },
+        search,
         size::Size,
     },
     core::{fmt, mem, num::NonZero, ops::Deref, ptr},
@@ -264,7 +265,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
 /// # Panics
 /// If that's not the case.
 #[inline]
-pub fn check_eta_expansion<T: Construct>(prng: &mut WyRand) {
+pub fn check_eta_expansion<T: Construct>() {
     let info = info::<T>();
     let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
         ref all_tagged,
@@ -276,10 +277,7 @@ pub fn check_eta_expansion<T: Construct>(prng: &mut WyRand) {
     };
     // SAFETY: Undoing an earlier transmute.
     let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
-    for size in Size::expanding().take(32) {
-        let Some(orig) = arbitrary::<T>(prng, size) else {
-            return;
-        };
+    let () = search::assert_eq(32, |orig: &T| {
         let Decomposition {
             ctor_idx,
             mut fields,
@@ -296,8 +294,8 @@ pub fn check_eta_expansion<T: Construct>(prng: &mut WyRand) {
             fields.is_empty(),
             "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
         );
-        pretty_assertions::assert_eq!(constructed, orig);
-    }
+        (constructed, orig.clone())
+    });
 }
 
 #[inline]

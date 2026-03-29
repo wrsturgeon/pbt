@@ -447,27 +447,27 @@ fn arbitrary_btree_set_u64() {
 
 #[test]
 fn eta_expansion_bool() {
-    let () = check_eta_expansion::<bool>(&mut WyRand::new(u64::from(SEED)));
+    let () = check_eta_expansion::<bool>();
 }
 
 #[test]
 fn eta_expansion_box_bool() {
-    let () = check_eta_expansion::<Box<bool>>(&mut WyRand::new(u64::from(SEED)));
+    let () = check_eta_expansion::<Box<bool>>();
 }
 
 #[test]
 fn eta_expansion_option_u64() {
-    let () = check_eta_expansion::<Option<u64>>(&mut WyRand::new(u64::from(SEED)));
+    let () = check_eta_expansion::<Option<u64>>();
 }
 
 #[test]
 fn eta_expansion_vec_u64() {
-    let () = check_eta_expansion::<Vec<u64>>(&mut WyRand::new(u64::from(SEED)));
+    let () = check_eta_expansion::<Vec<u64>>();
 }
 
 #[test]
 fn eta_expansion_btree_set_u64() {
-    let () = check_eta_expansion::<BTreeSet<u64>>(&mut WyRand::new(u64::from(SEED)));
+    let () = check_eta_expansion::<BTreeSet<u64>>();
 }
 
 #[test]

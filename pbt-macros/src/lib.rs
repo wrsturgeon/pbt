@@ -148,7 +148,7 @@ fn derive_pbt_for_ctors(
         mod #test_mod_id {
             #[test]
             fn eta_expansion() {
-                let () = ::pbt::construct::check_eta_expansion::<super::#ident>(&mut ::pbt::WyRand::new(u64::from(::pbt::SEED)));
+                let () = ::pbt::construct::check_eta_expansion::<super::#ident>();
             }
         }
     }
