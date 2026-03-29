@@ -1,5 +1,5 @@
 [package]
-name = "pbt"
+name = "pbt-macros"
 categories.workspace = true
 keywords.workspace = true
 authors.workspace = true
@@ -11,12 +11,14 @@ repository.workspace = true
 version.workspace = true
 
 
+[lib]
+proc-macro = true
+
+
 [dependencies]
-ahash = "~0.8"
-papaya = "~0.2"
-pbt-macros = { path = "../pbt-macros" }
-pretty_assertions = "~1.4"
-wyrand = "~0.4"
+proc-macro2 = "~1.0"
+quote = "~1.0"
+syn = { version = "~2.0", features = ["extra-traits", "fold", "full"] }
 
 
 [lints]

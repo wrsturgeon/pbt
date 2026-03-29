@@ -6,8 +6,8 @@
 
 use {
     crate::{
+        SEED,
         construct::{Construct as _, arbitrary, check_beta_reduction, check_eta_expansion},
-        hash::{SEED, empty_set},
         reflection::{
             PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, breadth_first_transpose, info,
             type_of,
@@ -20,6 +20,7 @@ use {
         iter,
     },
     pretty_assertions::assert_eq,
+    std::collections::BTreeSet,
     wyrand::WyRand,
 };
 
@@ -44,8 +45,8 @@ fn info_bool() {
         dependencies.id.id(),
         TypeId::of::<T>(),
     );
-    assert_eq!(dependencies.reachable, empty_set());
-    assert_eq!(dependencies.unavoidable, Some(empty_set()));
+    assert_eq!(dependencies.reachable, BTreeSet::new());
+    assert_eq!(dependencies.unavoidable, Some(BTreeSet::new()));
     assert!(trivial);
     assert!(!dependencies.is_inductive());
 }
@@ -118,7 +119,7 @@ fn info_option_u64() {
         dependencies.reachable,
         iter::once(type_of::<u64>()).collect(),
     );
-    assert_eq!(dependencies.unavoidable, Some(empty_set()));
+    assert_eq!(dependencies.unavoidable, Some(BTreeSet::new()));
     assert!(!trivial);
     assert!(!dependencies.is_inductive());
 }
@@ -140,11 +141,14 @@ fn info_vec_u64() {
         dependencies.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
-    assert_eq!(dependencies.unavoidable, Some(empty_set()));
+    assert_eq!(dependencies.unavoidable, Some(BTreeSet::new()));
     assert_eq!(constructors.all_tagged.len(), 2);
     assert_eq!(constructors.all_tagged[0].1.is_inductive(), false);
-    assert_eq!(constructors.all_tagged[0].1.unavoidable, Some(empty_set()));
-    assert_eq!(constructors.all_tagged[0].1.reachable, empty_set());
+    assert_eq!(
+        constructors.all_tagged[0].1.unavoidable,
+        Some(BTreeSet::new()),
+    );
+    assert_eq!(constructors.all_tagged[0].1.reachable, BTreeSet::new());
     assert_eq!(constructors.all_tagged[1].1.is_inductive(), true);
     assert_eq!(
         constructors.all_tagged[1].1.unavoidable,

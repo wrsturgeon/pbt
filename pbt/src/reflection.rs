@@ -1,10 +1,10 @@
 use {
     crate::{
+        SEED,
         construct::{
             Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
             TypeFormer,
         },
-        hash::{SEED, Set, empty_set},
         multiset::Multiset,
         shrink::shrink,
         size::Size,
@@ -17,7 +17,7 @@ use {
         ptr,
     },
     std::{
-        collections::BTreeMap,
+        collections::{BTreeMap, BTreeSet},
         sync::{Arc, OnceLock},
     },
     wyrand::WyRand,
@@ -53,7 +53,7 @@ pub struct Terms {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TermsOfVariousTypes {
     /// A map from types to ordered collections of terms of those types.
-    pub map: BTreeMap<Type, Terms>, // Map<Type, Terms>,
+    pub map: BTreeMap<Type, Terms>,
 }
 
 #[non_exhaustive]
@@ -72,14 +72,14 @@ pub struct TypeDependencies {
     /// The opaque Rust ID for this type.
     pub id: Type,
     /// The set of all types that *may* be contained in any term of this type.
-    pub reachable: Set<Type>,
+    pub reachable: BTreeSet<Type>,
     /// The minimal bag of types that *must* be contained in any term of this type.
     /// If this is `None`, then this type has no constructors, i.e. is uninstantiable;
     /// note that this is a _very_ different state than `Some([empty])`!
     /// This field is not a multiset because, if this type is inductive,
     /// then the logic around how many times each type is unavoidable
     /// is too complex to be worth doing, especially since it provides no runtime benefit.
-    pub unavoidable: Option<Set<Type>>,
+    pub unavoidable: Option<BTreeSet<Type>>,
 }
 
 #[non_exhaustive]
@@ -319,7 +319,7 @@ impl Construct for Erased {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &Set<Type>) {
+    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {
         panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
     }
 
@@ -766,9 +766,7 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
     clippy::too_many_lines,
     reason = "TODO: split into a few encapsulated functions"
 )]
-fn compute_type_info<T: Construct>(mut visited: Set<Type>) -> TypeInfo {
-    let () = T::register_all_immediate_dependencies(&visited);
-
+fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
     let self_id = type_of::<T>();
     let not_already_visited = visited.insert(self_id);
     assert!(
@@ -776,6 +774,8 @@ fn compute_type_info<T: Construct>(mut visited: Set<Type>) -> TypeInfo {
         "internal `pbt` error: `visited` already contained `Self = {}` (`visited` was {visited:?})",
         type_name::<T>(),
     );
+
+    let () = T::register_all_immediate_dependencies(&visited);
 
     let type_former = T::type_former();
     let (shallow_ctors, eliminator) = match type_former {
@@ -793,8 +793,8 @@ fn compute_type_info<T: Construct>(mut visited: Set<Type>) -> TypeInfo {
                 dependencies: TypeDependencies {
                     constructor: None,
                     id: self_id,
-                    reachable: empty_set(),
-                    unavoidable: Some(empty_set()),
+                    reachable: BTreeSet::new(),
+                    unavoidable: Some(BTreeSet::new()),
                 },
                 name: type_name::<T>(),
                 trivial: true,
@@ -826,8 +826,8 @@ fn compute_type_info<T: Construct>(mut visited: Set<Type>) -> TypeInfo {
     };
 
     let mut constructors: Vec<(CtorFn<T>, TypeDependencies)> = vec![];
-    let mut reachable: Set<Type> = empty_set();
-    let mut unavoidable: Option<Set<Type>> = None;
+    let mut reachable: BTreeSet<Type> = BTreeSet::new();
+    let mut unavoidable: Option<BTreeSet<Type>> = None;
     for (
         i,
         IntroductionRule {
@@ -836,8 +836,8 @@ fn compute_type_info<T: Construct>(mut visited: Set<Type>) -> TypeInfo {
         },
     ) in shallow_ctors.into_iter().enumerate()
     {
-        let mut ctor_reachable = empty_set();
-        let mut ctor_unavoidable = empty_set();
+        let mut ctor_reachable = BTreeSet::new();
+        let mut ctor_unavoidable = BTreeSet::new();
         for (&id, _count) in immediate_dependencies.iter() {
             let _: bool = ctor_reachable.insert(id);
             let _: bool = ctor_unavoidable.insert(id);
@@ -887,17 +887,14 @@ fn compute_type_info<T: Construct>(mut visited: Set<Type>) -> TypeInfo {
 
 /// Register a type with the global registry of type dependency information.
 #[inline]
-#[expect(
-    clippy::implicit_hasher,
-    reason = "this is actually a great lint, but there should be exactly one generic parameter here"
-)]
-#[expect(clippy::must_use_candidate, reason = "side effects are important")]
-pub fn register<T: Construct>(visited: Set<Type>) -> Arc<TypeInfo> {
+pub fn register<T: Construct>(visited: BTreeSet<Type>) {
+    let id = type_of::<T>();
+    if visited.contains(&id) {
+        return;
+    }
     let pinned = _registry().pin();
-    let in_registry = pinned.get_or_insert_with(type_of::<T>(), || -> Arc<TypeInfo> {
-        Arc::new(compute_type_info::<T>(visited))
-    });
-    Arc::clone(in_registry)
+    let _: &Arc<TypeInfo> =
+        pinned.get_or_insert_with(id, || Arc::new(compute_type_info::<T>(visited)));
 }
 
 /// Get a handle to the global type-information registry without trying to lock it.
@@ -917,7 +914,9 @@ pub fn _registry() -> &'static papaya::HashMap<Type, Arc<TypeInfo>, RandomState>
 #[must_use]
 pub fn info<T: Construct>() -> Arc<TypeInfo> {
     let pinned = _registry().pin();
-    let in_registry = pinned.get_or_insert_with(type_of::<T>(), || register::<T>(empty_set()));
+    let in_registry = pinned.get_or_insert_with(type_of::<T>(), || {
+        Arc::new(compute_type_info::<T>(BTreeSet::new()))
+    });
     Arc::clone(in_registry)
 }
 

@@ -1,11 +1,10 @@
 use {
     crate::{
         construct::{Construct, arbitrary},
-        hash::{Map, empty_map},
         reflection::{AlgebraicTypeFormer, PrecomputedTypeFormer, Type, info_by_id, type_of},
     },
     core::{any::type_name, cmp, fmt, iter, num::NonZero},
-    std::collections::BinaryHeap,
+    std::collections::{BTreeMap, BinaryHeap},
     wyrand::WyRand,
 };
 
@@ -20,7 +19,7 @@ pub struct Size {
 pub struct Sizes {
     /// A map from (only inducive) types to
     /// sizes for each field of that type.
-    map: Map<Type, Vec<Size>>,
+    map: BTreeMap<Type, Vec<Size>>,
 }
 
 impl Size {
@@ -43,7 +42,9 @@ impl Size {
         let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer { ref all_tagged, .. }) =
             info.type_former
         else {
-            return Sizes { map: empty_map() };
+            return Sizes {
+                map: BTreeMap::new(),
+            };
         };
         #[expect(
             clippy::indexing_slicing,
@@ -78,7 +79,9 @@ impl Size {
         // We want `n_ind` sections, so we'll use the spaces between
         // the beginning, the end, and `n_ind - 1` stars:
         let Some(n_bars) = n_ind.checked_sub(1) else {
-            return Sizes { map: empty_map() };
+            return Sizes {
+                map: BTreeMap::new(),
+            };
         };
 
         // If this is a trivial wrapper and/or non-inductive type,
@@ -94,7 +97,9 @@ impl Size {
                 .checked_add(usize::from(info.trivial))
                 .expect("internal `pbt` error: size of `usize::MAX`"),
         ) else {
-            return Sizes { map: empty_map() };
+            return Sizes {
+                map: BTreeMap::new(),
+            };
         };
         #[expect(
             clippy::as_conversions,
@@ -110,7 +115,9 @@ impl Size {
         // noting that the binary heap can efficiently drain in sorted order:
         let mut prev = 0;
         let mut end @ Some(_) = self.size.checked_sub(usize::from(!info.trivial)) else {
-            return Sizes { map: empty_map() };
+            return Sizes {
+                map: BTreeMap::new(),
+            };
         };
         #[expect(clippy::arithmetic_side_effects, reason = "sorted")]
         let mut sizes = iter::from_fn(move || {
@@ -123,7 +130,7 @@ impl Size {
         });
 
         // Use each size for an inductive type:
-        let mut map = empty_map::<Type, Vec<Size>>();
+        let mut map = BTreeMap::<Type, Vec<Size>>::new();
         for (&ty, count) in immediate_deps.iter() {
             if info_by_id(ty).dependencies.is_inductive() {
                 let v = map.entry(ty).or_default();

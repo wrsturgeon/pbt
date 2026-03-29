@@ -6,11 +6,11 @@ use {
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
             arbitrary, visit_self, visit_self_or,
         },
-        hash::Set,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         size::Size,
     },
     core::{any::type_name, iter, num::NonZero},
+    std::collections::BTreeSet,
 };
 
 impl<T: Construct> Construct for Box<T> {
@@ -43,16 +43,8 @@ impl<T: Construct> Construct for Box<T> {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(visited: &Set<Type>) {
-        let id = type_of::<Self>();
-        let mut visited = visited.clone();
-        let not_already_visited = visited.insert(id);
-        assert!(
-            not_already_visited,
-            "internal `pbt` error: `visited` already contained `Self = {}` (`visited` was {visited:?})",
-            type_name::<Self>(),
-        );
-        register::<T>(visited);
+    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+        let () = register::<T>(visited.clone());
     }
 
     #[inline]

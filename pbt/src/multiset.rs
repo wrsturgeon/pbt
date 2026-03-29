@@ -1,19 +1,18 @@
 use {
-    crate::hash::{Map, Set, empty_map, empty_set},
-    core::{cmp, hash::Hash, num::NonZero},
-    std::collections::hash_map,
+    core::{cmp, num::NonZero},
+    std::collections::{BTreeMap, BTreeSet, btree_map},
 };
 
 /// One, as a non-zero integer. Stupid but efficient.
 const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Multiset<T: Eq + Hash> {
+pub struct Multiset<T: Eq + Ord> {
     /// How many of each distinct element are in the bag?
-    count: Map<T, NonZero<usize>>,
+    count: BTreeMap<T, NonZero<usize>>,
 }
 
-impl<T: Eq + Hash> Multiset<T> {
+impl<T: Eq + Ord> Multiset<T> {
     #[inline]
     #[must_use]
     pub fn count(&self, element: &T) -> Option<NonZero<usize>> {
@@ -22,11 +21,11 @@ impl<T: Eq + Hash> Multiset<T> {
 
     #[inline]
     #[must_use]
-    pub fn erase_counts(&self) -> Set<T>
+    pub fn erase_counts(&self) -> BTreeSet<T>
     where
         T: Clone,
     {
-        let mut acc = empty_set();
+        let mut acc = BTreeSet::new();
         for element in self.count.keys() {
             let _: bool = acc.insert(element.clone());
         }
@@ -104,7 +103,9 @@ impl<T: Eq + Hash> Multiset<T> {
     #[inline]
     #[must_use]
     pub fn new() -> Self {
-        Self { count: empty_map() }
+        Self {
+            count: BTreeMap::new(),
+        }
     }
 
     /// The total sum of each element's count.
@@ -118,11 +119,11 @@ impl<T: Eq + Hash> Multiset<T> {
 
     #[inline]
     #[must_use]
-    pub fn union(&self, other: &Self) -> Set<T>
+    pub fn union(&self, other: &Self) -> BTreeSet<T>
     where
         T: Clone,
     {
-        let mut acc = empty_set();
+        let mut acc = BTreeSet::new();
         for element in self.count.keys() {
             let _: bool = acc.insert(element.clone());
         }
@@ -133,15 +134,15 @@ impl<T: Eq + Hash> Multiset<T> {
     }
 }
 
-impl<T: Eq + Hash> Default for Multiset<T> {
+impl<T: Eq + Ord> Default for Multiset<T> {
     #[inline]
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<T: Eq + Hash> IntoIterator for Multiset<T> {
-    type IntoIter = hash_map::IntoIter<T, NonZero<usize>>;
+impl<T: Eq + Ord> IntoIterator for Multiset<T> {
+    type IntoIter = btree_map::IntoIter<T, NonZero<usize>>;
     type Item = (T, NonZero<usize>);
 
     #[inline]
@@ -150,7 +151,7 @@ impl<T: Eq + Hash> IntoIterator for Multiset<T> {
     }
 }
 
-impl<T: Eq + Hash> FromIterator<T> for Multiset<T> {
+impl<T: Eq + Ord> FromIterator<T> for Multiset<T> {
     #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut acc = Self::new();

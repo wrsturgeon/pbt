@@ -73,8 +73,26 @@ version = "0.1.0"
 dependencies = [
  "ahash",
  "papaya",
+ "pbt-macros",
  "pretty_assertions",
  "wyrand",
+]
+
+[[package]]
+name = "pbt-macros"
+version = "0.1.0"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
+name = "pbt-tests"
+version = "0.1.0"
+dependencies = [
+ "pbt",
+ "pretty_assertions",
 ]
 
 [[package]]

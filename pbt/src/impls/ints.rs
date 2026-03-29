@@ -3,11 +3,11 @@
 use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self},
-        hash::Set,
         reflection::{TermsOfVariousTypes, Type},
         size::Size,
     },
     core::num::NonZero,
+    std::collections::BTreeSet,
     wyrand::WyRand,
 };
 
@@ -44,7 +44,7 @@ impl Construct for bool {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &Set<Type>) {
+    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {
         // n/a
     }
 
@@ -81,7 +81,7 @@ impl Construct for u64 {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &Set<Type>) {
+    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {
         // n/a
     }
 

@@ -1,5 +1,5 @@
 [package]
-name = "pbt"
+name = "pbt-tests"
 categories.workspace = true
 keywords.workspace = true
 authors.workspace = true
@@ -12,12 +12,5 @@ version.workspace = true
 
 
 [dependencies]
-ahash = "~0.8"
-papaya = "~0.2"
-pbt-macros = { path = "../pbt-macros" }
+pbt = { path = "../pbt" }
 pretty_assertions = "~1.4"
-wyrand = "~0.4"
-
-
-[lints]
-workspace = true

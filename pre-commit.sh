@@ -3,7 +3,7 @@
 shopt -s nullglob
 set -euxo pipefail
 
-nix flake check
+nix flake check --offline
 
 cargo miri test # seems not to be available via Nix/Crane; TODO
 

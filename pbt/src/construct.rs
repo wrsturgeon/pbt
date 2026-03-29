@@ -1,6 +1,5 @@
 use {
     crate::{
-        hash::Set,
         multiset::Multiset,
         reflection::{
             AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type, info,
@@ -9,6 +8,7 @@ use {
         size::Size,
     },
     core::{fmt, mem, num::NonZero, ops::Deref, ptr},
+    std::collections::BTreeSet,
     wyrand::WyRand,
 };
 
@@ -38,8 +38,8 @@ pub struct ElimFn<T> {
     pub call: fn(T) -> Decomposition,
 }
 
-#[non_exhaustive]
 #[derive(Clone, Debug)]
+#[expect(clippy::exhaustive_structs, reason = "constructed in macros")]
 pub struct Algebraic<T> {
     pub elimination_rule: ElimFn<T>,
     pub introduction_rules: Vec<IntroductionRule<T>>,
@@ -62,16 +62,16 @@ pub enum TypeFormer<T> {
 
 /// Decomposition of an algebraic value into its
 /// constructor index and all immediate fields.
-#[non_exhaustive]
 #[derive(Debug)]
+#[expect(clippy::exhaustive_structs, reason = "constructed in macros")]
 pub struct Decomposition {
     /// 1-indexed constructor/variant index.
     pub ctor_idx: NonZero<usize>,
     pub fields: TermsOfVariousTypes,
 }
 
-#[non_exhaustive]
 #[derive(Clone, Debug)]
+#[expect(clippy::exhaustive_structs, reason = "constructed in macros")]
 pub struct IntroductionRule<T> {
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
@@ -93,7 +93,7 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     /// then call `::pbt::reflection::register::<T>(visited)`
     /// for each `T` in the `immediate_dependencies` fields of `Self::_constructors()`.
     /// Induction and caching take care of the rest.
-    fn register_all_immediate_dependencies(visited: &Set<Type>);
+    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>);
 
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type.
@@ -204,10 +204,6 @@ impl<T> Deref for ElimFn<T> {
 }
 
 #[inline]
-#[expect(
-    clippy::missing_panics_doc,
-    reason = "no user-facing panics; only internal errors"
-)]
 pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
     let info = info::<T>();
     match info.type_former {
@@ -245,7 +241,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
             // it holds here.
             let f = unsafe { ctor.unerase::<T>() };
             let result = f(&mut fields);
-            assert!(
+            debug_assert!(
                 fields.is_empty(),
                 "internal `pbt` error: leftover terms after applying a constructor",
             );

@@ -6,12 +6,12 @@ use {
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
             visit_self, visit_self_or,
         },
-        hash::Set,
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         size::Size,
     },
     core::{any::type_name, num::NonZero},
+    std::collections::BTreeSet,
 };
 
 impl<T: Construct> Construct for Vec<T> {
@@ -39,16 +39,8 @@ impl<T: Construct> Construct for Vec<T> {
     }
 
     #[inline]
-    fn register_all_immediate_dependencies(visited: &Set<Type>) {
-        let id = type_of::<Self>();
-        let mut visited = visited.clone();
-        let not_already_visited = visited.insert(id);
-        assert!(
-            not_already_visited,
-            "internal `pbt` error: `visited` already contained `Self = {}` (`visited` was {visited:?})",
-            type_name::<Self>(),
-        );
-        register::<T>(visited);
+    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+        let () = register::<T>(visited.clone());
     }
 
     #[inline]
