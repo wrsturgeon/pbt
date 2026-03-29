@@ -7,29 +7,19 @@ resolver = "3"
 [workspace.package]
 categories = [
   "algorithms",
-  "asynchronous",
+  "data-structures",
   "development-tools::testing",
   "mathematics",
   "security",
 ]
-keywords = [
-  "property",
-  "pbt",
-  "proptest",
-  "arbitrary",
-  "fuzz",
-  "fuzzing",
-  "fuzzer",
-  "test",
-  "testing",
-]
+keywords = ["property", "proptest", "arbitrary", "fuzz", "test"]
 authors = ["Will Sturgeon <willstrgn@gmail.com>"]
-description = "Property-based testing with `derive`, automatic corner cases, `async` support, and awareness of uninstantiable and inductive types."
+description = "Property-based testing with `derive` macros, aware of mutual induction & instantiability."
 edition = "2024"
-license = "MPL-2.0"
+license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/wrsturgeon/pbt"
-version = "0.1.0"
+version = "0.4.0"
 
 
 [workspace.lints.clippy]
