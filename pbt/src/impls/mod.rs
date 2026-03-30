@@ -4,6 +4,7 @@
 mod boxes;
 mod btrees;
 mod hash_collections;
+mod infallible;
 mod ints;
 mod options;
 mod vecs;

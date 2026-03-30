@@ -19,7 +19,7 @@ use {
     },
     std::{
         collections::{BTreeMap, BTreeSet},
-        sync::{Arc, OnceLock},
+        sync::{Arc, LazyLock, OnceLock},
     },
     wyrand::WyRand,
 };
@@ -90,7 +90,7 @@ pub struct Vertex {
     /// This field is not a multiset because, if this type is inductive,
     /// then the logic around how many times each type is unavoidable
     /// is too complex to be worth doing, especially since it provides no runtime benefit.
-    pub unavoidable: Option<BTreeSet<Type>>,
+    pub unavoidable: BTreeSet<Type>,
 }
 
 #[non_exhaustive]
@@ -105,7 +105,7 @@ pub struct CtorVertex {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct TypeInfo {
     /// The pretty-printed name of this type.
     pub name: &'static str,
@@ -129,48 +129,83 @@ pub struct CtorInfo {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub struct AlgebraicTypeFormer {
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type,
     /// each tagged with information about its type-level properties.
     pub all_constructors: Vec<(CtorFn<Erased>, CtorVertex)>,
-    /// Decompose this value into a
-    /// constructor (by index) and
-    /// its associated fields.
-    pub eliminator: ElimFn<Erased>,
     /// All constructors for which `Self` is *unreachable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly smaller* value (in some sense).
-    pub guaranteed_leaves: Vec<IndexedCtorFn<Erased>>,
+    pub cached_guaranteed_leaves: OnceLock<Vec<IndexedCtorFn<Erased>>>,
     /// All constructors for which `Self` is *unavoidable*.
     /// Use this (when non-empty) to *force* generation of
     /// a *strictly larger* value (in some sense).
-    pub guaranteed_loops: Vec<IndexedCtorFn<Erased>>,
+    pub cached_guaranteed_loops: OnceLock<Vec<IndexedCtorFn<Erased>>>,
     /// All constructors for which `Self` is *avoidable*.
     /// This is guaranteed to be non-empty because
     /// Rust disallows coinductive types (i.e. streams, infinite-size types, etc.)
     /// Use this (when non-empty) to *allow* generation of
     /// a smaller value (in some sense).
-    pub potential_leaves: Vec<IndexedCtorFn<Erased>>,
+    pub cached_potential_leaves: OnceLock<Vec<IndexedCtorFn<Erased>>>,
     /// All constructors for which `Self` is *reachable*.
     /// Use this (when non-empty) to *allow* generation of
     /// a *larger* value (in some sense).
-    pub potential_loops: Vec<IndexedCtorFn<Erased>>,
+    pub cached_potential_loops: OnceLock<Vec<IndexedCtorFn<Erased>>>,
+    /// Decompose this value into a
+    /// constructor (by index) and
+    /// its associated fields.
+    pub eliminator: ElimFn<Erased>,
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub enum PrecomputedTypeFormer {
     Algebraic(AlgebraicTypeFormer),
     Literal {
-        corners: Vec<Erased>,
         generate: for<'prng> fn(&'prng mut WyRand) -> Erased,
         shrink: fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
     },
 }
 
 impl AlgebraicTypeFormer {
+    /// All constructors for which `Self` is *unreachable*.
+    /// Use this (when non-empty) to *force* generation of
+    /// a *strictly smaller* value (in some sense).
+    #[inline]
+    #[must_use]
+    pub fn guaranteed_leaves(&self) -> &[IndexedCtorFn<Erased>] {
+        self.cached_guaranteed_leaves.get_or_init(|| {
+            self.all_constructors
+                .iter()
+                .filter(|&&(_, ref c)| c.is_guaranteed_leaf())
+                .map(|&(call, ref c)| IndexedCtorFn {
+                    call,
+                    index: c.constructor.index,
+                })
+                .collect()
+        })
+    }
+
+    /// All constructors for which `Self` is *unavoidable*.
+    /// Use this (when non-empty) to *force* generation of
+    /// a *strictly larger* value (in some sense).
+    #[inline]
+    #[must_use]
+    pub fn guaranteed_loops(&self) -> &[IndexedCtorFn<Erased>] {
+        self.cached_guaranteed_loops.get_or_init(|| {
+            self.all_constructors
+                .iter()
+                .filter(|&&(_, ref c)| c.is_guaranteed_loop())
+                .map(|&(call, ref c)| IndexedCtorFn {
+                    call,
+                    index: c.constructor.index,
+                })
+                .collect()
+        })
+    }
+
     /// Partition a set of constructors into subsets
     /// that will be useful for generation and shrinking.
     /// # Panics
@@ -199,85 +234,66 @@ impl AlgebraicTypeFormer {
                 "Constructor indices are out of order (should be 1, 2, ...): {all_constructors:#?}",
             );
         }
-        let guaranteed_leaves: Vec<IndexedCtorFn<Erased>> = all_constructors
-            .iter()
-            .enumerate()
-            .filter(|&(_, &(_, ref deps))| deps.is_guaranteed_leaf())
-            .map(|(index, &(call, _))| {
-                IndexedCtorFn {
-                    call,
-                    #[expect(
-                        clippy::arithmetic_side_effects,
-                        reason = "in-memory list length cannot exceed `usize`"
-                    )]
-                    // SAFETY: in-memory list length cannot exceed `usize`
-                    index: unsafe { NonZero::new_unchecked(index + 1) },
-                }
-            })
-            .collect();
-        let guaranteed_loops: Vec<IndexedCtorFn<Erased>> = all_constructors
-            .iter()
-            .enumerate()
-            .filter(|&(_, &(_, ref deps))| deps.is_guaranteed_loop())
-            .map(|(index, &(call, _))| {
-                IndexedCtorFn {
-                    call,
-                    #[expect(
-                        clippy::arithmetic_side_effects,
-                        reason = "in-memory list length cannot exceed `usize`"
-                    )]
-                    // SAFETY: in-memory list length cannot exceed `usize`
-                    index: unsafe { NonZero::new_unchecked(index + 1) },
-                }
-            })
-            .collect();
-        let potential_leaves: Vec<IndexedCtorFn<Erased>> = all_constructors
-            .iter()
-            .enumerate()
-            .filter(|&(_, &(_, ref deps))| deps.is_potential_leaf())
-            .map(|(index, &(call, _))| {
-                IndexedCtorFn {
-                    call,
-                    #[expect(
-                        clippy::arithmetic_side_effects,
-                        reason = "in-memory list length cannot exceed `usize`"
-                    )]
-                    // SAFETY: in-memory list length cannot exceed `usize`
-                    index: unsafe { NonZero::new_unchecked(index + 1) },
-                }
-            })
-            .collect();
-        let potential_loops: Vec<IndexedCtorFn<Erased>> = all_constructors
-            .iter()
-            .enumerate()
-            .filter(|&(_, &(_, ref deps))| deps.is_potential_loop())
-            .map(|(index, &(call, _))| {
-                IndexedCtorFn {
-                    call,
-                    #[expect(
-                        clippy::arithmetic_side_effects,
-                        reason = "in-memory list length cannot exceed `usize`"
-                    )]
-                    // SAFETY: in-memory list length cannot exceed `usize`
-                    index: unsafe { NonZero::new_unchecked(index + 1) },
-                }
-            })
-            .collect();
-        debug_assert!(
-            !potential_leaves.is_empty(),
-            "internal `pbt` error: allegedly coinductive type: `{}`",
-            type_name::<T>(),
-        );
         Self {
             all_constructors,
             // SAFETY: Never used in its erased form, and
             // `Vec<_>`s all have the same size+alignment.
             eliminator: unsafe { mem::transmute::<ElimFn<T>, ElimFn<Erased>>(eliminator) },
-            guaranteed_leaves,
-            guaranteed_loops,
-            potential_leaves,
-            potential_loops,
+            cached_guaranteed_leaves: OnceLock::new(),
+            cached_guaranteed_loops: OnceLock::new(),
+            cached_potential_leaves: OnceLock::new(),
+            cached_potential_loops: OnceLock::new(),
         }
+    }
+
+    /// All constructors for which `Self` is *avoidable*.
+    /// This is guaranteed to be non-empty because
+    /// Rust disallows coinductive types (i.e. streams, infinite-size types, etc.)
+    /// Use this (when non-empty) to *allow* generation of
+    /// a smaller value (in some sense).
+    #[inline]
+    #[must_use]
+    pub fn potential_leaves(&self) -> &[IndexedCtorFn<Erased>] {
+        self.cached_potential_leaves.get_or_init(|| {
+            self.all_constructors
+                .iter()
+                .filter(|&&(_, ref c)| c.is_potential_leaf())
+                .map(|&(call, ref c)| IndexedCtorFn {
+                    call,
+                    index: c.constructor.index,
+                })
+                .collect()
+        })
+    }
+
+    /// All constructors for which `Self` is *reachable*.
+    /// Use this (when non-empty) to *allow* generation of
+    /// a *larger* value (in some sense).
+    #[inline]
+    #[must_use]
+    pub fn potential_loops(&self) -> &[IndexedCtorFn<Erased>] {
+        self.cached_potential_loops.get_or_init(|| {
+            self.all_constructors
+                .iter()
+                .filter(|&&(_, ref c)| c.is_potential_loop())
+                .map(|&(call, ref c)| IndexedCtorFn {
+                    call,
+                    index: c.constructor.index,
+                })
+                .collect()
+        })
+    }
+}
+
+impl CtorInfo {
+    /// Whether this constructor is instantiable,
+    /// i.e. does not contain any uninstantiable fields.
+    #[inline]
+    #[must_use]
+    pub fn instantiable(&self) -> bool {
+        self.immediate
+            .iter()
+            .all(|(&ty, _)| info_by_id(ty).instantiable())
     }
 }
 
@@ -303,13 +319,10 @@ impl PrecomputedTypeFormer {
     #[inline]
     #[must_use]
     pub fn literal<T>(
-        corners: Vec<T>,
         generate: for<'prng> fn(&'prng mut WyRand) -> T,
         shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
     ) -> Self {
         Self::Literal {
-            // SAFETY: Never used in its erased state.
-            corners: unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(corners) },
             // SAFETY: Same size, still a function pointer with the same arguments.
             generate: unsafe {
                 mem::transmute::<
@@ -324,6 +337,22 @@ impl PrecomputedTypeFormer {
                     fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
                 >(shrink)
             },
+        }
+    }
+}
+
+impl TypeInfo {
+    /// Whether this type is instantiable,
+    /// i.e. has at least one instantiable constructor.
+    #[inline]
+    #[must_use]
+    pub fn instantiable(&self) -> bool {
+        match self.type_former {
+            PrecomputedTypeFormer::Literal { .. } => true,
+            PrecomputedTypeFormer::Algebraic(ref algebraic) => algebraic
+                .all_constructors
+                .iter()
+                .any(|&(_, ref c)| c.constructor.instantiable()),
         }
     }
 }
@@ -665,45 +694,33 @@ impl Type {
     }
 }
 
-impl Vertex {
+impl CtorVertex {
     /// Whether `Self` is *unreachable*.
     #[inline]
     #[must_use]
     pub fn is_guaranteed_leaf(&self) -> bool {
-        !self.is_potential_loop()
+        self.constructor.instantiable() && !self.is_potential_loop()
     }
 
     /// Whether `Self` is *unavoidable*.
     #[inline]
     #[must_use]
     pub fn is_guaranteed_loop(&self) -> bool {
-        self.unavoidable
-            .as_ref()
-            .is_some_and(|unavoidable| unavoidable.contains(&self.id))
-    }
-
-    /// Whether a term of this type exists.
-    /// Internally, this asks whether the set of constructors is non-empty,
-    /// so this technically relies on the exhaustive nature of the set of constructors;
-    /// i.e., garbage in (whem implementing the trait) means garbage out (here).
-    #[inline]
-    #[must_use]
-    pub fn is_instantiable(&self) -> bool {
-        self.unavoidable.is_some()
+        self.constructor.instantiable() && self.unavoidable.contains(&self.id)
     }
 
     /// Whether `Self` is *avoidable*.
     #[inline]
     #[must_use]
     pub fn is_potential_leaf(&self) -> bool {
-        !self.is_guaranteed_loop()
+        self.constructor.instantiable() && !self.is_guaranteed_loop()
     }
 
     /// Whether `Self` is *reachable*.
     #[inline]
     #[must_use]
     pub fn is_potential_loop(&self) -> bool {
-        self.reachable.contains(&self.id)
+        self.constructor.instantiable() && self.reachable.contains(&self.id)
     }
 }
 
@@ -796,20 +813,16 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             introduction_rules,
             elimination_rule,
         }) => (introduction_rules, elimination_rule),
-        TypeFormer::Literal(Literal {
-            corners,
-            generate,
-            shrink,
-        }) => {
+        TypeFormer::Literal(Literal { generate, shrink }) => {
             return TypeInfo {
-                type_former: PrecomputedTypeFormer::literal(corners, generate, shrink),
                 name: type_name::<T>(),
                 trivial: true,
+                type_former: PrecomputedTypeFormer::literal(generate, shrink),
                 vertex: Vertex {
                     id: self_id,
                     inductive: false,
                     reachable: BTreeSet::new(),
-                    unavoidable: Some(BTreeSet::new()),
+                    unavoidable: BTreeSet::new(),
                 },
             };
         }
@@ -818,23 +831,21 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
     // Necessary to do this here, since we don't want *transitive* dependencies;
     // we care only whether this type wraps a single other type,
     // not anything about the type that's being wrapped or any transitive dependencies.
-    let trivial = if let [
-        IntroductionRule {
-            ref immediate_dependencies,
-            ..
-        },
-    ] = *shallow_ctors.as_slice()
-    {
-        let n_fields: usize = immediate_dependencies
-            .iter()
-            .filter_map(|(&id, count)| {
-                // Count only inductive (i.e. interesting) types:
-                (visited.contains(&id) || info_by_id(id).vertex.inductive).then_some(count.get())
-            })
-            .sum();
-        n_fields <= 1
-    } else {
-        false
+    let trivial = match *shallow_ctors.as_slice() {
+        [] => true,
+        [ref singleton] => {
+            let n_fields: usize = singleton
+                .immediate_dependencies
+                .iter()
+                .filter_map(|(&id, count)| {
+                    // Count only inductive (i.e. interesting) types:
+                    (visited.contains(&id) || info_by_id(id).vertex.inductive)
+                        .then_some(count.get())
+                })
+                .sum();
+            n_fields <= 1
+        }
+        _ => false,
     };
 
     let mut constructors: Vec<(CtorFn<T>, CtorVertex)> = vec![];
@@ -856,8 +867,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             if !visited.contains(&id) {
                 let info = info_by_id(id);
                 let () = ctor_reachable.extend(&info.vertex.reachable);
-                let () =
-                    ctor_unavoidable.extend(info.vertex.unavoidable.as_ref().into_iter().flatten());
+                let () = ctor_unavoidable.extend(&info.vertex.unavoidable);
             }
         }
         let () = reachable.extend(&ctor_reachable);
@@ -871,17 +881,17 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         ));
         let deps = CtorVertex {
             constructor: CtorInfo {
+                immediate: immediate_dependencies,
                 #[expect(clippy::expect_used, reason = "extremely unlikely")]
                 index: ONE
                     .checked_add(i)
                     .expect("internal `pbt` error: more than `usize::MAX` constructors"),
-                immediate: immediate_dependencies,
             },
             vertex: Vertex {
                 id: self_id,
                 inductive: ctor_reachable.contains(&self_id),
                 reachable: ctor_reachable,
-                unavoidable: Some(ctor_unavoidable),
+                unavoidable: ctor_unavoidable,
             },
         };
         let () = constructors.push((call, deps));
@@ -895,7 +905,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             id: self_id,
             inductive: reachable.contains(&self_id),
             reachable,
-            unavoidable,
+            unavoidable: unavoidable.unwrap_or_default(),
         },
     }
 }
@@ -917,9 +927,11 @@ pub fn register<T: Construct>(visited: BTreeSet<Type>) {
 /// # Panics
 /// If the lock has been poisoned.
 #[inline]
+#[must_use]
 pub fn _registry() -> &'static papaya::HashMap<Type, Arc<TypeInfo>, RandomState> {
-    static REGISTRY: OnceLock<papaya::HashMap<Type, Arc<TypeInfo>, RandomState>> = OnceLock::new();
-    REGISTRY.get_or_init(|| papaya::HashMap::with_hasher(RandomState::with_seed(usize::from(SEED))))
+    static REGISTRY: LazyLock<papaya::HashMap<Type, Arc<TypeInfo>, RandomState>> =
+        LazyLock::new(|| papaya::HashMap::with_hasher(RandomState::with_seed(usize::from(SEED))));
+    LazyLock::force(&REGISTRY)
 }
 
 /// Get type-level characteristics of a type,
@@ -941,8 +953,18 @@ pub fn info<T: Construct>() -> Arc<TypeInfo> {
 #[inline]
 #[must_use]
 pub fn info_by_id(id: Type) -> Arc<TypeInfo> {
-    #[expect(clippy::expect_used, reason = "extremely unlikely")]
-    try_info_by_id(id).expect("internal `pbt` error: unregistered type")
+    #[expect(clippy::panic, reason = "internal invariants; violation should panic")]
+    try_info_by_id(id).unwrap_or_else(|| {
+        panic!(
+            "internal `pbt` error: unregistered type with ID `{:?}` (registered so far: {:#?})",
+            id.id(),
+            _registry()
+                .pin()
+                .iter()
+                .map(|(&id, info)| (id, info.vertex.id.id()))
+                .collect::<BTreeMap<Type, TypeId>>(),
+        )
+    })
 }
 
 /// Get type-level characteristics of a type by its unique but opaque type ID.

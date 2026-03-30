@@ -15,7 +15,6 @@ mod malachite {
         ::malachite::{
             Natural,
             base::num::basic::traits::{One as _, Zero as _},
-            platform::Limb,
         },
     };
 
@@ -35,13 +34,6 @@ mod malachite {
         #[inline]
         fn type_former() -> TypeFormer<Self> {
             TypeFormer::Literal(Literal {
-                corners: vec![
-                    Self::ZERO,
-                    Self::ONE,
-                    Self::from_owned_limbs_asc(vec![Limb::MAX]),
-                    Self::from_owned_limbs_asc(vec![0, 1]),
-                    Self::from_owned_limbs_asc(vec![0, 0, 1]), // very, very large
-                ],
                 generate: |prng| {
                     // Copied with small (unfortunately incompatible)
                     // modifications from `arbitrary_unsigned` above.
@@ -127,16 +119,6 @@ mod num_bigint {
         #[inline]
         fn type_former() -> TypeFormer<Self> {
             TypeFormer::Literal(Literal {
-                corners: vec![
-                    Self::ZERO,
-                    Self::from(1_u8),
-                    Self::from_slice(&[u32::MAX]),
-                    Self::from_slice(&[0, 1]),
-                    Self::from_slice(&[0, 0, 1]),
-                    Self::from_slice(&[0, 0, 0, 1]),
-                    Self::from_slice(&[0, 0, 0, 0, 1]),
-                    Self::from_slice(&[0, 0, 0, 0, 0, 0, 0, 0, 1]), // very, very large
-                ],
                 generate: |prng| {
                     // Copied with small (unfortunately incompatible)
                     // modifications from `arbitrary_unsigned` above.
@@ -204,13 +186,6 @@ use {
     std::collections::BTreeSet,
     wyrand::WyRand,
 };
-
-/// The corner cases of a signed fixed-width integer type.
-macro_rules! int_corners {
-    ($ty:ty) => {
-        [0, 1, -1, <$ty>::MAX, <$ty>::MIN]
-    };
-}
 
 /// Generate an arbitrary value for an
 /// unsigned integer of fixed but unspecified width.
@@ -302,7 +277,6 @@ impl Construct for bool {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: vec![false, true],
             generate: |prng| (prng.rand() & 1) != 0,
             shrink: |b| -> Box<dyn Iterator<Item = Self>> {
                 Box::new(b.then_some(false).into_iter())
@@ -337,10 +311,6 @@ impl Construct for u8 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i8)
-                .into_iter()
-                .map(i8::cast_unsigned)
-                .collect(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
             shrink: shrink_int!(),
         })
@@ -373,10 +343,6 @@ impl Construct for u16 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i16)
-                .into_iter()
-                .map(i16::cast_unsigned)
-                .collect(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
             shrink: shrink_int!(),
         })
@@ -409,10 +375,6 @@ impl Construct for u32 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i32)
-                .into_iter()
-                .map(i32::cast_unsigned)
-                .collect(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
             shrink: shrink_int!(),
         })
@@ -445,10 +407,6 @@ impl Construct for u64 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i64)
-                .into_iter()
-                .map(i64::cast_unsigned)
-                .collect(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
             shrink: shrink_int!(),
         })
@@ -481,10 +439,6 @@ impl Construct for u128 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i128)
-                .into_iter()
-                .map(i128::cast_unsigned)
-                .collect(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
             shrink: shrink_int!(),
         })
@@ -517,10 +471,6 @@ impl Construct for usize {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(isize)
-                .into_iter()
-                .map(isize::cast_unsigned)
-                .collect(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
             shrink: shrink_int!(),
         })
@@ -553,7 +503,6 @@ impl Construct for i8 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i8).into_iter().collect(),
             generate: |prng| arbitrary_signed!(u8, prng),
             shrink: shrink_int!(),
         })
@@ -586,7 +535,6 @@ impl Construct for i16 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i16).into_iter().collect(),
             generate: |prng| arbitrary_signed!(u16, prng),
             shrink: shrink_int!(),
         })
@@ -619,7 +567,6 @@ impl Construct for i32 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i32).into_iter().collect(),
             generate: |prng| arbitrary_signed!(u32, prng),
             shrink: shrink_int!(),
         })
@@ -652,7 +599,6 @@ impl Construct for i64 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i64).into_iter().collect(),
             generate: |prng| arbitrary_signed!(u64, prng),
             shrink: shrink_int!(),
         })
@@ -685,7 +631,6 @@ impl Construct for i128 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(i128).into_iter().collect(),
             generate: |prng| arbitrary_signed!(u128, prng),
             shrink: shrink_int!(),
         })
@@ -718,7 +663,6 @@ impl Construct for isize {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
-            corners: int_corners!(isize).into_iter().collect(),
             generate: |prng| arbitrary_signed!(usize, prng),
             shrink: shrink_int!(),
         })

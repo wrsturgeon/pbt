@@ -49,7 +49,6 @@ pub struct Algebraic<T> {
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Literal<T> {
-    pub corners: Vec<T>,
     pub generate: for<'prng> fn(&'prng mut WyRand) -> T,
     pub shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
 }
@@ -208,11 +207,8 @@ impl<T> Deref for ElimFn<T> {
 pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
     let info = info::<T>();
     match info.type_former {
-        PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
-            ref potential_leaves,
-            ref potential_loops,
-            ..
-        }) => {
+        PrecomputedTypeFormer::Algebraic(ref adt) => {
+            let potential_loops = adt.potential_loops();
             let ctor = if size.should_recurse(prng)
                 && let Some(n) = NonZero::new(potential_loops.len())
             {
@@ -225,6 +221,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
                 // SAFETY: Bounded by length above (see `% n`).
                 unsafe { potential_loops.get_unchecked(i) }
             } else {
+                let potential_leaves = adt.potential_leaves();
                 let n = NonZero::new(potential_leaves.len())?;
                 #[expect(
                     clippy::as_conversions,

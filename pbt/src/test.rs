@@ -19,6 +19,7 @@ use {
     },
     core::{
         any::{TypeId, type_name},
+        convert::Infallible,
         iter,
     },
     pretty_assertions::assert_eq,
@@ -29,12 +30,13 @@ use {
 #[test]
 fn info_bool() {
     type T = bool;
+    let info = info::<T>();
     let TypeInfo {
         name,
         trivial,
         ref type_former,
         ref vertex,
-    } = *info::<T>();
+    } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Literal { .. } = *type_former else {
         panic!("expected literal (non-algebraic) type former but found {type_former:#?}")
@@ -47,29 +49,31 @@ fn info_bool() {
         TypeId::of::<T>(),
     );
     assert_eq!(vertex.reachable, BTreeSet::new());
-    assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert!(trivial);
     assert!(!vertex.inductive);
+    assert!(info.instantiable());
 }
 
 #[test]
 fn info_box_bool() {
     type T = Box<bool>;
+    let info = info::<T>();
     let TypeInfo {
         name,
         trivial,
         ref type_former,
         ref vertex,
-    } = *info::<T>();
+    } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
     assert_eq!(constructors.all_constructors.len(), 1);
-    assert_eq!(constructors.guaranteed_leaves.len(), 1);
-    assert_eq!(constructors.guaranteed_loops.len(), 0);
-    assert_eq!(constructors.potential_leaves.len(), 1);
-    assert_eq!(constructors.potential_loops.len(), 0);
+    assert_eq!(constructors.guaranteed_leaves().len(), 1);
+    assert_eq!(constructors.guaranteed_loops().len(), 0);
+    assert_eq!(constructors.potential_leaves().len(), 1);
+    assert_eq!(constructors.potential_loops().len(), 0);
     assert_eq!(
         vertex.id,
         type_of::<T>(),
@@ -78,32 +82,31 @@ fn info_box_bool() {
         TypeId::of::<T>(),
     );
     assert_eq!(vertex.reachable, iter::once(type_of::<bool>()).collect(),);
-    assert_eq!(
-        vertex.unavoidable,
-        Some(iter::once(type_of::<bool>()).collect()),
-    );
+    assert_eq!(vertex.unavoidable, iter::once(type_of::<bool>()).collect(),);
     assert!(trivial);
     assert!(!vertex.inductive);
+    assert!(info.instantiable());
 }
 
 #[test]
 fn info_option_u64() {
     type T = Option<u64>;
+    let info = info::<T>();
     let TypeInfo {
         name,
         trivial,
         ref type_former,
         ref vertex,
-    } = *info::<T>();
+    } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
     assert_eq!(constructors.all_constructors.len(), 2);
-    assert_eq!(constructors.guaranteed_leaves.len(), 2);
-    assert_eq!(constructors.guaranteed_loops.len(), 0);
-    assert_eq!(constructors.potential_leaves.len(), 2);
-    assert_eq!(constructors.potential_loops.len(), 0);
+    assert_eq!(constructors.guaranteed_leaves().len(), 2);
+    assert_eq!(constructors.guaranteed_loops().len(), 0);
+    assert_eq!(constructors.potential_leaves().len(), 2);
+    assert_eq!(constructors.potential_loops().len(), 0);
     assert_eq!(
         vertex.id,
         type_of::<T>(),
@@ -112,20 +115,22 @@ fn info_option_u64() {
         TypeId::of::<T>(),
     );
     assert_eq!(vertex.reachable, iter::once(type_of::<u64>()).collect(),);
-    assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert!(!trivial);
     assert!(!vertex.inductive);
+    assert!(info.instantiable());
 }
 
 #[test]
 fn info_vec_u64() {
     type T = Vec<u64>;
+    let info = info::<T>();
     let TypeInfo {
         name,
         trivial,
         ref type_former,
         ref vertex,
-    } = *info::<T>();
+    } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
@@ -134,12 +139,12 @@ fn info_vec_u64() {
         vertex.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
-    assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert_eq!(constructors.all_constructors.len(), 2);
     assert_eq!(constructors.all_constructors[0].1.inductive, false);
     assert_eq!(
         constructors.all_constructors[0].1.unavoidable,
-        Some(BTreeSet::new()),
+        BTreeSet::new(),
     );
     assert_eq!(
         constructors.all_constructors[0].1.reachable,
@@ -148,16 +153,16 @@ fn info_vec_u64() {
     assert_eq!(constructors.all_constructors[1].1.inductive, true);
     assert_eq!(
         constructors.all_constructors[1].1.unavoidable,
-        Some([type_of::<u64>(), type_of::<T>()].into_iter().collect()),
+        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
     assert_eq!(
         constructors.all_constructors[1].1.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
-    assert_eq!(constructors.guaranteed_leaves.len(), 1);
-    assert_eq!(constructors.guaranteed_loops.len(), 1);
-    assert_eq!(constructors.potential_leaves.len(), 1);
-    assert_eq!(constructors.potential_loops.len(), 1);
+    assert_eq!(constructors.guaranteed_leaves().len(), 1);
+    assert_eq!(constructors.guaranteed_loops().len(), 1);
+    assert_eq!(constructors.potential_leaves().len(), 1);
+    assert_eq!(constructors.potential_loops().len(), 1);
     assert_eq!(
         vertex.id,
         type_of::<T>(),
@@ -167,17 +172,19 @@ fn info_vec_u64() {
     );
     assert!(!trivial);
     assert!(vertex.inductive);
+    assert!(info.instantiable());
 }
 
 #[test]
 fn info_btree_set_u64() {
     type T = BTreeSet<u64>;
+    let info = info::<T>();
     let TypeInfo {
         name,
         trivial,
         ref type_former,
         ref vertex,
-    } = *info::<T>();
+    } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
@@ -186,12 +193,12 @@ fn info_btree_set_u64() {
         vertex.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
-    assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert_eq!(constructors.all_constructors.len(), 2);
     assert_eq!(constructors.all_constructors[0].1.inductive, false);
     assert_eq!(
         constructors.all_constructors[0].1.unavoidable,
-        Some(BTreeSet::new()),
+        BTreeSet::new(),
     );
     assert_eq!(
         constructors.all_constructors[0].1.reachable,
@@ -200,16 +207,16 @@ fn info_btree_set_u64() {
     assert_eq!(constructors.all_constructors[1].1.inductive, true);
     assert_eq!(
         constructors.all_constructors[1].1.unavoidable,
-        Some([type_of::<u64>(), type_of::<T>()].into_iter().collect()),
+        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
     assert_eq!(
         constructors.all_constructors[1].1.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
-    assert_eq!(constructors.guaranteed_leaves.len(), 1);
-    assert_eq!(constructors.guaranteed_loops.len(), 1);
-    assert_eq!(constructors.potential_leaves.len(), 1);
-    assert_eq!(constructors.potential_loops.len(), 1);
+    assert_eq!(constructors.guaranteed_leaves().len(), 1);
+    assert_eq!(constructors.guaranteed_loops().len(), 1);
+    assert_eq!(constructors.potential_leaves().len(), 1);
+    assert_eq!(constructors.potential_loops().len(), 1);
     assert_eq!(
         vertex.id,
         type_of::<T>(),
@@ -219,6 +226,44 @@ fn info_btree_set_u64() {
     );
     assert!(!trivial);
     assert!(vertex.inductive);
+    assert!(info.instantiable());
+}
+
+#[test]
+fn info_infallible() {
+    type T = Infallible;
+    let info = info::<T>();
+    let TypeInfo {
+        name,
+        trivial,
+        ref type_former,
+        ref vertex,
+    } = *info;
+    assert_eq!(name, type_name::<T>());
+    let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
+        panic!("expected algebraic constructors but found {type_former:#?}")
+    };
+    assert_eq!(vertex.reachable, BTreeSet::new());
+    assert_eq!(vertex.unavoidable, BTreeSet::new());
+    assert!(
+        constructors.all_constructors.is_empty(),
+        "{:#?}",
+        constructors.all_constructors,
+    );
+    assert_eq!(constructors.guaranteed_leaves().len(), 0);
+    assert_eq!(constructors.guaranteed_loops().len(), 0);
+    assert_eq!(constructors.potential_leaves().len(), 0);
+    assert_eq!(constructors.potential_loops().len(), 0);
+    assert_eq!(
+        vertex.id,
+        type_of::<T>(),
+        "{:?} =/= {:?}",
+        vertex.id.id(),
+        TypeId::of::<T>(),
+    );
+    assert!(trivial);
+    assert!(!vertex.inductive);
+    assert!(!info.instantiable());
 }
 
 #[test]
@@ -510,6 +555,18 @@ fn arbitrary_hash_map_u64_u64() {
 }
 
 #[test]
+fn arbitrary_infallible() {
+    let mut prng = WyRand::new(u64::from(SEED));
+    assert_eq!(
+        Size::expanding()
+            .take(10)
+            .filter_map(|size| arbitrary(&mut prng, size))
+            .collect::<Vec<Infallible>>(),
+        Vec::<Infallible>::new(),
+    );
+}
+
+#[test]
 fn eta_expansion_bool() {
     let () = check_eta_expansion::<bool>();
 }
@@ -547,6 +604,11 @@ fn eta_expansion_hash_set_u64() {
 #[test]
 fn eta_expansion_hash_map_u64() {
     let () = check_eta_expansion::<BTreeMap<u64, u64>>();
+}
+
+#[test]
+fn eta_expansion_infallible() {
+    let () = check_eta_expansion::<Infallible>();
 }
 
 #[test]
@@ -682,4 +744,10 @@ fn search_witness_vec_contains_42() {
 fn search_witness_vec_contains_u64_max() {
     let witness = witness(10_000, |v: &Vec<u64>| v.contains(&u64::MAX)).expect("witness not found");
     assert_eq!(witness, vec![u64::MAX]);
+}
+
+#[test]
+fn search_witness_infallible() {
+    let maybe_witness: Option<Infallible> = witness(usize::MAX, |_| true);
+    assert_eq!(maybe_witness, None);
 }
