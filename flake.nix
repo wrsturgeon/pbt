@@ -61,7 +61,14 @@
           fmt-toml = crane.taploFmt craneArgs;
           tests = crane.cargoNextest (craneArgs // { cargoNextestPartitionsExtraArgs = "--no-tests=pass"; });
         };
-        devShells.default = crane.devShell { checks = self.checks.${system}; };
+        devShells.default = crane.devShell {
+          checks = self.checks.${system};
+          inputsFrom = builtins.attrValues self.packages.${system};
+          packages = with pkgs; [
+            cargo-expand
+            cargo-outdated
+          ];
+        };
         formatter = treefmt.config.build.wrapper;
         packages.default = craneArtifacts;
       }
