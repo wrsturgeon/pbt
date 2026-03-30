@@ -5,6 +5,7 @@ resolver = "3"
 
 
 [workspace.package]
+authors = ["Will Sturgeon <willstrgn@gmail.com>"]
 categories = [
   "algorithms",
   "data-structures",
@@ -12,10 +13,9 @@ categories = [
   "mathematics",
   "security",
 ]
-keywords = ["property", "proptest", "arbitrary", "fuzz", "test"]
-authors = ["Will Sturgeon <willstrgn@gmail.com>"]
 description = "Property-based testing with `derive` macros, aware of mutual induction & instantiability."
 edition = "2024"
+keywords = ["property", "proptest", "arbitrary", "fuzz", "test"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/wrsturgeon/pbt"
