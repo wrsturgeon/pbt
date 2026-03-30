@@ -30,200 +30,195 @@ use {
 fn info_bool() {
     type T = bool;
     let TypeInfo {
-        ref type_former,
-        ref dependencies,
         name,
         trivial,
+        ref type_former,
+        ref vertex,
     } = *info::<T>();
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Literal { .. } = *type_former else {
         panic!("expected literal (non-algebraic) type former but found {type_former:#?}")
     };
-    assert_eq!(dependencies.constructor, None);
     assert_eq!(
-        dependencies.id,
+        vertex.id,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        dependencies.id.id(),
+        vertex.id.id(),
         TypeId::of::<T>(),
     );
-    assert_eq!(dependencies.reachable, BTreeSet::new());
-    assert_eq!(dependencies.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(vertex.reachable, BTreeSet::new());
+    assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
     assert!(trivial);
-    assert!(!dependencies.is_inductive());
+    assert!(!vertex.is_inductive());
 }
 
 #[test]
 fn info_box_bool() {
     type T = Box<bool>;
     let TypeInfo {
-        ref type_former,
-        ref dependencies,
         name,
         trivial,
+        ref type_former,
+        ref vertex,
     } = *info::<T>();
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
-    assert_eq!(constructors.all_tagged.len(), 1);
+    assert_eq!(constructors.all_constructors.len(), 1);
     assert_eq!(constructors.guaranteed_leaves.len(), 1);
     assert_eq!(constructors.guaranteed_loops.len(), 0);
     assert_eq!(constructors.potential_leaves.len(), 1);
     assert_eq!(constructors.potential_loops.len(), 0);
-    assert_eq!(dependencies.constructor, None);
     assert_eq!(
-        dependencies.id,
+        vertex.id,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        dependencies.id.id(),
+        vertex.id.id(),
         TypeId::of::<T>(),
     );
+    assert_eq!(vertex.reachable, iter::once(type_of::<bool>()).collect(),);
     assert_eq!(
-        dependencies.reachable,
-        iter::once(type_of::<bool>()).collect(),
-    );
-    assert_eq!(
-        dependencies.unavoidable,
+        vertex.unavoidable,
         Some(iter::once(type_of::<bool>()).collect()),
     );
     assert!(trivial);
-    assert!(!dependencies.is_inductive());
+    assert!(!vertex.is_inductive());
 }
 
 #[test]
 fn info_option_u64() {
     type T = Option<u64>;
     let TypeInfo {
-        ref type_former,
-        ref dependencies,
         name,
         trivial,
+        ref type_former,
+        ref vertex,
     } = *info::<T>();
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
-    assert_eq!(constructors.all_tagged.len(), 2);
+    assert_eq!(constructors.all_constructors.len(), 2);
     assert_eq!(constructors.guaranteed_leaves.len(), 2);
     assert_eq!(constructors.guaranteed_loops.len(), 0);
     assert_eq!(constructors.potential_leaves.len(), 2);
     assert_eq!(constructors.potential_loops.len(), 0);
-    assert_eq!(dependencies.constructor, None);
     assert_eq!(
-        dependencies.id,
+        vertex.id,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        dependencies.id.id(),
+        vertex.id.id(),
         TypeId::of::<T>(),
     );
-    assert_eq!(
-        dependencies.reachable,
-        iter::once(type_of::<u64>()).collect(),
-    );
-    assert_eq!(dependencies.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(vertex.reachable, iter::once(type_of::<u64>()).collect(),);
+    assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
     assert!(!trivial);
-    assert!(!dependencies.is_inductive());
+    assert!(!vertex.is_inductive());
 }
 
 #[test]
 fn info_vec_u64() {
     type T = Vec<u64>;
     let TypeInfo {
-        ref type_former,
-        ref dependencies,
         name,
         trivial,
+        ref type_former,
+        ref vertex,
     } = *info::<T>();
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
     assert_eq!(
-        dependencies.reachable,
+        vertex.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
-    assert_eq!(dependencies.unavoidable, Some(BTreeSet::new()));
-    assert_eq!(constructors.all_tagged.len(), 2);
-    assert_eq!(constructors.all_tagged[0].1.is_inductive(), false);
+    assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(constructors.all_constructors.len(), 2);
+    assert_eq!(constructors.all_constructors[0].1.is_inductive(), false);
     assert_eq!(
-        constructors.all_tagged[0].1.unavoidable,
+        constructors.all_constructors[0].1.unavoidable,
         Some(BTreeSet::new()),
     );
-    assert_eq!(constructors.all_tagged[0].1.reachable, BTreeSet::new());
-    assert_eq!(constructors.all_tagged[1].1.is_inductive(), true);
     assert_eq!(
-        constructors.all_tagged[1].1.unavoidable,
+        constructors.all_constructors[0].1.reachable,
+        BTreeSet::new()
+    );
+    assert_eq!(constructors.all_constructors[1].1.is_inductive(), true);
+    assert_eq!(
+        constructors.all_constructors[1].1.unavoidable,
         Some([type_of::<u64>(), type_of::<T>()].into_iter().collect()),
     );
     assert_eq!(
-        constructors.all_tagged[1].1.reachable,
+        constructors.all_constructors[1].1.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
     assert_eq!(constructors.guaranteed_leaves.len(), 1);
     assert_eq!(constructors.guaranteed_loops.len(), 1);
     assert_eq!(constructors.potential_leaves.len(), 1);
     assert_eq!(constructors.potential_loops.len(), 1);
-    assert_eq!(dependencies.constructor, None);
     assert_eq!(
-        dependencies.id,
+        vertex.id,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        dependencies.id.id(),
+        vertex.id.id(),
         TypeId::of::<T>(),
     );
     assert!(!trivial);
-    assert!(dependencies.is_inductive());
+    assert!(vertex.is_inductive());
 }
 
 #[test]
 fn info_btree_set_u64() {
     type T = BTreeSet<u64>;
     let TypeInfo {
-        ref type_former,
-        ref dependencies,
         name,
         trivial,
+        ref type_former,
+        ref vertex,
     } = *info::<T>();
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
     assert_eq!(
-        dependencies.reachable,
+        vertex.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
-    assert_eq!(dependencies.unavoidable, Some(BTreeSet::new()));
-    assert_eq!(constructors.all_tagged.len(), 2);
-    assert_eq!(constructors.all_tagged[0].1.is_inductive(), false);
+    assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
+    assert_eq!(constructors.all_constructors.len(), 2);
+    assert_eq!(constructors.all_constructors[0].1.is_inductive(), false);
     assert_eq!(
-        constructors.all_tagged[0].1.unavoidable,
+        constructors.all_constructors[0].1.unavoidable,
         Some(BTreeSet::new()),
     );
-    assert_eq!(constructors.all_tagged[0].1.reachable, BTreeSet::new());
-    assert_eq!(constructors.all_tagged[1].1.is_inductive(), true);
     assert_eq!(
-        constructors.all_tagged[1].1.unavoidable,
+        constructors.all_constructors[0].1.reachable,
+        BTreeSet::new()
+    );
+    assert_eq!(constructors.all_constructors[1].1.is_inductive(), true);
+    assert_eq!(
+        constructors.all_constructors[1].1.unavoidable,
         Some([type_of::<u64>(), type_of::<T>()].into_iter().collect()),
     );
     assert_eq!(
-        constructors.all_tagged[1].1.reachable,
+        constructors.all_constructors[1].1.reachable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
     assert_eq!(constructors.guaranteed_leaves.len(), 1);
     assert_eq!(constructors.guaranteed_loops.len(), 1);
     assert_eq!(constructors.potential_leaves.len(), 1);
     assert_eq!(constructors.potential_loops.len(), 1);
-    assert_eq!(dependencies.constructor, None);
     assert_eq!(
-        dependencies.id,
+        vertex.id,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        dependencies.id.id(),
+        vertex.id.id(),
         TypeId::of::<T>(),
     );
     assert!(!trivial);
-    assert!(dependencies.is_inductive());
+    assert!(vertex.is_inductive());
 }
 
 #[test]

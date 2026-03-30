@@ -14,6 +14,7 @@ use {
         any::{TypeId, type_name},
         fmt, iter, mem,
         num::NonZero,
+        ops::Deref,
         ptr,
     },
     std::{
@@ -61,14 +62,17 @@ pub struct TermsOfVariousTypes {
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Type(TypeId);
 
-/// The set of types that either *may* or *must*
-/// be contained in any term of this type.
+/// A vertex in the type-dependency graph,
+/// indexed by its opaque Rust `TypeId`,
+/// whose outgoing edges are determined by the
+/// notion of this type "containing" another type,
+/// i.e. containing some (variant with) some field of that type.
+/// We distinguish the sets of types that *may* or *must*
+/// be contained in any term of this type;
+/// the former is "reachable" and the latter is "unavoidable."
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct TypeDependencies {
-    /// Constructor information, if applicable.
-    /// For dependencies of a type as a whole, this is `None`.
-    pub constructor: Option<CtorInfo>,
+pub struct Vertex {
     /// The opaque Rust ID for this type.
     pub id: Type,
     /// The set of all types that *may* be contained in any term of this type.
@@ -83,11 +87,19 @@ pub struct TypeDependencies {
 }
 
 #[non_exhaustive]
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct CtorVertex {
+    /// Constructor information, if applicable.
+    /// For dependencies of a type as a whole, this is `None`.
+    pub constructor: CtorInfo,
+    /// Graph-theoretic information about the constructor
+    /// as if it were a single `struct` type.
+    pub vertex: Vertex,
+}
+
+#[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct TypeInfo {
-    /// The union and intersection of the bag of types that
-    /// may be contained in a value of this type.
-    pub dependencies: TypeDependencies,
     /// The pretty-printed name of this type.
     pub name: &'static str,
     /// Whether this type is uninteresting: specifically, whether it is either
@@ -95,6 +107,9 @@ pub struct TypeInfo {
     /// Note that uninstantiable types *are* interesting, i.e. nontrivial.
     pub trivial: bool,
     pub type_former: PrecomputedTypeFormer,
+    /// The union and intersection of the bag of types that
+    /// may be contained in a value of this type.
+    pub vertex: Vertex,
 }
 
 #[non_exhaustive]
@@ -112,7 +127,7 @@ pub struct AlgebraicTypeFormer {
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type,
     /// each tagged with information about its type-level properties.
-    pub all_tagged: Vec<(CtorFn<Erased>, TypeDependencies)>,
+    pub all_constructors: Vec<(CtorFn<Erased>, CtorVertex)>,
     /// Decompose this value into a
     /// constructor (by index) and
     /// its associated fields.
@@ -157,33 +172,27 @@ impl AlgebraicTypeFormer {
     /// another term of type `Self` (since generation would never halt).
     #[inline]
     #[must_use]
-    pub fn new<T>(all_tagged: Vec<(CtorFn<T>, TypeDependencies)>, eliminator: ElimFn<T>) -> Self {
+    pub fn new<T>(all_constructors: Vec<(CtorFn<T>, CtorVertex)>, eliminator: ElimFn<T>) -> Self {
         // SAFETY: Same size, still a function pointer with the same arguments.
-        let all_tagged = unsafe {
-            mem::transmute::<
-                Vec<(CtorFn<T>, TypeDependencies)>,
-                Vec<(CtorFn<Erased>, TypeDependencies)>,
-            >(all_tagged)
+        let all_constructors = unsafe {
+            mem::transmute::<Vec<(CtorFn<T>, CtorVertex)>, Vec<(CtorFn<Erased>, CtorVertex)>>(
+                all_constructors,
+            )
         };
         #[cfg(debug_assertions)]
         {
-            let ctor_indices = all_tagged.iter().map(
-                |&(
-                    _,
-                    TypeDependencies {
-                        ref constructor, ..
-                    },
-                )| { constructor.as_ref().map(|&CtorInfo { index, .. }| index) },
-            );
+            let ctor_indices = all_constructors
+                .iter()
+                .map(|&(_, ref cv)| cv.constructor.index);
             // SAFETY: Starts from one, monotonically increasing, ergo never zero
             let expected_indices =
-                (1..=all_tagged.len()).map(|i| Some(unsafe { NonZero::new_unchecked(i) }));
+                (1..=all_constructors.len()).map(|i| unsafe { NonZero::new_unchecked(i) });
             assert!(
                 Iterator::eq(ctor_indices, expected_indices),
-                "Constructor indices are out of order (should be 1, 2, ...): {all_tagged:#?}",
+                "Constructor indices are out of order (should be 1, 2, ...): {all_constructors:#?}",
             );
         }
-        let guaranteed_leaves: Vec<IndexedCtorFn<Erased>> = all_tagged
+        let guaranteed_leaves: Vec<IndexedCtorFn<Erased>> = all_constructors
             .iter()
             .enumerate()
             .filter(|&(_, &(_, ref deps))| deps.is_guaranteed_leaf())
@@ -199,7 +208,7 @@ impl AlgebraicTypeFormer {
                 }
             })
             .collect();
-        let guaranteed_loops: Vec<IndexedCtorFn<Erased>> = all_tagged
+        let guaranteed_loops: Vec<IndexedCtorFn<Erased>> = all_constructors
             .iter()
             .enumerate()
             .filter(|&(_, &(_, ref deps))| deps.is_guaranteed_loop())
@@ -215,7 +224,7 @@ impl AlgebraicTypeFormer {
                 }
             })
             .collect();
-        let potential_leaves: Vec<IndexedCtorFn<Erased>> = all_tagged
+        let potential_leaves: Vec<IndexedCtorFn<Erased>> = all_constructors
             .iter()
             .enumerate()
             .filter(|&(_, &(_, ref deps))| deps.is_potential_leaf())
@@ -231,7 +240,7 @@ impl AlgebraicTypeFormer {
                 }
             })
             .collect();
-        let potential_loops: Vec<IndexedCtorFn<Erased>> = all_tagged
+        let potential_loops: Vec<IndexedCtorFn<Erased>> = all_constructors
             .iter()
             .enumerate()
             .filter(|&(_, &(_, ref deps))| deps.is_potential_loop())
@@ -253,7 +262,7 @@ impl AlgebraicTypeFormer {
             type_name::<T>(),
         );
         Self {
-            all_tagged,
+            all_constructors,
             // SAFETY: Never used in its erased form, and
             // `Vec<_>`s all have the same size+alignment.
             eliminator: unsafe { mem::transmute::<ElimFn<T>, ElimFn<Erased>>(eliminator) },
@@ -265,14 +274,23 @@ impl AlgebraicTypeFormer {
     }
 }
 
+impl Deref for CtorVertex {
+    type Target = Vertex;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.vertex
+    }
+}
+
 impl PrecomputedTypeFormer {
     #[inline]
     #[must_use]
     pub fn algebraic<T>(
-        all_tagged: Vec<(CtorFn<T>, TypeDependencies)>,
+        all_constructors: Vec<(CtorFn<T>, CtorVertex)>,
         eliminator: ElimFn<T>,
     ) -> Self {
-        Self::Algebraic(AlgebraicTypeFormer::new::<T>(all_tagged, eliminator))
+        Self::Algebraic(AlgebraicTypeFormer::new::<T>(all_constructors, eliminator))
     }
 
     #[inline]
@@ -640,7 +658,7 @@ impl Type {
     }
 }
 
-impl TypeDependencies {
+impl Vertex {
     /// Whether `Self` is *unreachable*.
     #[inline]
     #[must_use]
@@ -790,14 +808,13 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         }) => {
             return TypeInfo {
                 type_former: PrecomputedTypeFormer::literal(corners, generate, shrink),
-                dependencies: TypeDependencies {
-                    constructor: None,
+                name: type_name::<T>(),
+                trivial: true,
+                vertex: Vertex {
                     id: self_id,
                     reachable: BTreeSet::new(),
                     unavoidable: Some(BTreeSet::new()),
                 },
-                name: type_name::<T>(),
-                trivial: true,
             };
         }
     };
@@ -816,7 +833,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             .iter()
             .filter_map(|(&id, count)| {
                 // Count only inductive (i.e. interesting) types:
-                (visited.contains(&id) || info_by_id(id).dependencies.is_inductive())
+                (visited.contains(&id) || info_by_id(id).vertex.is_inductive())
                     .then_some(count.get())
             })
             .sum();
@@ -825,7 +842,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         false
     };
 
-    let mut constructors: Vec<(CtorFn<T>, TypeDependencies)> = vec![];
+    let mut constructors: Vec<(CtorFn<T>, CtorVertex)> = vec![];
     let mut reachable: BTreeSet<Type> = BTreeSet::new();
     let mut unavoidable: Option<BTreeSet<Type>> = None;
     for (
@@ -843,9 +860,9 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             let _: bool = ctor_unavoidable.insert(id);
             if !visited.contains(&id) {
                 let info = info_by_id(id);
-                let () = ctor_reachable.extend(&info.dependencies.reachable);
-                let () = ctor_unavoidable
-                    .extend(info.dependencies.unavoidable.as_ref().into_iter().flatten());
+                let () = ctor_reachable.extend(&info.vertex.reachable);
+                let () =
+                    ctor_unavoidable.extend(info.vertex.unavoidable.as_ref().into_iter().flatten());
             }
         }
         let () = reachable.extend(&ctor_reachable);
@@ -857,31 +874,32 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
                 unavoidable
             },
         ));
-        let deps = TypeDependencies {
-            constructor: Some(CtorInfo {
+        let deps = CtorVertex {
+            constructor: CtorInfo {
                 #[expect(clippy::expect_used, reason = "extremely unlikely")]
                 index: ONE
                     .checked_add(i)
                     .expect("internal `pbt` error: more than `usize::MAX` constructors"),
                 immediate: immediate_dependencies,
-            }),
-            id: self_id,
-            reachable: ctor_reachable,
-            unavoidable: Some(ctor_unavoidable),
+            },
+            vertex: Vertex {
+                id: self_id,
+                reachable: ctor_reachable,
+                unavoidable: Some(ctor_unavoidable),
+            },
         };
         let () = constructors.push((call, deps));
     }
 
     TypeInfo {
+        name: type_name::<T>(),
+        trivial,
         type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
-        dependencies: TypeDependencies {
-            constructor: None,
+        vertex: Vertex {
             id: self_id,
             reachable,
             unavoidable,
         },
-        name: type_name::<T>(),
-        trivial,
     }
 }
 

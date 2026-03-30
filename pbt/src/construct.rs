@@ -268,7 +268,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
 pub fn check_eta_expansion<T: Construct>() {
     let info = info::<T>();
     let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
-        ref all_tagged,
+        ref all_constructors,
         eliminator,
         ..
     }) = info.type_former
@@ -283,7 +283,7 @@ pub fn check_eta_expansion<T: Construct>() {
             mut fields,
         } = eliminator(orig.clone());
         #[expect(clippy::indexing_slicing, reason = "failing tests ought to panic")]
-        let (ctor, _) = all_tagged[ctor_idx.get() - 1];
+        let (ctor, _) = all_constructors[ctor_idx.get() - 1];
         // SAFETY: By the soundness of the type-`TypeId` relation,
         // which holds as long as no lifetime subtyping takes place,
         // and since only `'static` types have IDs and we can't generate functions,

@@ -39,8 +39,10 @@ impl Size {
     #[inline]
     fn partition_by_id(self, id: Type, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes {
         let info = info_by_id(id);
-        let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer { ref all_tagged, .. }) =
-            info.type_former
+        let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
+            ref all_constructors,
+            ..
+        }) = info.type_former
         else {
             return Sizes {
                 map: BTreeMap::new(),
@@ -50,28 +52,19 @@ impl Size {
             clippy::indexing_slicing,
             reason = "internal invariants; violation should panic"
         )]
-        let (_ctor_fn, ref deps) = all_tagged[ctor_idx.get() - 1];
-        #[expect(
-            clippy::expect_used,
-            reason = "internal invariants; violation should panic"
-        )]
-        let immediate_deps = &deps
-            .constructor
-            .as_ref()
-            .expect("internal `pbt` error: constructor without info")
-            .immediate;
+        let (_ctor_fn, ref deps) = all_constructors[ctor_idx.get() - 1];
 
         // Count the number of inductive fields,
         // regardless of whether they're trivial wrappers
         // (e.g. `Box` is a trivial wrapper but `Box<...>` is still inductive):
         let mut n_ind = 0;
-        for (&ty, count) in immediate_deps.iter() {
+        for (&ty, count) in deps.constructor.immediate.iter() {
             #[expect(
                 clippy::arithmetic_side_effects,
                 reason = "fields bounded by system hardware, defined to match the capacity of `usize`"
             )]
             // TODO: precompute `is_inductive`
-            if info_by_id(ty).dependencies.is_inductive() {
+            if info_by_id(ty).vertex.is_inductive() {
                 n_ind += count.get();
             }
         }
@@ -84,8 +77,8 @@ impl Size {
 
         // Use each size for an inductive type:
         let mut map = BTreeMap::<Type, Vec<Size>>::new();
-        for (&ty, count) in immediate_deps.iter() {
-            if info_by_id(ty).dependencies.is_inductive() {
+        for (&ty, count) in deps.constructor.immediate.iter() {
+            if info_by_id(ty).vertex.is_inductive() {
                 let v = map.entry(ty).or_default();
                 for _ in 0..count.get() {
                     #[expect(

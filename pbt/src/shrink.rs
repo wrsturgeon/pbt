@@ -12,11 +12,10 @@ use {
 /// on the first go, then to cut only about a quarter, then only an eighth, etc.,
 /// until they almost reach (but do not equal) the original term.
 #[inline]
-#[expect(clippy::missing_panics_doc, reason = "won't panic")]
 pub fn shrink<T: Construct>(t: T) -> Box<dyn Iterator<Item = T>> {
     let info = info::<T>();
     let AlgebraicTypeFormer {
-        all_tagged: ref ctors,
+        all_constructors: ref ctors,
         eliminator,
         ..
     } = *match info.type_former {
@@ -44,16 +43,6 @@ pub fn shrink<T: Construct>(t: T) -> Box<dyn Iterator<Item = T>> {
     let (orig_ctor_fn, orig_ctor_deps) = ctors[ctor_idx.get() - 1].clone();
     // SAFETY: Undoing an earlier `erase`.
     let orig_ctor_fn = unsafe { orig_ctor_fn.unerase::<T>() };
-    #[expect(
-        clippy::expect_used,
-        reason = "internal invariants; violation should panic"
-    )]
-    let orig_ctor_info = orig_ctor_deps
-        .constructor
-        .as_ref()
-        .expect("internal `pbt` error: constructor without info")
-        .clone();
-
     // Visit all terms of type `Self` (deeply) and try them all as toplevel solutions:
     let nested_selves = t
         .visit_deep::<T>()
@@ -73,27 +62,20 @@ pub fn shrink<T: Construct>(t: T) -> Box<dyn Iterator<Item = T>> {
     let try_smaller_ctors = ctors
         .into_iter()
         .filter(move |&(_, ref deps)| {
-            #[expect(
-                clippy::expect_used,
-                reason = "internal invariants; violation should panic"
-            )]
-            let ctor_info = deps
-                .constructor
-                .as_ref()
-                .expect("internal `pbt` error: constructor without info");
+            let ctor_info = &deps.constructor;
             // We can reuse fields iff the other constructor's fields are a
             // sub(multi)set of this constructor's fields;
             // otherwise, we'd have to generate new fields,
             // and the whole resulting value might be larger than this one:
             ctor_info
                 .immediate
-                .is_subset_of(&orig_ctor_info.immediate)
+                .is_subset_of(&orig_ctor_deps.constructor.immediate)
                 .is_some_and(|strict| {
                     strict || {
                         // If the two constructors' fields were *precisely* equal
                         // (still technically a subset, just not a strict one),
                         // then we need to tiebreak a potential loop:
-                        ctor_info.index < orig_ctor_info.index
+                        ctor_info.index < orig_ctor_deps.constructor.index
                     }
                 })
             // TODO: should we do this for *all* (deep) terms
