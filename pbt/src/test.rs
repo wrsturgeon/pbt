@@ -49,7 +49,7 @@ fn info_bool() {
     assert_eq!(vertex.reachable, BTreeSet::new());
     assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
     assert!(trivial);
-    assert!(!vertex.is_inductive());
+    assert!(!vertex.inductive);
 }
 
 #[test]
@@ -83,7 +83,7 @@ fn info_box_bool() {
         Some(iter::once(type_of::<bool>()).collect()),
     );
     assert!(trivial);
-    assert!(!vertex.is_inductive());
+    assert!(!vertex.inductive);
 }
 
 #[test]
@@ -114,7 +114,7 @@ fn info_option_u64() {
     assert_eq!(vertex.reachable, iter::once(type_of::<u64>()).collect(),);
     assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
     assert!(!trivial);
-    assert!(!vertex.is_inductive());
+    assert!(!vertex.inductive);
 }
 
 #[test]
@@ -136,7 +136,7 @@ fn info_vec_u64() {
     );
     assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
     assert_eq!(constructors.all_constructors.len(), 2);
-    assert_eq!(constructors.all_constructors[0].1.is_inductive(), false);
+    assert_eq!(constructors.all_constructors[0].1.inductive, false);
     assert_eq!(
         constructors.all_constructors[0].1.unavoidable,
         Some(BTreeSet::new()),
@@ -145,7 +145,7 @@ fn info_vec_u64() {
         constructors.all_constructors[0].1.reachable,
         BTreeSet::new()
     );
-    assert_eq!(constructors.all_constructors[1].1.is_inductive(), true);
+    assert_eq!(constructors.all_constructors[1].1.inductive, true);
     assert_eq!(
         constructors.all_constructors[1].1.unavoidable,
         Some([type_of::<u64>(), type_of::<T>()].into_iter().collect()),
@@ -166,7 +166,7 @@ fn info_vec_u64() {
         TypeId::of::<T>(),
     );
     assert!(!trivial);
-    assert!(vertex.is_inductive());
+    assert!(vertex.inductive);
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn info_btree_set_u64() {
     );
     assert_eq!(vertex.unavoidable, Some(BTreeSet::new()));
     assert_eq!(constructors.all_constructors.len(), 2);
-    assert_eq!(constructors.all_constructors[0].1.is_inductive(), false);
+    assert_eq!(constructors.all_constructors[0].1.inductive, false);
     assert_eq!(
         constructors.all_constructors[0].1.unavoidable,
         Some(BTreeSet::new()),
@@ -197,7 +197,7 @@ fn info_btree_set_u64() {
         constructors.all_constructors[0].1.reachable,
         BTreeSet::new()
     );
-    assert_eq!(constructors.all_constructors[1].1.is_inductive(), true);
+    assert_eq!(constructors.all_constructors[1].1.inductive, true);
     assert_eq!(
         constructors.all_constructors[1].1.unavoidable,
         Some([type_of::<u64>(), type_of::<T>()].into_iter().collect()),
@@ -218,7 +218,7 @@ fn info_btree_set_u64() {
         TypeId::of::<T>(),
     );
     assert!(!trivial);
-    assert!(vertex.is_inductive());
+    assert!(vertex.inductive);
 }
 
 #[test]

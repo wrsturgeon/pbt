@@ -75,6 +75,13 @@ pub struct Type(TypeId);
 pub struct Vertex {
     /// The opaque Rust ID for this type.
     pub id: Type,
+    /// Whether any term of this type contains `Self`,
+    /// even transitively or indirectly via mutual induction.
+    /// For example, a tree structure that contains `Box<Self>` is inductive,
+    /// even though `Box` acts as a layer of indirection.
+    /// Note that this library takes a functional view of e.g. lists as inductive,
+    /// since any non-empty list can be seen as cons'ing an element onto another list.
+    pub inductive: bool,
     /// The set of all types that *may* be contained in any term of this type.
     pub reachable: BTreeSet<Type>,
     /// The minimal bag of types that *must* be contained in any term of this type.
@@ -675,18 +682,6 @@ impl Vertex {
             .is_some_and(|unavoidable| unavoidable.contains(&self.id))
     }
 
-    /// Whether any term of this type contains `Self`,
-    /// even transitively or indirectly via mutual induction.
-    /// For example, a tree structure that contains `Box<Self>` is inductive,
-    /// even though `Box` acts as a layer of indirection.
-    /// Note that this library takes a functional view of e.g. lists as inductive,
-    /// since any non-empty list can be seen as cons'ing an element onto another list.
-    #[inline]
-    #[must_use]
-    pub fn is_inductive(&self) -> bool {
-        self.reachable.contains(&self.id)
-    }
-
     /// Whether a term of this type exists.
     /// Internally, this asks whether the set of constructors is non-empty,
     /// so this technically relies on the exhaustive nature of the set of constructors;
@@ -812,6 +807,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
                 trivial: true,
                 vertex: Vertex {
                     id: self_id,
+                    inductive: false,
                     reachable: BTreeSet::new(),
                     unavoidable: Some(BTreeSet::new()),
                 },
@@ -833,8 +829,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             .iter()
             .filter_map(|(&id, count)| {
                 // Count only inductive (i.e. interesting) types:
-                (visited.contains(&id) || info_by_id(id).vertex.is_inductive())
-                    .then_some(count.get())
+                (visited.contains(&id) || info_by_id(id).vertex.inductive).then_some(count.get())
             })
             .sum();
         n_fields <= 1
@@ -884,6 +879,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             },
             vertex: Vertex {
                 id: self_id,
+                inductive: ctor_reachable.contains(&self_id),
                 reachable: ctor_reachable,
                 unavoidable: Some(ctor_unavoidable),
             },
@@ -897,6 +893,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
         vertex: Vertex {
             id: self_id,
+            inductive: reachable.contains(&self_id),
             reachable,
             unavoidable,
         },
