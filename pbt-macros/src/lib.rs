@@ -33,8 +33,8 @@ use {
 #[proc_macro_derive(Pbt)]
 pub fn derive_pbt(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match parse_macro_input!(ts as Item) {
-        Item::Enum(ref item) => derive_pbt_for_ctors(
-            &item.ident,
+        Item::Enum(item) => derive_pbt_for_ctors(
+            item.ident,
             &item.generics,
             &item
                 .variants
@@ -52,8 +52,8 @@ pub fn derive_pbt(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 })
                 .collect::<Vec<_>>(),
         ),
-        Item::Struct(ref item) => derive_pbt_for_ctors(
-            &item.ident,
+        Item::Struct(item) => derive_pbt_for_ctors(
+            item.ident,
             &item.generics,
             &[(path_of_str("Self"), &item.fields)],
         ),
@@ -67,7 +67,7 @@ pub fn derive_pbt(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
 
 #[inline]
 fn derive_pbt_for_ctors(
-    ident: &Ident,
+    ident: Ident,
     generics: &Generics,
     ctors: &[(Path, &Fields)],
 ) -> TokenStream {
@@ -92,8 +92,43 @@ fn derive_pbt_for_ctors(
     let visit_shallow = visit(ctors, &id("visit_shallow"));
     let test_mod_id = id(&format!("pbt_{ident}"));
 
+    let impl_path = Path {
+        leading_colon: None,
+        segments: iter::once(PathSegment {
+            ident: ident.clone(),
+            arguments: PathArguments::AngleBracketed(parameters),
+        })
+        .collect(),
+    };
+    let test_path = Path {
+        leading_colon: None,
+        segments: [
+            seg(id("super")),
+            PathSegment {
+                ident,
+                arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                    colon2_token: None,
+                    lt_token: <Token![<]>::default(),
+                    args: generics
+                        .params
+                        .iter()
+                        .map(|_| {
+                            GenericArgument::Type(Type::Path(TypePath {
+                                qself: None,
+                                path: path_of_str("usize"),
+                            }))
+                        })
+                        .collect(),
+                    gt_token: <Token![>]>::default(),
+                }),
+            },
+        ]
+        .into_iter()
+        .collect(),
+    };
+
     quote! {
-        impl #generics #construct_trait_path for #ident #parameters {
+        impl #generics #construct_trait_path for #impl_path {
             #[inline]
             fn arbitrary_fields_for_ctor(
                 ctor_idx: ::core::num::NonZero<usize>,
@@ -148,7 +183,7 @@ fn derive_pbt_for_ctors(
         mod #test_mod_id {
             #[test]
             fn eta_expansion() {
-                let () = ::pbt::construct::check_eta_expansion::<super::#ident>();
+                let () = ::pbt::construct::check_eta_expansion::<#test_path>();
             }
         }
     }
