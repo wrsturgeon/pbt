@@ -23,7 +23,10 @@ use {
         iter,
     },
     pretty_assertions::assert_eq,
-    std::collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+    std::{
+        collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+        sync::Arc,
+    },
     wyrand::WyRand,
 };
 
@@ -574,6 +577,11 @@ fn eta_expansion_bool() {
 #[test]
 fn eta_expansion_box_bool() {
     let () = check_eta_expansion::<Box<bool>>();
+}
+
+#[test]
+fn eta_expansion_arc_bool() {
+    let () = check_eta_expansion::<Arc<bool>>();
 }
 
 #[test]
