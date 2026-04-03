@@ -1,9 +1,9 @@
 # `pbt`
 
 This is a property-based testing library designed from the ground up with three goals:
-    1. Automate all boilerplate with `#[derive(Pbt)]` to mitigate human error.
-    2. Scale to large, mutually inductive, and uninstantiable types correctly.
-    3. Shrink as close to a global minimum as possible without sacrificing efficiency.
+1. Automate all boilerplate with `#[derive(Pbt)]` to mitigate human error.
+2. Scale to large, mutually inductive, and uninstantiable types correctly.
+3. Shrink as close to a global minimum as possible without sacrificing efficiency.
 
 ## Example
 
