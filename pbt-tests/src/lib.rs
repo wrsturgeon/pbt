@@ -2,13 +2,9 @@ use {core::convert::Infallible, pbt::Pbt};
 
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
-pub enum Doggo {
-    Woofer,
-    Subwoofer {
-        many_wow: u64,
-        such_amaze: u64,
-        pals: Vec<Doggo>,
-    },
+pub enum Foo {
+    Bar,
+    Baz { a: u64, b: u64, c: Vec<Foo> },
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
@@ -17,13 +13,13 @@ pub enum PartiallyInstantiable {
     Uninstantiable(Infallible),
 }
 
-impl Doggo {
+impl Foo {
     #[inline]
     #[must_use]
-    pub fn n_pals(&self) -> usize {
+    pub fn bus_factor(&self) -> usize {
         match *self {
-            Self::Woofer => 0, // :(
-            Self::Subwoofer { ref pals, .. } => pals.len(),
+            Self::Bar => 0,
+            Self::Baz { ref c, .. } => c.len(),
         }
     }
 }
@@ -41,14 +37,13 @@ mod test {
 
     #[test]
     fn search_and_minimize() {
-        let popular_doggo: Option<Doggo> =
-            search::witness(1_000, |doggo: &Doggo| doggo.n_pals() >= 3);
+        let maybe_witness: Option<Foo> = search::witness(1_000, |foo: &Foo| foo.bus_factor() >= 3);
         assert_eq!(
-            popular_doggo,
-            Some(Doggo::Subwoofer {
-                many_wow: 0,
-                such_amaze: 0,
-                pals: vec![Doggo::Woofer, Doggo::Woofer, Doggo::Woofer],
+            maybe_witness,
+            Some(Foo::Baz {
+                a: 0,
+                b: 0,
+                c: vec![Foo::Bar, Foo::Bar, Foo::Bar],
             }),
         );
     }
