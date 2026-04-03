@@ -89,10 +89,13 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
 
     /// Run depth-first search on the global type dependency graph.
     /// All this needs to do in practice is to
-    /// add `::pbt::reflection::type_of::<Self>()` to `visited`
-    /// then call `::pbt::reflection::register::<T>(visited)`
-    /// for each `T` in the `immediate_dependencies` fields of `Self::_constructors()`.
-    /// Induction and caching take care of the rest.
+    /// let some variable, e.g. `ty`, `= ::pbt::reflection::type_of::<Self>()`,
+    /// add `ty` to `visited`, then,
+    /// for each `T` in the `immediate_dependencies` fields of `Self::_constructors()`,
+    /// call `::pbt::reflection::register::<T>(visited)`
+    /// and add `::pbt::reflection::type_of::<T>()`
+    /// to a set `edges` which is then passed to
+    /// `::pbt::reflection::_sccs().write().register(ty, edges)`.
     fn register_all_immediate_dependencies(visited: &BTreeSet<Type>);
 
     /// The exhaustive disjoint set of methods

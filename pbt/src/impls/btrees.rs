@@ -72,7 +72,7 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
                     1
                 };
                 Decomposition {
-                    // SAFETY: 1 != 0
+                    // SAFETY: Case analysis above.
                     ctor_idx: unsafe { NonZero::new_unchecked(ctor_idx) },
                     fields,
                 }
@@ -160,7 +160,7 @@ impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
                     1
                 };
                 Decomposition {
-                    // SAFETY: 1 != 0
+                    // SAFETY: Case analysis above.
                     ctor_idx: unsafe { NonZero::new_unchecked(ctor_idx) },
                     fields,
                 }

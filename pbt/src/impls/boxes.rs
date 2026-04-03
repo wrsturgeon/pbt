@@ -58,8 +58,7 @@ impl<T: Construct> Construct for Box<T> {
                 let mut fields = TermsOfVariousTypes::new();
                 let () = fields.push::<T>(*boxed);
                 Decomposition {
-                    // SAFETY: 1 != 0
-                    ctor_idx: unsafe { NonZero::new_unchecked(1) },
+                    ctor_idx: const { NonZero::new(1).unwrap() },
                     fields,
                 }
             }),

@@ -63,7 +63,8 @@ impl Size {
                 clippy::arithmetic_side_effects,
                 reason = "fields bounded by system hardware, defined to match the capacity of `usize`"
             )]
-            if info_by_id(ty).vertex.inductive {
+            // TODO: cache inductivity
+            if info_by_id(ty).vertex.is_inductive() {
                 n_ind += count.get();
             }
         }
@@ -77,7 +78,8 @@ impl Size {
         // Use each size for an inductive type:
         let mut map = BTreeMap::<Type, Vec<Size>>::new();
         for (&ty, count) in deps.constructor.immediate.iter() {
-            if info_by_id(ty).vertex.inductive {
+            // TODO: cache inductivity
+            if info_by_id(ty).vertex.is_inductive() {
                 let v = map.entry(ty).or_default();
                 for _ in 0..count.get() {
                     #[expect(

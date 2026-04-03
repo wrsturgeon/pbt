@@ -2,6 +2,7 @@ pub mod construct;
 mod impls;
 pub mod multiset;
 pub mod reflection;
+mod scc;
 pub mod search;
 pub mod shrink;
 pub mod size;

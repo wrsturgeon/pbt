@@ -6,6 +6,7 @@ use {
             TypeFormer,
         },
         multiset::Multiset,
+        scc::{self, StronglyConnectedComponents},
         shrink::shrink,
         size::Size,
     },
@@ -14,12 +15,11 @@ use {
         any::{TypeId, type_name},
         fmt, iter, mem,
         num::NonZero,
-        ops::Deref,
         ptr,
     },
     std::{
         collections::{BTreeMap, BTreeSet},
-        sync::{Arc, LazyLock, OnceLock},
+        sync::{Arc, LazyLock, OnceLock, RwLock},
     },
     wyrand::WyRand,
 };
@@ -71,22 +71,11 @@ pub struct Type(TypeId);
 /// be contained in any term of this type;
 /// the former is "reachable" and the latter is "unavoidable."
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct Vertex {
     /// The opaque Rust ID for this type.
-    pub id: Type,
-    /// Whether any term of this type contains `Self`,
-    /// even transitively or indirectly via mutual induction.
-    /// For example, a tree structure that contains `Box<Self>` is inductive,
-    /// even though `Box` acts as a layer of indirection.
-    /// Note that this library takes a functional view of e.g. lists as inductive,
-    /// since any non-empty list can be seen as cons'ing an element onto another list.
-    pub inductive: bool,
-    /// The set of all types that *may* be contained in any term of this type.
-    pub reachable: BTreeSet<Type>,
+    pub ty: Type,
     /// The minimal bag of types that *must* be contained in any term of this type.
-    /// If this is `None`, then this type has no constructors, i.e. is uninstantiable;
-    /// note that this is a _very_ different state than `Some([empty])`!
     /// This field is not a multiset because, if this type is inductive,
     /// then the logic around how many times each type is unavoidable
     /// is too complex to be worth doing, especially since it provides no runtime benefit.
@@ -94,10 +83,10 @@ pub struct Vertex {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct CtorVertex {
-    /// Constructor information, if applicable.
-    /// For dependencies of a type as a whole, this is `None`.
+    /// Information about this particular constructor,
+    /// not about the type as a whole.
     pub constructor: CtorInfo,
     /// Graph-theoretic information about the constructor
     /// as if it were a single `struct` type.
@@ -294,15 +283,6 @@ impl CtorInfo {
         self.immediate
             .iter()
             .all(|(&ty, _)| info_by_id(ty).instantiable())
-    }
-}
-
-impl Deref for CtorVertex {
-    type Target = Vertex;
-
-    #[inline]
-    fn deref(&self) -> &Self::Target {
-        &self.vertex
     }
 }
 
@@ -694,6 +674,34 @@ impl Type {
     }
 }
 
+impl Vertex {
+    /// Whether `Self` is inductive.
+    #[inline]
+    #[must_use]
+    #[expect(
+        clippy::expect_used,
+        clippy::missing_panics_doc,
+        clippy::panic,
+        reason = "internal invariants"
+    )]
+    pub fn is_inductive(&self) -> bool {
+        let mut sccs = _sccs()
+            .write()
+            .expect("internal `pbt` error: SCC lock poisoned");
+        let () = sccs.tarjan_dfs(self.ty, &mut BTreeMap::new(), &mut vec![], &mut 0);
+        let Some(root) = sccs.root(self.ty) else {
+            panic!(
+                "internal `pbt` error: type `{:?}` absent from SCC graph",
+                self.ty,
+            )
+        };
+        let Some(&scc::Node::Root(scc::Metadata { cardinality, .. })) = sccs.get(&root) else {
+            panic!("internal `pbt` error: `scc::root` is not idempotent")
+        };
+        cardinality.is_some()
+    }
+}
+
 impl CtorVertex {
     /// Whether `Self` is *unreachable*.
     #[inline]
@@ -706,7 +714,38 @@ impl CtorVertex {
     #[inline]
     #[must_use]
     pub fn is_guaranteed_loop(&self) -> bool {
-        self.constructor.instantiable() && self.unavoidable.contains(&self.id)
+        self.constructor.instantiable() && self.vertex.unavoidable.contains(&self.vertex.ty)
+    }
+
+    /// Whether `Self` is inductive.
+    #[inline]
+    #[must_use]
+    #[expect(
+        clippy::expect_used,
+        clippy::missing_panics_doc,
+        clippy::panic,
+        reason = "internal invariants"
+    )]
+    pub fn is_inductive(&self) -> bool {
+        let mut sccs = _sccs()
+            .write()
+            .expect("internal `pbt` error: SCC lock poisoned");
+        let () = sccs.tarjan_dfs(self.vertex.ty, &mut BTreeMap::new(), &mut vec![], &mut 0);
+        let Some(self_root) = sccs.root(self.vertex.ty) else {
+            panic!(
+                "internal `pbt` error: type `{:?}` absent from SCC graph",
+                self.vertex.ty,
+            )
+        };
+        for (&ty, _count) in self.constructor.immediate.iter() {
+            let Some(root) = sccs.root(ty) else {
+                panic!("internal `pbt` error: type `{ty:?}` absent from SCC graph")
+            };
+            if root == self_root {
+                return true;
+            }
+        }
+        false
     }
 
     /// Whether `Self` is *avoidable*.
@@ -720,7 +759,7 @@ impl CtorVertex {
     #[inline]
     #[must_use]
     pub fn is_potential_loop(&self) -> bool {
-        self.constructor.instantiable() && self.reachable.contains(&self.id)
+        self.constructor.instantiable() && self.is_inductive()
     }
 }
 
@@ -792,13 +831,10 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
 /// and the return value of this function will be *automatically* added to the registry.
 /// Do not attempt either operation manually from within this function.
 #[inline]
-#[expect(
-    clippy::too_many_lines,
-    reason = "TODO: split into a few encapsulated functions"
-)]
+#[expect(clippy::too_many_lines, reason = "TODO: refactor")]
 fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
-    let self_id = type_of::<T>();
-    let not_already_visited = visited.insert(self_id);
+    let self_ty = type_of::<T>();
+    let not_already_visited = visited.insert(self_ty);
     assert!(
         not_already_visited,
         "internal `pbt` error: `visited` already contained `Self = {}` (`visited` was {visited:?})",
@@ -814,14 +850,24 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             elimination_rule,
         }) => (introduction_rules, elimination_rule),
         TypeFormer::Literal(Literal { generate, shrink }) => {
+            #[expect(clippy::expect_used, reason = "extremely unlikely & unrecoverable")]
+            let _: Option<scc::Node> = _sccs()
+                .write()
+                .expect("internal `pbt` error: SCC lock poisoned")
+                .insert(
+                    self_ty,
+                    scc::Node::Root(scc::Metadata {
+                        cardinality: None,
+                        edges: BTreeSet::new(),
+                        ty: self_ty,
+                    }),
+                );
             return TypeInfo {
                 name: type_name::<T>(),
                 trivial: true,
                 type_former: PrecomputedTypeFormer::literal(generate, shrink),
                 vertex: Vertex {
-                    id: self_id,
-                    inductive: false,
-                    reachable: BTreeSet::new(),
+                    ty: self_ty,
                     unavoidable: BTreeSet::new(),
                 },
             };
@@ -837,11 +883,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             let n_fields: usize = singleton
                 .immediate_dependencies
                 .iter()
-                .filter_map(|(&id, count)| {
-                    // Count only inductive (i.e. interesting) types:
-                    (visited.contains(&id) || info_by_id(id).vertex.inductive)
-                        .then_some(count.get())
-                })
+                .map(|(_, count)| count.get())
                 .sum();
             n_fields <= 1
         }
@@ -849,7 +891,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
     };
 
     let mut constructors: Vec<(CtorFn<T>, CtorVertex)> = vec![];
-    let mut reachable: BTreeSet<Type> = BTreeSet::new();
+    let mut immediately_reachable: BTreeSet<Type> = BTreeSet::new();
     let mut unavoidable: Option<BTreeSet<Type>> = None;
     for (
         i,
@@ -859,23 +901,20 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         },
     ) in shallow_ctors.into_iter().enumerate()
     {
-        let mut ctor_reachable = BTreeSet::new();
         let mut ctor_unavoidable = BTreeSet::new();
-        for (&id, _count) in immediate_dependencies.iter() {
-            let _: bool = ctor_reachable.insert(id);
-            let _: bool = ctor_unavoidable.insert(id);
-            if !visited.contains(&id) {
-                let info = info_by_id(id);
-                let () = ctor_reachable.extend(&info.vertex.reachable);
+        for (&ty, _count) in immediate_dependencies.iter() {
+            let _: bool = ctor_unavoidable.insert(ty);
+            if !visited.contains(&ty) {
+                let info = info_by_id(ty);
                 let () = ctor_unavoidable.extend(&info.vertex.unavoidable);
             }
         }
-        let () = reachable.extend(&ctor_reachable);
+        let () = immediately_reachable.extend(ctor_unavoidable.iter());
         unavoidable = Some(unavoidable.map_or_else(
             || ctor_unavoidable.clone(),
             |mut unavoidable| {
                 // Multiset::intersection(&unavoidable, &ctor_unavoidable)
-                let () = unavoidable.retain(|id| ctor_unavoidable.contains(id));
+                let () = unavoidable.retain(|ty| ctor_unavoidable.contains(ty));
                 unavoidable
             },
         ));
@@ -888,23 +927,33 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
                     .expect("internal `pbt` error: more than `usize::MAX` constructors"),
             },
             vertex: Vertex {
-                id: self_id,
-                inductive: ctor_reachable.contains(&self_id),
-                reachable: ctor_reachable,
+                ty: self_ty,
                 unavoidable: ctor_unavoidable,
             },
         };
         let () = constructors.push((call, deps));
     }
 
+    #[expect(clippy::expect_used, reason = "extremely unlikely & unrecoverable")]
+    let _: Option<scc::Node> = _sccs()
+        .write()
+        .expect("internal `pbt` error: SCC lock poisoned")
+        .insert(
+            self_ty,
+            scc::Node::Root(scc::Metadata {
+                cardinality: (immediately_reachable.contains(&self_ty))
+                    .then_some(const { NonZero::new(1).unwrap() }),
+                edges: immediately_reachable,
+                ty: self_ty,
+            }),
+        );
+
     TypeInfo {
         name: type_name::<T>(),
         trivial,
         type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
         vertex: Vertex {
-            id: self_id,
-            inductive: reachable.contains(&self_id),
-            reachable,
+            ty: self_ty,
             unavoidable: unavoidable.unwrap_or_default(),
         },
     }
@@ -924,14 +973,22 @@ pub fn register<T: Construct>(visited: BTreeSet<Type>) {
 
 /// Get a handle to the global type-information registry without trying to lock it.
 /// **Do not use this unless you are a `pbt` maintainer.**
-/// # Panics
-/// If the lock has been poisoned.
 #[inline]
 #[must_use]
 pub fn _registry() -> &'static papaya::HashMap<Type, Arc<TypeInfo>, RandomState> {
     static REGISTRY: LazyLock<papaya::HashMap<Type, Arc<TypeInfo>, RandomState>> =
         LazyLock::new(|| papaya::HashMap::with_hasher(RandomState::with_seed(usize::from(SEED))));
     LazyLock::force(&REGISTRY)
+}
+
+/// Get a handle to the global strongly connected component graph without trying to lock it.
+/// **Do not use this unless you are a `pbt` maintainer.**
+#[inline]
+#[must_use]
+pub fn _sccs() -> &'static RwLock<StronglyConnectedComponents> {
+    static SCCS: LazyLock<RwLock<StronglyConnectedComponents>> =
+        LazyLock::new(|| RwLock::new(StronglyConnectedComponents::new()));
+    LazyLock::force(&SCCS)
 }
 
 /// Get type-level characteristics of a type,
@@ -952,16 +1009,16 @@ pub fn info<T: Construct>() -> Arc<TypeInfo> {
 /// If the type has not yet been registered with `pbt`.
 #[inline]
 #[must_use]
-pub fn info_by_id(id: Type) -> Arc<TypeInfo> {
+pub fn info_by_id(ty: Type) -> Arc<TypeInfo> {
     #[expect(clippy::panic, reason = "internal invariants; violation should panic")]
-    try_info_by_id(id).unwrap_or_else(|| {
+    try_info_by_id(ty).unwrap_or_else(|| {
         panic!(
             "internal `pbt` error: unregistered type with ID `{:?}` (registered so far: {:#?})",
-            id.id(),
+            ty.id(),
             _registry()
                 .pin()
                 .iter()
-                .map(|(&id, info)| (id, info.vertex.id.id()))
+                .map(|(&id, info)| (id, info.vertex.ty.id()))
                 .collect::<BTreeMap<Type, TypeId>>(),
         )
     })

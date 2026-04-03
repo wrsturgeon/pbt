@@ -79,7 +79,7 @@ impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct 
                     1
                 };
                 Decomposition {
-                    // SAFETY: 1 != 0
+                    // SAFETY: Case analysis above.
                     ctor_idx: unsafe { NonZero::new_unchecked(ctor_idx) },
                     fields,
                 }
@@ -178,7 +178,7 @@ impl<K: Construct + Hash, V: Construct, S: 'static + BuildHasher + Clone + Defau
                     1
                 };
                 Decomposition {
-                    // SAFETY: 1 != 0
+                    // SAFETY: Case analysis above.
                     ctor_idx: unsafe { NonZero::new_unchecked(ctor_idx) },
                     fields,
                 }

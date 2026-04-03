@@ -59,8 +59,7 @@ impl<T: Construct> Construct for Rc<T> {
                 let () =
                     fields.push::<T>(Rc::try_unwrap(rc).unwrap_or_else(|rc| rc.as_ref().clone()));
                 Decomposition {
-                    // SAFETY: 1 != 0
-                    ctor_idx: unsafe { NonZero::new_unchecked(1) },
+                    ctor_idx: const { NonZero::new(1).unwrap() },
                     fields,
                 }
             }),
@@ -124,8 +123,7 @@ impl<T: Construct> Construct for Arc<T> {
                 let () = fields
                     .push::<T>(Arc::try_unwrap(arc).unwrap_or_else(|arc| arc.as_ref().clone()));
                 Decomposition {
-                    // SAFETY: 1 != 0
-                    ctor_idx: unsafe { NonZero::new_unchecked(1) },
+                    ctor_idx: const { NonZero::new(1).unwrap() },
                     fields,
                 }
             }),

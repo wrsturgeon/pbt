@@ -38,8 +38,7 @@ mod malachite {
                     // Copied with small (unfortunately incompatible)
                     // modifications from `arbitrary_unsigned` above.
 
-                    // SAFETY: 4 != 0
-                    let mut one_in_n = unsafe { NonZero::new_unchecked(4_u64) };
+                    let mut one_in_n = const { NonZero::new(4_u64).unwrap() };
 
                     if (prng.rand() % one_in_n) == 0 {
                         return Self::ZERO;
@@ -123,8 +122,7 @@ mod num_bigint {
                     // Copied with small (unfortunately incompatible)
                     // modifications from `arbitrary_unsigned` above.
 
-                    // SAFETY: 4 != 0
-                    let mut one_in_n = unsafe { NonZero::new_unchecked(4_u64) };
+                    let mut one_in_n = const { NonZero::new(4_u64).unwrap() };
 
                     if (prng.rand() % one_in_n) == 0 {
                         return Self::ZERO;
@@ -197,8 +195,7 @@ macro_rules! arbitrary_unsigned {
         // huge values, whereas all integers should
         // generate relatively small numbers relatively often,
         // so this probability denominator increments each round.
-        // SAFETY: 4 != 0
-        let mut one_in_n = unsafe { NonZero::new_unchecked(4_u64) };
+        let mut one_in_n = const { NonZero::new(4_u64).unwrap() };
 
         if ($prng.rand() % one_in_n) == 0 {
             return 0;

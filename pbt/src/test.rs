@@ -46,16 +46,15 @@ fn info_bool() {
         panic!("expected literal (non-algebraic) type former but found {type_former:#?}")
     };
     assert_eq!(
-        vertex.id,
+        vertex.ty,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        vertex.id.id(),
+        vertex.ty.id(),
         TypeId::of::<T>(),
     );
-    assert_eq!(vertex.reachable, BTreeSet::new());
     assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert!(trivial);
-    assert!(!vertex.inductive);
+    assert!(!vertex.is_inductive());
     assert!(info.instantiable());
 }
 
@@ -79,16 +78,15 @@ fn info_box_bool() {
     assert_eq!(constructors.potential_leaves().len(), 1);
     assert_eq!(constructors.potential_loops().len(), 0);
     assert_eq!(
-        vertex.id,
+        vertex.ty,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        vertex.id.id(),
+        vertex.ty.id(),
         TypeId::of::<T>(),
     );
-    assert_eq!(vertex.reachable, iter::once(type_of::<bool>()).collect(),);
     assert_eq!(vertex.unavoidable, iter::once(type_of::<bool>()).collect(),);
     assert!(trivial);
-    assert!(!vertex.inductive);
+    assert!(!vertex.is_inductive());
     assert!(info.instantiable());
 }
 
@@ -112,16 +110,15 @@ fn info_option_u64() {
     assert_eq!(constructors.potential_leaves().len(), 2);
     assert_eq!(constructors.potential_loops().len(), 0);
     assert_eq!(
-        vertex.id,
+        vertex.ty,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        vertex.id.id(),
+        vertex.ty.id(),
         TypeId::of::<T>(),
     );
-    assert_eq!(vertex.reachable, iter::once(type_of::<u64>()).collect(),);
     assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert!(!trivial);
-    assert!(!vertex.inductive);
+    assert!(!vertex.is_inductive());
     assert!(info.instantiable());
 }
 
@@ -139,28 +136,16 @@ fn info_vec_u64() {
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
-    assert_eq!(
-        vertex.reachable,
-        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
-    );
     assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert_eq!(constructors.all_constructors.len(), 2);
-    assert_eq!(constructors.all_constructors[0].1.inductive, false);
+    assert!(!constructors.all_constructors[0].1.is_inductive());
     assert_eq!(
-        constructors.all_constructors[0].1.unavoidable,
+        constructors.all_constructors[0].1.vertex.unavoidable,
         BTreeSet::new(),
     );
+    assert!(constructors.all_constructors[1].1.is_inductive());
     assert_eq!(
-        constructors.all_constructors[0].1.reachable,
-        BTreeSet::new()
-    );
-    assert_eq!(constructors.all_constructors[1].1.inductive, true);
-    assert_eq!(
-        constructors.all_constructors[1].1.unavoidable,
-        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
-    );
-    assert_eq!(
-        constructors.all_constructors[1].1.reachable,
+        constructors.all_constructors[1].1.vertex.unavoidable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
     assert_eq!(constructors.guaranteed_leaves().len(), 1);
@@ -168,14 +153,14 @@ fn info_vec_u64() {
     assert_eq!(constructors.potential_leaves().len(), 1);
     assert_eq!(constructors.potential_loops().len(), 1);
     assert_eq!(
-        vertex.id,
+        vertex.ty,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        vertex.id.id(),
+        vertex.ty.id(),
         TypeId::of::<T>(),
     );
     assert!(!trivial);
-    assert!(vertex.inductive);
+    assert!(vertex.is_inductive());
     assert!(info.instantiable());
 }
 
@@ -193,28 +178,16 @@ fn info_btree_set_u64() {
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
-    assert_eq!(
-        vertex.reachable,
-        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
-    );
     assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert_eq!(constructors.all_constructors.len(), 2);
-    assert_eq!(constructors.all_constructors[0].1.inductive, false);
+    assert!(!constructors.all_constructors[0].1.is_inductive());
     assert_eq!(
-        constructors.all_constructors[0].1.unavoidable,
+        constructors.all_constructors[0].1.vertex.unavoidable,
         BTreeSet::new(),
     );
+    assert!(constructors.all_constructors[1].1.is_inductive());
     assert_eq!(
-        constructors.all_constructors[0].1.reachable,
-        BTreeSet::new()
-    );
-    assert_eq!(constructors.all_constructors[1].1.inductive, true);
-    assert_eq!(
-        constructors.all_constructors[1].1.unavoidable,
-        [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
-    );
-    assert_eq!(
-        constructors.all_constructors[1].1.reachable,
+        constructors.all_constructors[1].1.vertex.unavoidable,
         [type_of::<u64>(), type_of::<T>()].into_iter().collect(),
     );
     assert_eq!(constructors.guaranteed_leaves().len(), 1);
@@ -222,14 +195,14 @@ fn info_btree_set_u64() {
     assert_eq!(constructors.potential_leaves().len(), 1);
     assert_eq!(constructors.potential_loops().len(), 1);
     assert_eq!(
-        vertex.id,
+        vertex.ty,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        vertex.id.id(),
+        vertex.ty.id(),
         TypeId::of::<T>(),
     );
     assert!(!trivial);
-    assert!(vertex.inductive);
+    assert!(vertex.is_inductive());
     assert!(info.instantiable());
 }
 
@@ -247,7 +220,6 @@ fn info_infallible() {
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
         panic!("expected algebraic constructors but found {type_former:#?}")
     };
-    assert_eq!(vertex.reachable, BTreeSet::new());
     assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert!(
         constructors.all_constructors.is_empty(),
@@ -259,14 +231,14 @@ fn info_infallible() {
     assert_eq!(constructors.potential_leaves().len(), 0);
     assert_eq!(constructors.potential_loops().len(), 0);
     assert_eq!(
-        vertex.id,
+        vertex.ty,
         type_of::<T>(),
         "{:?} =/= {:?}",
-        vertex.id.id(),
+        vertex.ty.id(),
         TypeId::of::<T>(),
     );
     assert!(trivial);
-    assert!(!vertex.inductive);
+    assert!(!vertex.is_inductive());
     assert!(!info.instantiable());
 }
 
