@@ -73,6 +73,10 @@ pub struct Type(TypeId);
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Vertex {
+    /// Whether `Self` is inductive.
+    /// Internally, this asks whether its
+    /// strongly connected component is nontrivial.
+    pub cached_inductivity: OnceLock<bool>,
     /// The opaque Rust ID for this type.
     pub ty: Type,
     /// The minimal bag of types that *must* be contained in any term of this type.
@@ -676,6 +680,8 @@ impl Type {
 
 impl Vertex {
     /// Whether `Self` is inductive.
+    /// Internally, this asks whether its
+    /// strongly connected component is nontrivial.
     #[inline]
     #[must_use]
     #[expect(
@@ -685,20 +691,22 @@ impl Vertex {
         reason = "internal invariants"
     )]
     pub fn is_inductive(&self) -> bool {
-        let mut sccs = _sccs()
-            .write()
-            .expect("internal `pbt` error: SCC lock poisoned");
-        let () = sccs.tarjan_dfs(self.ty, &mut BTreeMap::new(), &mut vec![], &mut 0);
-        let Some(root) = sccs.root(self.ty) else {
-            panic!(
-                "internal `pbt` error: type `{:?}` absent from SCC graph",
-                self.ty,
-            )
-        };
-        let Some(&scc::Node::Root(scc::Metadata { cardinality, .. })) = sccs.get(&root) else {
-            panic!("internal `pbt` error: `scc::root` is not idempotent")
-        };
-        cardinality.is_some()
+        *self.cached_inductivity.get_or_init(|| {
+            let mut sccs = _sccs()
+                .write()
+                .expect("internal `pbt` error: SCC lock poisoned");
+            let () = sccs.tarjan_dfs(self.ty, &mut BTreeMap::new(), &mut vec![], &mut 0);
+            let Some(root) = sccs.root(self.ty) else {
+                panic!(
+                    "internal `pbt` error: type `{:?}` absent from SCC graph",
+                    self.ty,
+                )
+            };
+            let Some(&scc::Node::Root(scc::Metadata { cardinality, .. })) = sccs.get(&root) else {
+                panic!("internal `pbt` error: `scc::root` is not idempotent")
+            };
+            cardinality.is_some()
+        })
     }
 }
 
@@ -727,25 +735,27 @@ impl CtorVertex {
         reason = "internal invariants"
     )]
     pub fn is_inductive(&self) -> bool {
-        let mut sccs = _sccs()
-            .write()
-            .expect("internal `pbt` error: SCC lock poisoned");
-        let () = sccs.tarjan_dfs(self.vertex.ty, &mut BTreeMap::new(), &mut vec![], &mut 0);
-        let Some(self_root) = sccs.root(self.vertex.ty) else {
-            panic!(
-                "internal `pbt` error: type `{:?}` absent from SCC graph",
-                self.vertex.ty,
-            )
-        };
-        for (&ty, _count) in self.constructor.immediate.iter() {
-            let Some(root) = sccs.root(ty) else {
-                panic!("internal `pbt` error: type `{ty:?}` absent from SCC graph")
+        *self.vertex.cached_inductivity.get_or_init(|| {
+            let mut sccs = _sccs()
+                .write()
+                .expect("internal `pbt` error: SCC lock poisoned");
+            let () = sccs.tarjan_dfs(self.vertex.ty, &mut BTreeMap::new(), &mut vec![], &mut 0);
+            let Some(self_root) = sccs.root(self.vertex.ty) else {
+                panic!(
+                    "internal `pbt` error: type `{:?}` absent from SCC graph",
+                    self.vertex.ty,
+                )
             };
-            if root == self_root {
-                return true;
+            for (&ty, _count) in self.constructor.immediate.iter() {
+                let Some(root) = sccs.root(ty) else {
+                    panic!("internal `pbt` error: type `{ty:?}` absent from SCC graph")
+                };
+                if root == self_root {
+                    return true;
+                }
             }
-        }
-        false
+            false
+        })
     }
 
     /// Whether `Self` is *avoidable*.
@@ -867,6 +877,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
                 trivial: true,
                 type_former: PrecomputedTypeFormer::literal(generate, shrink),
                 vertex: Vertex {
+                    cached_inductivity: OnceLock::new(),
                     ty: self_ty,
                     unavoidable: BTreeSet::new(),
                 },
@@ -927,6 +938,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
                     .expect("internal `pbt` error: more than `usize::MAX` constructors"),
             },
             vertex: Vertex {
+                cached_inductivity: OnceLock::new(),
                 ty: self_ty,
                 unavoidable: ctor_unavoidable,
             },
@@ -953,6 +965,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         trivial,
         type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
         vertex: Vertex {
+            cached_inductivity: OnceLock::new(),
             ty: self_ty,
             unavoidable: unavoidable.unwrap_or_default(),
         },
