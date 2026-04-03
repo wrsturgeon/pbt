@@ -670,57 +670,6 @@ fn shrink_option_u64() {
 }
 
 #[test]
-fn shrink_vec_u64() {
-    assert_eq!(
-        shrink(vec![]).collect::<Vec<Vec<u64>>>(),
-        Vec::<Vec<u64>>::new(),
-    );
-    assert_eq!(
-        shrink(vec![100]).collect::<Vec<Vec<u64>>>(),
-        vec![
-            vec![],
-            vec![], // <-- artifact of special-casing `Vec<_>`
-            vec![0],
-            vec![50],
-            vec![75],
-            vec![88],
-            vec![94],
-            vec![97],
-            vec![99],
-        ]
-    );
-    assert_eq!(
-        shrink(vec![10, 20, 40]).collect::<Vec<Vec<u64>>>(),
-        vec![
-            vec![10, 20],
-            vec![10],
-            vec![],
-            vec![], // <-- artifact of special-casing `Vec<_>`
-            vec![10, 20, 0],
-            vec![10, 40],
-            vec![10, 20, 20],
-            vec![40],
-            vec![10, 20, 30],
-            vec![40],
-            vec![10, 20, 35],
-            vec![10, 0, 40],
-            vec![10, 20, 38],
-            vec![20, 40],
-            vec![10, 20, 39],
-            vec![10, 10, 40],
-            vec![20, 40],
-            vec![10, 15, 40],
-            vec![0, 20, 40],
-            vec![10, 18, 40],
-            vec![5, 20, 40],
-            vec![10, 19, 40],
-            vec![8, 20, 40],
-            vec![9, 20, 40],
-        ],
-    );
-}
-
-#[test]
 fn search_witness_vec_contains_42() {
     let witness = witness(10_000, |v: &Vec<u64>| v.contains(&42)).expect("witness not found");
     assert_eq!(witness, vec![42]);

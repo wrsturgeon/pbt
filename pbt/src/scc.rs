@@ -134,7 +134,7 @@ impl StronglyConnectedComponents {
             if let Some(&TarjanMetadata {
                 index: successor_index,
                 ..
-            }) = metadata.get(&vertex)
+            }) = metadata.get(&successor)
             {
                 // Check if that "successor" is on the stack
                 // (i.e. it's really the last chain in a loop):
@@ -143,19 +143,21 @@ impl StronglyConnectedComponents {
                         .get_mut(&vertex)
                         .expect("internal `pbt` error: schrodinger's metadata")
                         .lowlink;
-                    *this_lowlink = (*this_lowlink).min(successor_index);
+                    let new_lowlink = (*this_lowlink).min(successor_index);
+                    *this_lowlink = new_lowlink;
                 }
             } else {
                 let () = self.tarjan_dfs(successor, metadata, stack, index);
                 let successor_lowlink = metadata
-                    .get(&vertex)
+                    .get(&successor)
                     .expect("internal `pbt` error: schrodinger's metadata")
                     .lowlink;
                 let this_lowlink = &mut metadata
                     .get_mut(&vertex)
                     .expect("internal `pbt` error: schrodinger's metadata")
                     .lowlink;
-                *this_lowlink = (*this_lowlink).min(successor_lowlink);
+                let new_lowlink = (*this_lowlink).min(successor_lowlink);
+                *this_lowlink = new_lowlink;
             }
         }
 
