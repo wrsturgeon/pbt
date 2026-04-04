@@ -2,7 +2,6 @@ _: {
   programs = builtins.mapAttrs (_k: v: { enable = true; } // v) {
     deadnix = { };
     keep-sorted = { };
-    mdformat = { };
     nixfmt.strict = true;
     rustfmt = { };
     statix = { };
