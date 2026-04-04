@@ -9,4 +9,5 @@ mod ints;
 mod options;
 mod phantom;
 mod rc;
+mod strings;
 mod vecs;
