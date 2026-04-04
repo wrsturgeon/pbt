@@ -7,5 +7,6 @@ mod hash_collections;
 mod infallible;
 mod ints;
 mod options;
+mod phantom;
 mod rc;
 mod vecs;
