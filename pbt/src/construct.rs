@@ -106,11 +106,6 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     /// Your implementation should always follow this formula:
     /// `pbt::construct::visit_self(self).chain(... recurse into fields ...)`.
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V>;
-
-    /// Visit all *non-nested* terms of type `V` in this abstract syntax tree.
-    /// Your implementation should always follow this formula:
-    /// `pbt::construct::visit_self_or(self, || ... recurse into fields ...)`.
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V>;
 }
 
 impl<T> CtorFn<T> {

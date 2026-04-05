@@ -12,5 +12,5 @@ version.workspace = true
 
 
 [dependencies]
-pbt = { path = "../pbt", version = "0.4.0" }
+pbt = { path = "../pbt", version = "~0.4" }
 pretty_assertions = "~1.4"

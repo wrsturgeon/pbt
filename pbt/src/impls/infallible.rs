@@ -39,9 +39,4 @@ impl Construct for Infallible {
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         iter::empty()
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        iter::empty()
-    }
 }

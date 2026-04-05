@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_opt, visit_self_or,
+            visit_self, visit_self_opt,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -92,11 +92,6 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
                 })
             })
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_or(self, || self.iter().flat_map(T::visit_shallow))
-    }
 }
 
 impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
@@ -182,13 +177,5 @@ impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
                     visit_self_opt::<T, Self>(&b).cloned()
                 })
             })
-    }
-
-    #[inline]
-    fn visit_shallow<T: Construct>(&self) -> impl Iterator<Item = &T> {
-        visit_self_or(self, || {
-            self.iter()
-                .flat_map(|(k, v)| k.visit_shallow().chain(v.visit_shallow()))
-        })
     }
 }

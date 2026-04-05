@@ -4,13 +4,13 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_or,
+            visit_self,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register},
         size::Size,
     },
-    core::{iter, marker::PhantomData, num::NonZero},
+    core::{marker::PhantomData, num::NonZero},
     std::collections::BTreeSet,
 };
 
@@ -46,10 +46,5 @@ impl<T: Construct> Construct for PhantomData<T> {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_or(self, iter::empty)
     }
 }

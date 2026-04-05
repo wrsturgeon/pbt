@@ -271,34 +271,6 @@ fn visit_deep_box_bool() {
 }
 
 #[test]
-fn visit_shallow_bool() {
-    let t = true;
-    let f = false;
-    assert_eq!(t.visit_shallow().collect::<Vec<&bool>>(), vec![&true]);
-    assert_eq!(f.visit_shallow().collect::<Vec<&bool>>(), vec![&false]);
-    assert_eq!(t.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
-    assert_eq!(f.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
-}
-
-#[test]
-fn visit_shallow_box_bool() {
-    let t = Box::new(true);
-    let f = Box::new(false);
-    assert_eq!(
-        t.visit_shallow().collect::<Vec<&Box<bool>>>(),
-        vec![&Box::new(true)],
-    );
-    assert_eq!(
-        f.visit_shallow().collect::<Vec<&Box<bool>>>(),
-        vec![&Box::new(false)],
-    );
-    assert_eq!(t.visit_shallow().collect::<Vec<&bool>>(), vec![&true]);
-    assert_eq!(f.visit_shallow().collect::<Vec<&bool>>(), vec![&false]);
-    assert_eq!(t.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
-    assert_eq!(f.visit_shallow().collect::<Vec<&u64>>(), Vec::<&u64>::new());
-}
-
-#[test]
 fn terms_of_various_types() {
     let mut terms = TermsOfVariousTypes::new();
     let () = terms.push(42_u64);

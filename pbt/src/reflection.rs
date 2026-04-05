@@ -377,18 +377,6 @@ impl Construct for Erased {
             panic!("internal `pbt` error: do not call `Construct` methods on `Erased`");
         panic
     }
-
-    #[inline]
-    #[expect(
-        unreachable_code,
-        unused_variables,
-        reason = "to constrain the anonymous return type"
-    )]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        let panic: iter::Empty<_> =
-            panic!("internal `pbt` error: do not call `Construct` methods on `Erased`");
-        panic
-    }
 }
 
 #[expect(clippy::missing_trait_methods, reason = "intentionally left default")]

@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_opt, visit_self_or,
+            visit_self, visit_self_opt,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -99,11 +99,6 @@ impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct 
                     visit_self_opt::<V, Self>(&b).cloned()
                 })
             })
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_or(self, || self.iter().flat_map(T::visit_shallow))
     }
 }
 
@@ -201,13 +196,5 @@ impl<K: Construct + Hash, V: Construct, S: 'static + BuildHasher + Clone + Defau
                     visit_self_opt::<T, Self>(&b).cloned()
                 })
             })
-    }
-
-    #[inline]
-    fn visit_shallow<T: Construct>(&self) -> impl Iterator<Item = &T> {
-        visit_self_or(self, || {
-            self.iter()
-                .flat_map(|(k, v)| k.visit_shallow().chain(v.visit_shallow()))
-        })
     }
 }

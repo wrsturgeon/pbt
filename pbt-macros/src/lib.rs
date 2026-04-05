@@ -89,7 +89,6 @@ fn derive_pbt_for_ctors(
         tokens: introduction_rules(ctors).into_token_stream(),
     };
     let visit_deep = visit(ctors, &id("visit_deep"));
-    let visit_shallow = visit(ctors, &id("visit_shallow"));
     let test_mod_id = id(&format!("pbt_{ident}"));
 
     let impl_path = Path {
@@ -166,14 +165,6 @@ fn derive_pbt_for_ctors(
             fn visit_deep<V: ::pbt::construct::Construct>(&self) -> impl ::core::iter::Iterator<Item = V> {
                 ::pbt::construct::visit_self(self).chain({
                     let iter: Box<dyn Iterator<Item = _>> = #visit_deep;
-                    iter
-                })
-            }
-
-            #[inline]
-            fn visit_shallow<V: ::pbt::construct::Construct>(&self) -> impl ::core::iter::Iterator<Item = &V> {
-                ::pbt::construct::visit_self_or(self, || {
-                    let iter: Box<dyn Iterator<Item = _>> = #visit_shallow;
                     iter
                 })
             }

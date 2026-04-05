@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, Literal,
-            TypeFormer, visit_self, visit_self_opt, visit_self_or,
+            TypeFormer, visit_self, visit_self_opt,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -49,11 +49,6 @@ impl Construct for char {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_or(self, iter::empty)
     }
 }
 
@@ -138,12 +133,6 @@ impl Construct for String {
                 })
             })
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        #[expect(clippy::todo, reason = "TODO")]
-        visit_self_or(self, || -> vec::IntoIter<_> { todo!("lifetime issues") })
-    }
 }
 
 impl Construct for CString {
@@ -200,10 +189,5 @@ impl Construct for CString {
                     visit_self_opt(&v).cloned()
                 })
             })
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_or(self, || self.as_bytes().iter().flat_map(u8::visit_shallow))
     }
 }

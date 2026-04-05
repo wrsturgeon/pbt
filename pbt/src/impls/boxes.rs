@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            arbitrary, visit_self, visit_self_or,
+            arbitrary, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         size::Size,
@@ -68,10 +68,5 @@ impl<T: Construct> Construct for Box<T> {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(self.as_ref().visit_deep())
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_or(self, || self.as_ref().visit_shallow())
     }
 }

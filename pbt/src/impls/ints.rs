@@ -82,11 +82,6 @@ mod malachite {
         fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
             visit_self(self)
         }
-
-        #[inline]
-        fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-            visit_self_opt(self).into_iter()
-        }
     }
 }
 
@@ -166,17 +161,12 @@ mod num_bigint {
         fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
             visit_self(self)
         }
-
-        #[inline]
-        fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-            visit_self_opt(self).into_iter()
-        }
     }
 }
 
 use {
     crate::{
-        construct::{Construct, Literal, TypeFormer, visit_self, visit_self_opt},
+        construct::{Construct, Literal, TypeFormer, visit_self},
         reflection::{TermsOfVariousTypes, Type},
         size::Size,
     },
@@ -285,11 +275,6 @@ impl Construct for bool {
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
-    }
 }
 
 impl Construct for u8 {
@@ -316,11 +301,6 @@ impl Construct for u8 {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
     }
 }
 
@@ -349,11 +329,6 @@ impl Construct for u16 {
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
-    }
 }
 
 impl Construct for u32 {
@@ -380,11 +355,6 @@ impl Construct for u32 {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
     }
 }
 
@@ -413,11 +383,6 @@ impl Construct for u64 {
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
-    }
 }
 
 impl Construct for u128 {
@@ -444,11 +409,6 @@ impl Construct for u128 {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
     }
 }
 
@@ -477,11 +437,6 @@ impl Construct for usize {
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
-    }
 }
 
 impl Construct for i8 {
@@ -508,11 +463,6 @@ impl Construct for i8 {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
     }
 }
 
@@ -541,11 +491,6 @@ impl Construct for i16 {
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
-    }
 }
 
 impl Construct for i32 {
@@ -572,11 +517,6 @@ impl Construct for i32 {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
     }
 }
 
@@ -605,11 +545,6 @@ impl Construct for i64 {
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
-    }
 }
 
 impl Construct for i128 {
@@ -637,11 +572,6 @@ impl Construct for i128 {
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
-    }
 }
 
 impl Construct for isize {
@@ -668,10 +598,5 @@ impl Construct for isize {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_opt(self).into_iter()
     }
 }

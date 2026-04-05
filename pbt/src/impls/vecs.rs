@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_opt, visit_self_or,
+            visit_self, visit_self_opt,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -91,10 +91,5 @@ impl<T: Construct> Construct for Vec<T> {
                     visit_self_opt::<V, Self>(&v).cloned()
                 })
             })
-    }
-
-    #[inline]
-    fn visit_shallow<V: Construct>(&self) -> impl Iterator<Item = &V> {
-        visit_self_or(self, || self.iter().flat_map(T::visit_shallow))
     }
 }
