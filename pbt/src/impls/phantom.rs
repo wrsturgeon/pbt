@@ -8,22 +8,12 @@ use {
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register},
-        size::Size,
     },
     core::{marker::PhantomData, num::NonZero},
     std::collections::BTreeSet,
 };
 
 impl<T: Construct> Construct for PhantomData<T> {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut wyrand::WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
         let () = register::<T>(visited.clone());
@@ -33,6 +23,7 @@ impl<T: Construct> Construct for PhantomData<T> {
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
+                arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
                 call: CtorFn::new(|_terms| PhantomData),
                 immediate_dependencies: Multiset::new(),
             }],

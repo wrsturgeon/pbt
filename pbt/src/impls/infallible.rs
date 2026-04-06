@@ -3,27 +3,13 @@
 use {
     crate::{
         construct::{Algebraic, Construct, ElimFn, TypeFormer},
-        reflection::{TermsOfVariousTypes, Type},
-        size::Size,
+        reflection::Type,
     },
-    core::{any::type_name, convert::Infallible, iter, num::NonZero},
+    core::{convert::Infallible, iter},
     std::collections::BTreeSet,
 };
 
 impl Construct for Infallible {
-    #[inline]
-    #[expect(clippy::panic, reason = "internal invariant violated")]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut wyrand::WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        panic!(
-            "internal `pbt` error: constructing an uninstantiable type (`{}`)",
-            type_name::<Self>(),
-        )
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 

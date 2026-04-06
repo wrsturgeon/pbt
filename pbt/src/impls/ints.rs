@@ -20,15 +20,6 @@ mod malachite {
 
     impl Construct for Natural {
         #[inline]
-        fn arbitrary_fields_for_ctor(
-            _ctor_idx: NonZero<usize>,
-            _prng: &mut WyRand,
-            _size: Size,
-        ) -> TermsOfVariousTypes {
-            TermsOfVariousTypes::new()
-        }
-
-        #[inline]
         fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
         #[inline]
@@ -99,15 +90,6 @@ mod num_bigint {
 
     impl Construct for BigUint {
         #[inline]
-        fn arbitrary_fields_for_ctor(
-            _ctor_idx: NonZero<usize>,
-            _prng: &mut WyRand,
-            _size: Size,
-        ) -> TermsOfVariousTypes {
-            TermsOfVariousTypes::new()
-        }
-
-        #[inline]
         fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
         #[inline]
@@ -167,12 +149,10 @@ mod num_bigint {
 use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self},
-        reflection::{TermsOfVariousTypes, Type},
-        size::Size,
+        reflection::Type,
     },
     core::num::NonZero,
     std::collections::BTreeSet,
-    wyrand::WyRand,
 };
 
 /// Generate an arbitrary value for an
@@ -248,15 +228,6 @@ macro_rules! shrink_int {
 
 impl Construct for bool {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {
         // n/a
     }
@@ -279,15 +250,6 @@ impl Construct for bool {
 
 impl Construct for u8 {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
     #[inline]
@@ -305,15 +267,6 @@ impl Construct for u8 {
 }
 
 impl Construct for u16 {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
@@ -333,15 +286,6 @@ impl Construct for u16 {
 
 impl Construct for u32 {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
     #[inline]
@@ -359,15 +303,6 @@ impl Construct for u32 {
 }
 
 impl Construct for u64 {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
@@ -387,15 +322,6 @@ impl Construct for u64 {
 
 impl Construct for u128 {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
     #[inline]
@@ -413,15 +339,6 @@ impl Construct for u128 {
 }
 
 impl Construct for usize {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
@@ -441,15 +358,6 @@ impl Construct for usize {
 
 impl Construct for i8 {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
     #[inline]
@@ -467,15 +375,6 @@ impl Construct for i8 {
 }
 
 impl Construct for i16 {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
@@ -495,15 +394,6 @@ impl Construct for i16 {
 
 impl Construct for i32 {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
     #[inline]
@@ -521,15 +411,6 @@ impl Construct for i32 {
 }
 
 impl Construct for i64 {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
@@ -549,15 +430,6 @@ impl Construct for i64 {
 
 impl Construct for i128 {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
     #[inline]
@@ -575,15 +447,6 @@ impl Construct for i128 {
 }
 
 impl Construct for isize {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 

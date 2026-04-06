@@ -4,43 +4,15 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            arbitrary, visit_self,
+            visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
-        size::Size,
     },
     core::num::NonZero,
     std::collections::BTreeSet,
-    wyrand::WyRand,
 };
 
 impl<Lhs: Construct, Rhs: Construct> Construct for (Lhs, Rhs) {
-    #[inline]
-    #[expect(clippy::expect_used, reason = "internal invariants")]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        prng: &mut WyRand,
-        size: Size,
-    ) -> TermsOfVariousTypes {
-        let mut fields = TermsOfVariousTypes::new();
-        let mut sizes = size
-            .partition_into(2, prng, false)
-            .expect("internal `pbt` error: partition a size into two");
-        let () = fields.push(arbitrary::<Lhs>(
-            prng,
-            sizes
-                .next()
-                .expect("internal `pbt` error: partition a size into two"),
-        ));
-        let () = fields.push(arbitrary::<Rhs>(
-            prng,
-            sizes
-                .next()
-                .expect("internal `pbt` error: partition a size into two"),
-        ));
-        fields
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
         let () = register::<Lhs>(visited.clone());
@@ -60,6 +32,12 @@ impl<Lhs: Construct, Rhs: Construct> Construct for (Lhs, Rhs) {
                 }
             }),
             introduction_rules: vec![IntroductionRule {
+                arbitrary_fields: |prng, mut sizes| {
+                    let mut fields = TermsOfVariousTypes::new();
+                    fields.push(sizes.arbitrary::<Lhs>(prng));
+                    fields.push(sizes.arbitrary::<Rhs>(prng));
+                    fields
+                },
                 call: CtorFn::new(|fields| (fields.must_pop(), fields.must_pop())),
                 immediate_dependencies: [type_of::<Lhs>(), type_of::<Rhs>()].into_iter().collect(),
             }],

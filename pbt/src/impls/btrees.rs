@@ -8,36 +8,12 @@ use {
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
-        size::Size,
     },
-    core::{any::type_name, iter, num::NonZero},
+    core::{iter, num::NonZero},
     std::collections::{BTreeMap, BTreeSet},
 };
 
 impl<T: Construct + Ord> Construct for BTreeSet<T> {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        ctor_idx: NonZero<usize>,
-        prng: &mut wyrand::WyRand,
-        size: Size,
-    ) -> TermsOfVariousTypes {
-        let mut sizes = size.partition::<Self>(ctor_idx, prng);
-        let mut fields = TermsOfVariousTypes::new();
-        match ctor_idx.get() {
-            1 => {}
-            2 => {
-                let () = fields.push(sizes.arbitrary::<T>(prng));
-                let () = fields.push(sizes.arbitrary::<Self>(prng));
-            }
-            #[expect(clippy::panic, reason = "internal invariant violated")]
-            _ => panic!(
-                "internal `pbt` error: unknown `{}` constructor index #{ctor_idx}",
-                type_name::<Self>(),
-            ),
-        }
-        fields
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
         let () = register::<T>(visited.clone());
@@ -48,10 +24,17 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
+                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
                     call: CtorFn::new(|_| BTreeSet::new()),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
+                    arbitrary_fields: |prng, mut sizes| {
+                        let mut fields = TermsOfVariousTypes::new();
+                        fields.push(sizes.arbitrary::<T>(prng));
+                        fields.push(sizes.arbitrary::<Self>(prng));
+                        fields
+                    },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.insert(terms.must_pop::<T>()); // head
@@ -96,30 +79,6 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
 
 impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        ctor_idx: NonZero<usize>,
-        prng: &mut wyrand::WyRand,
-        size: Size,
-    ) -> TermsOfVariousTypes {
-        let mut sizes = size.partition::<Self>(ctor_idx, prng);
-        let mut fields = TermsOfVariousTypes::new();
-        match ctor_idx.get() {
-            1 => {}
-            2 => {
-                let () = fields.push(sizes.arbitrary::<K>(prng));
-                let () = fields.push(sizes.arbitrary::<V>(prng));
-                let () = fields.push(sizes.arbitrary::<Self>(prng));
-            }
-            #[expect(clippy::panic, reason = "internal invariant violated")]
-            _ => panic!(
-                "internal `pbt` error: unknown `{}` constructor index #{ctor_idx}",
-                type_name::<Self>(),
-            ),
-        }
-        fields
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
         let () = register::<K>(visited.clone());
         let () = register::<V>(visited.clone());
@@ -130,10 +89,18 @@ impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
+                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
                     call: CtorFn::new(|_| BTreeMap::new()),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
+                    arbitrary_fields: |prng, mut sizes| {
+                        let mut fields = TermsOfVariousTypes::new();
+                        fields.push(sizes.arbitrary::<K>(prng));
+                        fields.push(sizes.arbitrary::<V>(prng));
+                        fields.push(sizes.arbitrary::<Self>(prng));
+                        fields
+                    },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>();
                         acc.insert(terms.must_pop::<K>(), terms.must_pop::<V>());

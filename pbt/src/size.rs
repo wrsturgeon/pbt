@@ -4,22 +4,34 @@ use {
         reflection::{AlgebraicTypeFormer, PrecomputedTypeFormer, Type, info_by_id, type_of},
     },
     core::{any::type_name, cmp, fmt, iter, num::NonZero},
-    std::collections::{BTreeMap, BinaryHeap},
+    std::collections::BinaryHeap,
     wyrand::WyRand,
 };
 
 /// A non-`Clone` wrapper around `usize`
 /// to prevent accounting errors.
-#[derive(Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Size {
     /// The internal size value that must not be `Clone`d.
     size: usize,
 }
 
+/// One size for each field of each big type.
+/// Compute sizes by measuring the spaces between bars (+ beginning & end),
+/// noting that a binary heap can efficiently drain in sorted order.
+#[derive(Debug, Default)]
 pub struct Sizes {
-    /// A map from (only inducive) types to
-    /// sizes for each field of that type.
-    map: BTreeMap<Type, Vec<Size>>,
+    /// All "bars" between "stars" except the
+    /// beginning and end of the range itself.
+    bars: BinaryHeap<cmp::Reverse<usize>>,
+    /// The end of the range itself,
+    /// unless that "bar" has already been used,
+    /// in which case this is `None` to halt.
+    end: Option<NonZero<usize>>,
+    /// The most recent "bar" to be popped.
+    /// This is initialized to zero, which
+    /// represents the left edge of the range itself.
+    prev: usize,
 }
 
 impl Size {
@@ -46,9 +58,7 @@ impl Size {
             ..
         }) = info.type_former
         else {
-            return Sizes {
-                map: BTreeMap::new(),
-            };
+            return Sizes::default();
         };
         #[expect(
             clippy::indexing_slicing,
@@ -70,31 +80,7 @@ impl Size {
             }
         }
 
-        let Some(mut sizes) = self.partition_into(n_ind, prng, !info.trivial) else {
-            return Sizes {
-                map: BTreeMap::new(),
-            };
-        };
-
-        // Use each size for an inductive type:
-        let mut map = BTreeMap::<Type, Vec<Size>>::new();
-        for (&ty, count) in deps.constructor.immediate.iter() {
-            if info_by_id(ty).vertex.is_inductive() {
-                let v = map.entry(ty).or_default();
-                for _ in 0..count.get() {
-                    #[expect(
-                        clippy::expect_used,
-                        reason = "internal invariants; violation should panic"
-                    )]
-                    v.push(
-                        sizes
-                            .next()
-                            .expect("internal `pbt` error: inductive type mis-count"),
-                    );
-                }
-            }
-        }
-        Sizes { map }
+        self.partition_into(n_ind, prng, !info.trivial)
     }
 
     /// Partition this total size into `n` sizes
@@ -103,14 +89,22 @@ impl Size {
     /// # Panics
     /// If `size` is `usize::MAX` and `!minus_one`.
     #[inline]
-    pub fn partition_into(
-        self,
-        n: usize,
-        prng: &mut WyRand,
-        minus_one: bool,
-    ) -> Option<impl 'static + Iterator<Item = Self>> {
+    pub fn partition_into(self, n: usize, prng: &mut WyRand, minus_one: bool) -> Sizes {
+        self.partition_into_opt(n, prng, minus_one)
+            .unwrap_or_default()
+    }
+
+    /// Partition this total size into `n` sizes
+    /// which add up to the original size,
+    /// optionally minus one iff `minus_one`.
+    /// # Panics
+    /// If `size` is `usize::MAX` and `!minus_one`.
+    #[inline]
+    pub fn partition_into_opt(self, n: usize, prng: &mut WyRand, minus_one: bool) -> Option<Sizes> {
+        let end = NonZero::new(self.size.checked_sub(usize::from(minus_one))?)?;
+
         // We want `n` sections, so we'll use the spaces between
-        // the beginning, the end, and `n - 1` stars:
+        // the beginning, the end, and `n - 1` bars:
         let n_bars = n.checked_sub(1)?;
 
         // If this is a trivial wrapper and/or non-inductive type,
@@ -132,26 +126,16 @@ impl Size {
             clippy::cast_possible_truncation,
             reason = "fine: definitely not > `u64::MAX` fields"
         )]
-        let mut bars: BinaryHeap<cmp::Reverse<usize>> =
+        let bars: BinaryHeap<cmp::Reverse<usize>> =
             iter::repeat_with(|| cmp::Reverse(prng.rand() as usize % n_inclusive))
                 .take(n_bars)
                 .collect();
 
-        // Compute sizes by measuring the spaces between bars (+ beginning & end),
-        // noting that the binary heap can efficiently drain in sorted order:
-        let mut prev = 0;
-        let mut end = Some(self.size.checked_sub(usize::from(minus_one))?);
-        #[expect(clippy::arithmetic_side_effects, reason = "sorted")]
-        Some(iter::from_fn(move || {
-            let size = if let Some(cmp::Reverse(bar)) = bars.pop() {
-                let difference = bar - prev;
-                prev = bar;
-                difference
-            } else {
-                end.take()? - prev
-            };
-            Some(Self { size })
-        }))
+        Some(Sizes {
+            bars,
+            prev: 0,
+            end: Some(end),
+        })
     }
 
     /// Whether to choose a potential leaf or loop constructor.
@@ -187,6 +171,25 @@ impl fmt::Display for Size {
     }
 }
 
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl Iterator for Sizes {
+    type Item = Size;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let size = if let Some(cmp::Reverse(bar)) = self.bars.pop() {
+            // SAFETY: by the sorted invariant of `BinaryHeap`
+            let difference = unsafe { bar.unchecked_sub(self.prev) };
+            self.prev = bar;
+            difference
+        } else {
+            // SAFETY: by the sorted invariant of `BinaryHeap`
+            unsafe { self.end.take()?.get().unchecked_sub(self.prev) }
+        };
+        Some(Size { size })
+    }
+}
+
 impl Sizes {
     /// Generate an arbitrary term of type `T` using the
     /// size partitioned for it via `Size::partition`.
@@ -194,15 +197,13 @@ impl Sizes {
     /// If `T` is uninstantiable.
     #[inline]
     pub fn arbitrary<T: Construct>(&mut self, prng: &mut WyRand) -> T {
-        let id = type_of::<T>();
-        let size = self.map.get_mut(&id).map_or(Size { size: 0 }, |v| {
-            #[expect(
-                clippy::expect_used,
-                reason = "internal invariants; violation should panic"
-            )]
-            v.pop()
-                .expect("internal `pbt` error: inductive type mis-count")
-        });
+        let ty = type_of::<T>();
+        let info = info_by_id(ty);
+        let size = if info.is_big() {
+            self.next().unwrap_or_default()
+        } else {
+            Size { size: 0 }
+        };
         #[expect(clippy::todo, reason = "TODO")]
         let Some(t) = arbitrary::<T>(prng, size) else {
             todo!(
@@ -212,5 +213,16 @@ impl Sizes {
             );
         };
         t
+    }
+}
+
+impl Drop for Sizes {
+    #[inline]
+    fn drop(&mut self) {
+        debug_assert_eq!(
+            self.next(),
+            None,
+            "internal `pbt` error: inductive type mis-count",
+        );
     }
 }

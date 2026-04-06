@@ -9,22 +9,12 @@ use {
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         shrink::shrink,
-        size::Size,
     },
-    core::{any::type_name, iter, num::NonZero},
+    core::{iter, mem, num::NonZero},
     std::{collections::BTreeSet, ffi::CString, vec},
 };
 
 impl Construct for char {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut wyrand::WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
 
@@ -54,29 +44,6 @@ impl Construct for char {
 
 impl Construct for String {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        ctor_idx: NonZero<usize>,
-        prng: &mut wyrand::WyRand,
-        size: Size,
-    ) -> TermsOfVariousTypes {
-        let mut sizes = size.partition::<Self>(ctor_idx, prng);
-        let mut fields = TermsOfVariousTypes::new();
-        match ctor_idx.get() {
-            1 => {}
-            2 => {
-                let () = fields.push(sizes.arbitrary::<char>(prng));
-                let () = fields.push(sizes.arbitrary::<Self>(prng));
-            }
-            #[expect(clippy::panic, reason = "internal invariant violated")]
-            _ => panic!(
-                "internal `pbt` error: unknown `{}` constructor index #{ctor_idx}",
-                type_name::<Self>(),
-            ),
-        }
-        fields
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
         let () = register::<char>(visited.clone());
     }
@@ -86,10 +53,17 @@ impl Construct for String {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
+                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
                     call: CtorFn::new(|_| String::new()),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
+                    arbitrary_fields: |prng, mut sizes| {
+                        let mut fields = TermsOfVariousTypes::new();
+                        fields.push(sizes.arbitrary::<char>(prng));
+                        fields.push(sizes.arbitrary::<Self>(prng));
+                        fields
+                    },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.push(terms.must_pop::<char>()); // head
@@ -137,35 +111,28 @@ impl Construct for String {
 
 impl Construct for CString {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        ctor_idx: NonZero<usize>,
-        prng: &mut wyrand::WyRand,
-        size: Size,
-    ) -> TermsOfVariousTypes {
-        let mut sizes = size.partition::<Self>(ctor_idx, prng);
-        let mut fields = TermsOfVariousTypes::new();
-        let () = fields.push(sizes.arbitrary::<Vec<u8>>(prng));
-        fields
-    }
-
-    #[inline]
     fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
-        let () = register::<Vec<u8>>(visited.clone());
+        let () = register::<Vec<NonZero<u8>>>(visited.clone());
     }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
+                arbitrary_fields: |prng, mut sizes| {
+                    let mut fields = TermsOfVariousTypes::new();
+                    fields.push(sizes.arbitrary::<Vec<NonZero<u8>>>(prng));
+                    fields
+                },
                 call: CtorFn::new(|terms| {
-                    let mut bytes: Vec<u8> = terms.must_pop();
-                    if bytes.contains(&0) {
-                        let () = bytes.retain(|&b| b != 0);
-                    }
+                    let bytes: Vec<NonZero<u8>> = terms.must_pop();
+                    // SAFETY: `NonZero<_>` is `repr(transparent)`.
+                    let bytes: Vec<u8> =
+                        unsafe { mem::transmute::<Vec<NonZero<u8>>, Vec<u8>>(bytes) };
                     #[expect(clippy::expect_used, reason = "logically impossible")]
                     CString::new(bytes).expect("internal `pbt` error: C-string error")
                 }),
-                immediate_dependencies: iter::once(type_of::<Vec<u8>>()).collect(),
+                immediate_dependencies: iter::once(type_of::<Vec<NonZero<u8>>>()).collect(),
             }],
             elimination_rule: ElimFn::new(|s| {
                 let mut fields = TermsOfVariousTypes::new();

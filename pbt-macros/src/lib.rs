@@ -18,9 +18,9 @@ use {
         ExprCall, ExprClosure, ExprLit, ExprMatch, ExprMethodCall, ExprPath, ExprStruct, Field,
         FieldPat, FieldValue, Fields, GenericArgument, GenericParam, Generics, Ident, Item,
         LifetimeParam, Lit, LitInt, Local, LocalInit, Macro, MacroDelimiter, Member, Pat, PatIdent,
-        PatLit, PatStruct, PatTuple, PatTupleStruct, PatWild, Path, PathArguments, PathSegment,
-        ReturnType, Stmt, Token, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound,
-        TypePath, parse_macro_input,
+        PatStruct, PatTuple, PatTupleStruct, Path, PathArguments, PathSegment, ReturnType, Stmt,
+        Token, TraitBound, TraitBoundModifier, Type, TypeParam, TypeParamBound, TypePath,
+        parse_macro_input,
         punctuated::Punctuated,
         spanned::Spanned as _,
         token::{Brace, Bracket, Paren, PathSep},
@@ -79,7 +79,6 @@ fn derive_pbt_for_ctors(
     };
     let parameters = generics_to_parameters(generics);
     let generics = add_construct_bound_to_each_generic(generics, &construct_trait_path);
-    let arbitrary_fields_match = arbitrary_fields_match(ctors);
     let register_all_immediate_dependencies = register_all_immediate_dependencies(ctors);
     let elim_ctor_idx = elim_ctor_idx(ctors);
     let introduction_rules = Macro {
@@ -128,18 +127,6 @@ fn derive_pbt_for_ctors(
 
     quote! {
         impl #generics #construct_trait_path for #impl_path {
-            #[inline]
-            fn arbitrary_fields_for_ctor(
-                ctor_idx: ::core::num::NonZero<usize>,
-                prng: &mut ::pbt::WyRand,
-                size: ::pbt::size::Size,
-            ) -> ::pbt::reflection::TermsOfVariousTypes {
-                let mut sizes = size.partition::<Self>(ctor_idx, prng);
-                let mut fields = ::pbt::reflection::TermsOfVariousTypes::new();
-                #arbitrary_fields_match
-                fields
-            }
-
             #[inline]
             fn register_all_immediate_dependencies(visited: &::std::collections::BTreeSet<::pbt::reflection::Type>) {
                 #register_all_immediate_dependencies
@@ -269,86 +256,6 @@ fn generics_to_parameters(generics: &Generics) -> AngleBracketedGenericArguments
 }
 
 #[inline]
-fn arbitrary_fields_match(ctors: &[(Path, &Fields)]) -> ExprMatch {
-    ExprMatch {
-        attrs: vec![],
-        match_token: <Token![match]>::default(),
-        expr: Box::new(Expr::Verbatim(quote! { ctor_idx.get() })),
-        brace_token: Brace::default(),
-        arms: ctors
-            .iter()
-            .enumerate()
-            .map(|(index, &(_, fields))| {
-                // SAFETY: Adding 1.
-                let index = unsafe {
-                    NonZero::new_unchecked(
-                        #[expect(clippy::expect_used, reason = "extremely unlikely")]
-                        index
-                            .checked_add(1)
-                            .expect("internal `pbt` error: more than `usize::MAX` constructors"),
-                    )
-                };
-                Arm {
-                    attrs: vec![],
-                    pat: Pat::Lit(PatLit {
-                        attrs: vec![],
-                        lit: Lit::Int(LitInt::new(&index.to_string(), Span::call_site())),
-                    }),
-                    guard: None,
-                    fat_arrow_token: <Token![=>]>::default(),
-                    body: Box::new(Expr::Block(ExprBlock {
-                        attrs: vec![],
-                        label: None,
-                        block: Block {
-                            brace_token: Brace::default(),
-                            stmts: fields
-                                .iter()
-                                .map(|&Field { ref ty, .. }| {
-                                    Stmt::Local(Local {
-                                        attrs: vec![],
-                                        let_token: <Token![let]>::default(),
-                                        pat: Pat::Tuple(PatTuple {
-                                            attrs: vec![],
-                                            paren_token: Paren::default(),
-                                            elems: Punctuated::new(),
-                                        }),
-                                        init: Some(LocalInit {
-                                            eq_token: <Token![=]>::default(),
-                                            expr: Box::new(Expr::Verbatim(quote! {
-                                                fields.push(sizes.arbitrary::<#ty>(prng))
-                                            })),
-                                            diverge: None,
-                                        }),
-                                        semi_token: <Token![;]>::default(),
-                                    })
-                                })
-                                .collect(),
-                        },
-                    })),
-                    comma: Some(<Token![,]>::default()),
-                }
-            })
-            .chain(iter::once(Arm {
-                attrs: vec![],
-                pat: Pat::Wild(PatWild {
-                    attrs: vec![],
-                    underscore_token: <Token![_]>::default(),
-                }),
-                guard: None,
-                fat_arrow_token: <Token![=>]>::default(),
-                body: Box::new(Expr::Verbatim(quote! {
-                    panic!(
-                        "internal `pbt` error: unknown `{}` constructor index #{ctor_idx}",
-                        ::core::any::type_name::<Self>(),
-                    )
-                })),
-                comma: Some(<Token![,]>::default()),
-            }))
-            .collect(),
-    }
-}
-
-#[inline]
 fn register_all_immediate_dependencies(ctors: &[(Path, &Fields)]) -> Block {
     Block {
         brace_token: Brace::default(),
@@ -399,6 +306,111 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                 },
                 brace_token: Brace::default(),
                 fields: [
+                    FieldValue {
+                        attrs: vec![],
+                        colon_token: Some(<Token![:]>::default()),
+                        member: Member::Named(id("arbitrary_fields")),
+                        expr: Expr::Closure(ExprClosure {
+                            attrs: vec![],
+                            lifetimes: None,
+                            constness: None,
+                            movability: None,
+                            asyncness: None,
+                            capture: None,
+                            or1_token: <Token![|]>::default(),
+                            inputs: [
+                                Pat::Ident(PatIdent {
+                                    attrs: vec![],
+                                    by_ref: None,
+                                    mutability: None,
+                                    ident: id("prng"),
+                                    subpat: None,
+                                }),
+                                Pat::Ident(PatIdent {
+                                    attrs: vec![],
+                                    by_ref: None,
+                                    mutability: Some(<Token![mut]>::default()),
+                                    ident: id("sizes"),
+                                    subpat: None,
+                                }),
+                            ]
+                            .into_iter()
+                            .collect(),
+                            or2_token: <Token![|]>::default(),
+                            output: ReturnType::Default,
+                            body: Box::new(Expr::Block(ExprBlock {
+                                attrs: vec![],
+                                label: None,
+                                block: Block {
+                                    brace_token: Brace::default(),
+                                    stmts: iter::once(Stmt::Local(Local {
+                                        attrs: vec![],
+                                        let_token: <Token![let]>::default(),
+                                        pat: Pat::Ident(PatIdent {
+                                            attrs: vec![],
+                                            by_ref: None,
+                                            mutability: Some(<Token![mut]>::default()),
+                                            ident: id("fields"),
+                                            subpat: None,
+                                        }),
+                                        init: Some(LocalInit {
+                                            eq_token: <Token![=]>::default(),
+                                            expr: Box::new(Expr::Call(ExprCall {
+                                                attrs: vec![],
+                                                func: Box::new(Expr::Path(ExprPath {
+                                                    attrs: vec![],
+                                                    qself: None,
+                                                    path: Path {
+                                                        leading_colon: Some(PathSep::default()),
+                                                        segments: [
+                                                            seg(id("pbt")),
+                                                            seg(id("reflection")),
+                                                            seg(id("TermsOfVariousTypes")),
+                                                            seg(id("new")),
+                                                        ]
+                                                        .into_iter()
+                                                        .collect(),
+                                                    },
+                                                })),
+                                                paren_token: Paren::default(),
+                                                args: Punctuated::new(),
+                                            })),
+                                            diverge: None,
+                                        }),
+                                        semi_token: <Token![;]>::default(),
+                                    }))
+                                    .chain(fields.iter().map(|&Field { ref ty, .. }| {
+                                        Stmt::Local(Local {
+                                            attrs: vec![],
+                                            let_token: <Token![let]>::default(),
+                                            pat: Pat::Tuple(PatTuple {
+                                                attrs: vec![],
+                                                paren_token: Paren::default(),
+                                                elems: Punctuated::new(),
+                                            }),
+                                            init: Some(LocalInit {
+                                                eq_token: <Token![=]>::default(),
+                                                expr: Box::new(Expr::Verbatim(quote! {
+                                                   fields.push(sizes.arbitrary::<#ty>(prng))
+                                                })),
+                                                diverge: None,
+                                            }),
+                                            semi_token: <Token![;]>::default(),
+                                        })
+                                    }))
+                                    .chain(iter::once(Stmt::Expr(
+                                        Expr::Path(ExprPath {
+                                            attrs: vec![],
+                                            qself: None,
+                                            path: path_of_str("fields"),
+                                        }),
+                                        None,
+                                    )))
+                                    .collect(),
+                                },
+                            })),
+                        }),
+                    },
                     FieldValue {
                         attrs: vec![],
                         colon_token: Some(<Token![:]>::default()),

@@ -3,25 +3,44 @@
 use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self, visit_self_owned},
-        reflection::{TermsOfVariousTypes, Type, register},
+        reflection::{Type, register},
         shrink::shrink,
-        size::Size,
     },
     core::num::NonZero,
     std::collections::BTreeSet,
-    wyrand::WyRand,
 };
 
-impl Construct for NonZero<char> {
+impl Construct for NonZero<u8> {
     #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        TermsOfVariousTypes::new()
+    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+        let () = register::<u8>(visited.clone());
     }
 
+    #[inline]
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        reason = "intentional"
+    )]
+    fn type_former() -> TypeFormer<Self> {
+        TypeFormer::Literal(Literal {
+            generate: |prng| loop {
+                let u = prng.rand() as u8;
+                if let Some(nz) = NonZero::new(u) {
+                    return nz;
+                }
+            },
+            shrink: |u| Box::new(shrink(u.get()).filter_map(NonZero::new)),
+        })
+    }
+
+    #[inline]
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+        visit_self(self).chain(visit_self_owned(self.get()))
+    }
+}
+
+impl Construct for NonZero<char> {
     #[inline]
     fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
         let () = register::<char>(visited.clone());

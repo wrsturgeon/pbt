@@ -40,6 +40,7 @@ fn info_bool() {
         trivial,
         ref type_former,
         ref vertex,
+        ..
     } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Literal { .. } = *type_former else {
@@ -55,6 +56,7 @@ fn info_bool() {
     assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert!(trivial);
     assert!(!vertex.is_inductive());
+    assert!(!info.is_big());
     assert!(info.instantiable());
 }
 
@@ -67,6 +69,7 @@ fn info_box_bool() {
         trivial,
         ref type_former,
         ref vertex,
+        ..
     } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
@@ -87,6 +90,7 @@ fn info_box_bool() {
     assert_eq!(vertex.unavoidable, iter::once(type_of::<bool>()).collect(),);
     assert!(trivial);
     assert!(!vertex.is_inductive());
+    assert!(!info.is_big());
     assert!(info.instantiable());
 }
 
@@ -99,6 +103,7 @@ fn info_option_u64() {
         trivial,
         ref type_former,
         ref vertex,
+        ..
     } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
@@ -119,6 +124,7 @@ fn info_option_u64() {
     assert_eq!(vertex.unavoidable, BTreeSet::new());
     assert!(!trivial);
     assert!(!vertex.is_inductive());
+    assert!(!info.is_big());
     assert!(info.instantiable());
 }
 
@@ -131,6 +137,7 @@ fn info_vec_u64() {
         trivial,
         ref type_former,
         ref vertex,
+        ..
     } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
@@ -161,6 +168,7 @@ fn info_vec_u64() {
     );
     assert!(!trivial);
     assert!(vertex.is_inductive());
+    assert!(info.is_big());
     assert!(info.instantiable());
 }
 
@@ -173,6 +181,7 @@ fn info_btree_set_u64() {
         trivial,
         ref type_former,
         ref vertex,
+        ..
     } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
@@ -203,6 +212,7 @@ fn info_btree_set_u64() {
     );
     assert!(!trivial);
     assert!(vertex.is_inductive());
+    assert!(info.is_big());
     assert!(info.instantiable());
 }
 
@@ -215,6 +225,7 @@ fn info_infallible() {
         trivial,
         ref type_former,
         ref vertex,
+        ..
     } = *info;
     assert_eq!(name, type_name::<T>());
     let PrecomputedTypeFormer::Algebraic(ref constructors) = *type_former else {
@@ -239,6 +250,7 @@ fn info_infallible() {
     );
     assert!(trivial);
     assert!(!vertex.is_inductive());
+    assert!(!info.is_big());
     assert!(!info.instantiable());
 }
 

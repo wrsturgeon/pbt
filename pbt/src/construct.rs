@@ -6,7 +6,7 @@ use {
             type_of,
         },
         search,
-        size::Size,
+        size::{Size, Sizes},
     },
     core::{fmt, mem, num::NonZero, ops::Deref, ptr},
     std::collections::BTreeSet,
@@ -16,17 +16,25 @@ use {
 #[non_exhaustive]
 #[derive(Clone, Copy, Hash)]
 pub struct CtorFn<T> {
-    /// Function to invoke this constructor on a collection of fields.
+    /// Function to construct a term which is an
+    /// application of this constructor to arbitrary fields.
     pub call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T,
 }
 
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Hash)]
 pub struct IndexedCtorFn<T> {
+    /// Generate precisely enough arbitrary fields
+    /// to immediately invoke this constructor.
+    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> TermsOfVariousTypes,
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
     /// 1-indexed constructor/variant index.
     pub index: NonZero<usize>,
+    /// The number of "big" types in this constructor:
+    /// types that either are inductive themselves
+    /// or contain a big type.
+    pub n_big: usize,
 }
 
 /// Decompose this value into a
@@ -73,6 +81,9 @@ pub struct Decomposition {
 #[derive(Clone, Debug)]
 #[expect(clippy::exhaustive_structs, reason = "constructed in macros")]
 pub struct IntroductionRule<T> {
+    /// Generate precisely enough arbitrary fields
+    /// to immediately invoke this constructor.
+    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> TermsOfVariousTypes,
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
     /// The multiset of types necessary to call this constructor.
@@ -80,13 +91,6 @@ pub struct IntroductionRule<T> {
 }
 
 pub trait Construct: 'static + Clone + fmt::Debug + Eq {
-    /// Generate arbitrary fields for a constructor chosen at runtime.
-    fn arbitrary_fields_for_ctor(
-        ctor_idx: NonZero<usize>,
-        prng: &mut WyRand,
-        size: Size,
-    ) -> TermsOfVariousTypes;
-
     /// Run depth-first search on the global type dependency graph.
     /// All this needs to do in practice is to
     /// let some variable, e.g. `ty`, `= ::pbt::reflection::type_of::<Self>()`,
@@ -207,7 +211,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
     match info.type_former {
         PrecomputedTypeFormer::Algebraic(ref adt) => {
             let potential_loops = adt.potential_loops();
-            let ctor = if size.should_recurse(prng)
+            let (ctor, minus_one) = if size.should_recurse(prng)
                 && let Some(n) = NonZero::new(potential_loops.len())
             {
                 #[expect(
@@ -217,7 +221,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
                 )]
                 let i = prng.rand() as usize % n;
                 // SAFETY: Bounded by length above (see `% n`).
-                unsafe { potential_loops.get_unchecked(i) }
+                (unsafe { potential_loops.get_unchecked(i) }, true)
             } else {
                 let potential_leaves = adt.potential_leaves();
                 let n = NonZero::new(potential_leaves.len())?;
@@ -228,15 +232,15 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
                 )]
                 let i = prng.rand() as usize % n;
                 // SAFETY: Bounded by length above (see `% n`).
-                unsafe { potential_leaves.get_unchecked(i) }
+                (unsafe { potential_leaves.get_unchecked(i) }, false)
             };
-            let mut fields = T::arbitrary_fields_for_ctor(ctor.index, prng, size);
+            let sizes = size.partition_into(ctor.n_big, prng, minus_one);
+            let mut fields = (ctor.arbitrary_fields)(prng, sizes);
             // SAFETY: By the soundness of the type-`TypeId` relation,
             // which holds as long as no lifetime subtyping takes place,
             // and since only `'static` types have IDs and we can't generate functions,
             // it holds here.
-            let f = unsafe { ctor.unerase::<T>() };
-            let result = f(&mut fields);
+            let result = unsafe { ctor.unerase::<T>() }(&mut fields);
             debug_assert!(
                 fields.is_empty(),
                 "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
@@ -277,8 +281,10 @@ pub fn check_eta_expansion<T: Construct>() {
             ctor_idx,
             mut fields,
         } = eliminator(orig.clone());
-        #[expect(clippy::indexing_slicing, reason = "failing tests ought to panic")]
-        let (ctor, _) = all_constructors[ctor_idx.get() - 1];
+        // SAFETY: By the correct implementation of `eliminator`
+        // (i.e., by macro logic plus the few implementations in this crate).
+        #[expect(clippy::multiple_unsafe_ops_per_block, reason = "logically grouped")]
+        let (ctor, _) = *unsafe { all_constructors.get_unchecked(ctor_idx.get().unchecked_sub(1)) };
         // SAFETY: By the soundness of the type-`TypeId` relation,
         // which holds as long as no lifetime subtyping takes place,
         // and since only `'static` types have IDs and we can't generate functions,

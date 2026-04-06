@@ -8,7 +8,7 @@ use {
         multiset::Multiset,
         scc::{self, StronglyConnectedComponents},
         shrink::shrink,
-        size::Size,
+        size::Sizes,
     },
     ahash::RandomState,
     core::{
@@ -100,6 +100,9 @@ pub struct CtorVertex {
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct TypeInfo {
+    /// If this is a "big" type:
+    /// either inductive or contains a big type.
+    pub cached_big: OnceLock<bool>,
     /// The pretty-printed name of this type.
     pub name: &'static str,
     /// Whether this type is uninteresting: specifically, whether it is either
@@ -113,8 +116,14 @@ pub struct TypeInfo {
 }
 
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct CtorInfo {
+    /// Generate precisely enough arbitrary fields
+    /// to immediately invoke this constructor.
+    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> TermsOfVariousTypes,
+    /// The number of "big" types: types that either
+    /// are inductive themselves or contain a big type.
+    pub cached_n_big: OnceLock<usize>,
     /// The multiset of types necessary to call this constructor.
     pub immediate: Multiset<Type>,
     /// 1-indexed constructor/variant index.
@@ -174,8 +183,10 @@ impl AlgebraicTypeFormer {
                 .iter()
                 .filter(|&&(_, ref c)| c.is_guaranteed_leaf())
                 .map(|&(call, ref c)| IndexedCtorFn {
+                    arbitrary_fields: c.constructor.arbitrary_fields,
                     call,
                     index: c.constructor.index,
+                    n_big: c.constructor.n_big(),
                 })
                 .collect()
         })
@@ -192,8 +203,10 @@ impl AlgebraicTypeFormer {
                 .iter()
                 .filter(|&&(_, ref c)| c.is_guaranteed_loop())
                 .map(|&(call, ref c)| IndexedCtorFn {
+                    arbitrary_fields: c.constructor.arbitrary_fields,
                     call,
                     index: c.constructor.index,
+                    n_big: c.constructor.n_big(),
                 })
                 .collect()
         })
@@ -252,8 +265,10 @@ impl AlgebraicTypeFormer {
                 .iter()
                 .filter(|&&(_, ref c)| c.is_potential_leaf())
                 .map(|&(call, ref c)| IndexedCtorFn {
+                    arbitrary_fields: c.constructor.arbitrary_fields,
                     call,
                     index: c.constructor.index,
+                    n_big: c.constructor.n_big(),
                 })
                 .collect()
         })
@@ -270,8 +285,10 @@ impl AlgebraicTypeFormer {
                 .iter()
                 .filter(|&&(_, ref c)| c.is_potential_loop())
                 .map(|&(call, ref c)| IndexedCtorFn {
+                    arbitrary_fields: c.constructor.arbitrary_fields,
                     call,
                     index: c.constructor.index,
+                    n_big: c.constructor.n_big(),
                 })
                 .collect()
         })
@@ -287,6 +304,20 @@ impl CtorInfo {
         self.immediate
             .iter()
             .all(|(&ty, _)| info_by_id(ty).instantiable())
+    }
+
+    /// The number of "big" types: types that either
+    /// are inductive themselves or contain a big type.
+    #[inline]
+    #[must_use]
+    pub fn n_big(&self) -> usize {
+        *self.cached_n_big.get_or_init(|| {
+            self.immediate
+                .iter()
+                .filter(|&(&ty, _)| info_by_id(ty).is_big())
+                .map(|(_, count)| count.get())
+                .sum()
+        })
     }
 }
 
@@ -339,6 +370,30 @@ impl TypeInfo {
                 .any(|&(_, ref c)| c.constructor.instantiable()),
         }
     }
+
+    /// Whether `Self` either is inductive or contains a big type.
+    #[inline]
+    #[must_use]
+    #[expect(clippy::missing_panics_doc, reason = "internal invariants")]
+    pub fn is_big(&self) -> bool {
+        *self.cached_big.get_or_init(|| {
+            if self.vertex.is_inductive() {
+                return true;
+            }
+            let PrecomputedTypeFormer::Algebraic(ref alg) = self.type_former else {
+                return false;
+            };
+            alg.all_constructors.iter().any(|&(_, ref v)| {
+                v.constructor.immediate.iter().any(|(&ty, _)| {
+                    assert_ne!(
+                        ty, self.vertex.ty,
+                        "internal `pbt` error: inductivity calculation error",
+                    );
+                    info_by_id(ty).is_big()
+                })
+            })
+        })
+    }
 }
 
 #[expect(
@@ -347,15 +402,6 @@ impl TypeInfo {
     reason = "internal invariant that ought to panic before causing damage"
 )]
 impl Construct for Erased {
-    #[inline]
-    fn arbitrary_fields_for_ctor(
-        _ctor_idx: NonZero<usize>,
-        _prng: &mut WyRand,
-        _size: Size,
-    ) -> TermsOfVariousTypes {
-        panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
-    }
-
     #[inline]
     fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {
         panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
@@ -861,11 +907,12 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
                     }),
                 );
             return TypeInfo {
+                cached_big: OnceLock::from(false),
                 name: type_name::<T>(),
                 trivial: true,
                 type_former: PrecomputedTypeFormer::literal(generate, shrink),
                 vertex: Vertex {
-                    cached_inductivity: OnceLock::new(),
+                    cached_inductivity: OnceLock::from(false),
                     ty: self_ty,
                     unavoidable: BTreeSet::new(),
                 },
@@ -895,6 +942,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
     for (
         i,
         IntroductionRule {
+            arbitrary_fields,
             call,
             immediate_dependencies,
         },
@@ -903,7 +951,14 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         let mut ctor_unavoidable = BTreeSet::new();
         for (&ty, _count) in immediate_dependencies.iter() {
             let _: bool = ctor_unavoidable.insert(ty);
-            if !visited.contains(&ty) {
+            if visited.contains(&ty) {
+                // means this type is either coinductive
+                // or represented differently than laid out in memory
+                // (e.g. `Vec<_>` takes a `Self` (tail) and a `T` (head));
+                // in that case, recursing will not matter at all,
+                // since we're already at `Self` and this is a shallow operation
+                let _: bool = ctor_unavoidable.insert(ty);
+            } else {
                 let info = info_by_id(ty);
                 let () = ctor_unavoidable.extend(&info.vertex.unavoidable);
             }
@@ -919,6 +974,8 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         ));
         let deps = CtorVertex {
             constructor: CtorInfo {
+                arbitrary_fields,
+                cached_n_big: OnceLock::new(),
                 immediate: immediate_dependencies,
                 #[expect(clippy::expect_used, reason = "extremely unlikely")]
                 index: ONE
@@ -949,6 +1006,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         );
 
     TypeInfo {
+        cached_big: OnceLock::new(),
         name: type_name::<T>(),
         trivial,
         type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
