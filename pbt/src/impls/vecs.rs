@@ -12,13 +12,14 @@ use {
     },
     core::{any::type_name, iter, num::NonZero},
     std::collections::BTreeSet,
+    wyrand::WyRand,
 };
 
 impl<T: Construct> Construct for Vec<T> {
     #[inline]
     fn arbitrary_fields_for_ctor(
         ctor_idx: NonZero<usize>,
-        prng: &mut wyrand::WyRand,
+        prng: &mut WyRand,
         size: Size,
     ) -> TermsOfVariousTypes {
         let mut sizes = size.partition::<Self>(ctor_idx, prng);

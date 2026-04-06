@@ -25,7 +25,9 @@ pub struct Sizes {
 impl Size {
     #[inline]
     pub fn expanding() -> impl Iterator<Item = Self> {
-        (0..).map(|size| Self { size })
+        (0_usize..).map(|squared_size| Self {
+            size: squared_size.isqrt(),
+        })
     }
 
     #[inline]

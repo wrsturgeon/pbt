@@ -309,17 +309,14 @@ pub fn visit_self_opt<V: Construct, S: Construct>(s: &S) -> Option<&V> {
 }
 
 #[inline]
-pub fn visit_self_or<
-    's,
-    V: Construct,
-    S: Construct,
-    I: Iterator<Item = &'s V>,
-    F: FnOnce() -> I,
->(
-    s: &'s S,
-    f: F,
-) -> impl Iterator<Item = &'s V> {
-    let opt = visit_self_opt::<V, S>(s);
-    let recurse = opt.is_none();
-    opt.into_iter().chain(recurse.then(f).into_iter().flatten())
+pub fn visit_self_owned<V: Construct, S: Construct>(s: S) -> Option<V> {
+    (type_of::<V>() == type_of::<S>()).then(|| {
+        let ptr: *const S = ptr::from_ref(&s);
+        let ptr: *const V = ptr.cast();
+        // SAFETY: `S` and `V` are the same type.
+        let v: V = unsafe { ptr::read(ptr) };
+        #[expect(clippy::mem_forget, reason = "intentional")]
+        let () = mem::forget(s);
+        v
+    })
 }
