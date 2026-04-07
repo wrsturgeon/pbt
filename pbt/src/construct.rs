@@ -100,7 +100,7 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     /// and add `::pbt::reflection::type_of::<T>()`
     /// to a set `edges` which is then passed to
     /// `::pbt::reflection::_sccs().write().register(ty, edges)`.
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>);
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>);
 
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type.

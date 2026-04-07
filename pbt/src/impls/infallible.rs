@@ -3,7 +3,7 @@
 use {
     crate::{
         construct::{Algebraic, Construct, ElimFn, TypeFormer},
-        reflection::Type,
+        reflection::{Type, type_of},
     },
     core::{convert::Infallible, iter},
     std::collections::BTreeSet,
@@ -11,7 +11,16 @@ use {
 
 impl Construct for Infallible {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {

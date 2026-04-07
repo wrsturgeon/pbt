@@ -403,7 +403,7 @@ impl TypeInfo {
 )]
 impl Construct for Erased {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(_visited: &mut BTreeSet<Type>) {
         panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
     }
 
@@ -877,16 +877,9 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
 #[inline]
 #[expect(clippy::too_many_lines, reason = "TODO: refactor")]
 fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
+    let () = T::register_all_immediate_dependencies(&mut visited);
+
     let self_ty = type_of::<T>();
-    let not_already_visited = visited.insert(self_ty);
-    assert!(
-        not_already_visited,
-        "internal `pbt` error: `visited` already contained `Self = {}` (`visited` was {visited:?})",
-        type_name::<T>(),
-    );
-
-    let () = T::register_all_immediate_dependencies(&visited);
-
     let type_former = T::type_former();
     let (shallow_ctors, eliminator) = match type_former {
         TypeFormer::Algebraic(Algebraic {

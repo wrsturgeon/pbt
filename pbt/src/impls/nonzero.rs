@@ -3,7 +3,7 @@
 use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self, visit_self_owned},
-        reflection::{Type, register},
+        reflection::{Type, register, type_of},
         shrink::shrink,
     },
     core::num::NonZero,
@@ -12,7 +12,10 @@ use {
 
 impl Construct for NonZero<u8> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
         let () = register::<u8>(visited.clone());
     }
 
@@ -42,7 +45,10 @@ impl Construct for NonZero<u8> {
 
 impl Construct for NonZero<char> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
         let () = register::<char>(visited.clone());
     }
 

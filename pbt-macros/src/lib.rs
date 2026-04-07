@@ -128,7 +128,10 @@ fn derive_pbt_for_ctors(
     quote! {
         impl #generics #construct_trait_path for #impl_path {
             #[inline]
-            fn register_all_immediate_dependencies(visited: &::std::collections::BTreeSet<::pbt::reflection::Type>) {
+            fn register_all_immediate_dependencies(visited: &mut ::std::collections::BTreeSet<::pbt::reflection::Type>) {
+                if !visited.insert(::pbt::reflection::type_of::<Self>()) {
+                    return;
+                }
                 #register_all_immediate_dependencies
             }
 

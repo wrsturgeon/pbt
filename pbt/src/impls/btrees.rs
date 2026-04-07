@@ -15,7 +15,10 @@ use {
 
 impl<T: Construct + Ord> Construct for BTreeSet<T> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
         let () = register::<T>(visited.clone());
     }
 
@@ -79,7 +82,10 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
 
 impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
         let () = register::<K>(visited.clone());
         let () = register::<V>(visited.clone());
     }

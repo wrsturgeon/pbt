@@ -14,7 +14,10 @@ use {
 
 impl<T: Construct> Construct for Box<T> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
         let () = register::<T>(visited.clone());
     }
 

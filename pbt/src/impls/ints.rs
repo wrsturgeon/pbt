@@ -12,6 +12,7 @@ mod malachite {
 
     use {
         super::*,
+        crate::reflection::type_of,
         ::malachite::{
             Natural,
             base::num::basic::traits::{One as _, Zero as _},
@@ -20,7 +21,16 @@ mod malachite {
 
     impl Construct for Natural {
         #[inline]
-        fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+        #[expect(
+            clippy::needless_return,
+            reason = "in case a function body is added later"
+        )]
+        fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+            if !visited.insert(type_of::<Self>()) {
+                return;
+            }
+            // just in case
+        }
 
         #[inline]
         fn type_former() -> TypeFormer<Self> {
@@ -86,11 +96,20 @@ mod num_bigint {
 
     //! Implementations for numeric types from the `num_bigint` crate.
 
-    use {super::*, ::num_bigint::BigUint};
+    use {super::*, crate::reflection::type_of, ::num_bigint::BigUint};
 
     impl Construct for BigUint {
         #[inline]
-        fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+        #[expect(
+            clippy::needless_return,
+            reason = "in case a function body is added later"
+        )]
+        fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+            if !visited.insert(type_of::<Self>()) {
+                return;
+            }
+            // just in case
+        }
 
         #[inline]
         fn type_former() -> TypeFormer<Self> {
@@ -149,7 +168,7 @@ mod num_bigint {
 use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self},
-        reflection::Type,
+        reflection::{Type, type_of},
     },
     core::num::NonZero,
     std::collections::BTreeSet,
@@ -228,8 +247,15 @@ macro_rules! shrink_int {
 
 impl Construct for bool {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {
-        // n/a
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
     }
 
     #[inline]
@@ -250,7 +276,16 @@ impl Construct for bool {
 
 impl Construct for u8 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -268,7 +303,16 @@ impl Construct for u8 {
 
 impl Construct for u16 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -286,7 +330,16 @@ impl Construct for u16 {
 
 impl Construct for u32 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -304,7 +357,16 @@ impl Construct for u32 {
 
 impl Construct for u64 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -322,7 +384,16 @@ impl Construct for u64 {
 
 impl Construct for u128 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -340,7 +411,16 @@ impl Construct for u128 {
 
 impl Construct for usize {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -358,7 +438,16 @@ impl Construct for usize {
 
 impl Construct for i8 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -376,7 +465,16 @@ impl Construct for i8 {
 
 impl Construct for i16 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -394,7 +492,16 @@ impl Construct for i16 {
 
 impl Construct for i32 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -412,7 +519,16 @@ impl Construct for i32 {
 
 impl Construct for i64 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -430,7 +546,16 @@ impl Construct for i64 {
 
 impl Construct for i128 {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
@@ -448,7 +573,16 @@ impl Construct for i128 {
 
 impl Construct for isize {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {

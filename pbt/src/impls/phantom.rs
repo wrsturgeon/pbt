@@ -7,7 +7,7 @@ use {
             visit_self,
         },
         multiset::Multiset,
-        reflection::{TermsOfVariousTypes, Type, register},
+        reflection::{TermsOfVariousTypes, Type, register, type_of},
     },
     core::{marker::PhantomData, num::NonZero},
     std::collections::BTreeSet,
@@ -15,7 +15,10 @@ use {
 
 impl<T: Construct> Construct for PhantomData<T> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
         let () = register::<T>(visited.clone());
     }
 

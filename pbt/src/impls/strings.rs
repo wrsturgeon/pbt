@@ -16,7 +16,16 @@ use {
 
 impl Construct for char {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &BTreeSet<Type>) {}
+    #[expect(
+        clippy::needless_return,
+        reason = "in case a function body is added later"
+    )]
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        // just in case
+    }
 
     #[inline]
     #[expect(
@@ -44,7 +53,10 @@ impl Construct for char {
 
 impl Construct for String {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
         let () = register::<char>(visited.clone());
     }
 
@@ -111,7 +123,10 @@ impl Construct for String {
 
 impl Construct for CString {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
         let () = register::<Vec<NonZero<u8>>>(visited.clone());
     }
 
