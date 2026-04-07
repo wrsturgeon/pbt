@@ -57,7 +57,7 @@ fn info_bool() {
     assert!(trivial);
     assert!(!vertex.is_inductive());
     assert!(!info.is_big());
-    assert!(info.instantiable());
+    assert!(info.instantiable(&mut BTreeSet::new()));
 }
 
 #[test]
@@ -91,7 +91,7 @@ fn info_box_bool() {
     assert!(trivial);
     assert!(!vertex.is_inductive());
     assert!(!info.is_big());
-    assert!(info.instantiable());
+    assert!(info.instantiable(&mut BTreeSet::new()));
 }
 
 #[test]
@@ -125,7 +125,7 @@ fn info_option_u64() {
     assert!(!trivial);
     assert!(!vertex.is_inductive());
     assert!(!info.is_big());
-    assert!(info.instantiable());
+    assert!(info.instantiable(&mut BTreeSet::new()));
 }
 
 #[test]
@@ -169,7 +169,7 @@ fn info_vec_u64() {
     assert!(!trivial);
     assert!(vertex.is_inductive());
     assert!(info.is_big());
-    assert!(info.instantiable());
+    assert!(info.instantiable(&mut BTreeSet::new()));
 }
 
 #[test]
@@ -213,7 +213,7 @@ fn info_btree_set_u64() {
     assert!(!trivial);
     assert!(vertex.is_inductive());
     assert!(info.is_big());
-    assert!(info.instantiable());
+    assert!(info.instantiable(&mut BTreeSet::new()));
 }
 
 #[test]
@@ -251,7 +251,7 @@ fn info_infallible() {
     assert!(trivial);
     assert!(!vertex.is_inductive());
     assert!(!info.is_big());
-    assert!(!info.instantiable());
+    assert!(!info.instantiable(&mut BTreeSet::new()));
 }
 
 #[test]

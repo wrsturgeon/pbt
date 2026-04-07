@@ -300,10 +300,10 @@ impl CtorInfo {
     /// i.e. does not contain any uninstantiable fields.
     #[inline]
     #[must_use]
-    pub fn instantiable(&self) -> bool {
+    pub fn instantiable(&self, visited: &mut BTreeSet<Type>) -> bool {
         self.immediate
             .iter()
-            .all(|(&ty, _)| info_by_id(ty).instantiable())
+            .all(|(&ty, _)| info_by_id(ty).instantiable(visited))
     }
 
     /// The number of "big" types: types that either
@@ -361,13 +361,16 @@ impl TypeInfo {
     /// i.e. has at least one instantiable constructor.
     #[inline]
     #[must_use]
-    pub fn instantiable(&self) -> bool {
+    pub fn instantiable(&self, visited: &mut BTreeSet<Type>) -> bool {
+        if !visited.insert(self.vertex.ty) {
+            return true;
+        }
         match self.type_former {
             PrecomputedTypeFormer::Literal { .. } => true,
             PrecomputedTypeFormer::Algebraic(ref algebraic) => algebraic
                 .all_constructors
                 .iter()
-                .any(|&(_, ref c)| c.constructor.instantiable()),
+                .any(|&(_, ref c)| c.constructor.instantiable(visited)),
         }
     }
 
@@ -749,14 +752,15 @@ impl CtorVertex {
     #[inline]
     #[must_use]
     pub fn is_guaranteed_leaf(&self) -> bool {
-        self.constructor.instantiable() && !self.is_potential_loop()
+        self.constructor.instantiable(&mut BTreeSet::new()) && !self.is_potential_loop()
     }
 
     /// Whether `Self` is *unavoidable*.
     #[inline]
     #[must_use]
     pub fn is_guaranteed_loop(&self) -> bool {
-        self.constructor.instantiable() && self.vertex.unavoidable.contains(&self.vertex.ty)
+        self.constructor.instantiable(&mut BTreeSet::new())
+            && self.vertex.unavoidable.contains(&self.vertex.ty)
     }
 
     /// Whether `Self` is inductive.
@@ -796,14 +800,14 @@ impl CtorVertex {
     #[inline]
     #[must_use]
     pub fn is_potential_leaf(&self) -> bool {
-        self.constructor.instantiable() && !self.is_guaranteed_loop()
+        self.constructor.instantiable(&mut BTreeSet::new()) && !self.is_guaranteed_loop()
     }
 
     /// Whether `Self` is *reachable*.
     #[inline]
     #[must_use]
     pub fn is_potential_loop(&self) -> bool {
-        self.constructor.instantiable() && self.is_inductive()
+        self.constructor.instantiable(&mut BTreeSet::new()) && self.is_inductive()
     }
 }
 
@@ -878,7 +882,6 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
 #[expect(clippy::too_many_lines, reason = "TODO: refactor")]
 fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
     let () = T::register_all_immediate_dependencies(&mut visited);
-
     let self_ty = type_of::<T>();
     let type_former = T::type_former();
     let (shallow_ctors, eliminator) = match type_former {
