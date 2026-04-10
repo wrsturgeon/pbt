@@ -1,5 +1,7 @@
 //! Implementations for int-like types.
 
+#![expect(clippy::verbose_bit_mask, reason = "very hot loops: efficiency")]
+
 #[cfg(feature = "malachite")]
 mod malachite {
     #![allow(
@@ -36,24 +38,16 @@ mod malachite {
         fn type_former() -> TypeFormer<Self> {
             TypeFormer::Literal(Literal {
                 generate: |prng| {
-                    // Copied with small (unfortunately incompatible)
-                    // modifications from `arbitrary_unsigned` above.
-
-                    let mut one_in_n = const { NonZero::new(4_u64).unwrap() };
-
-                    if (prng.rand() % one_in_n) == 0 {
+                    if (prng.rand() & 3) == 0 {
                         return Self::ZERO;
                     }
-                    one_in_n = one_in_n.saturating_add(1);
 
                     let mut acc: Self = Self::ONE;
 
                     #[expect(clippy::arithmetic_side_effects, reason = "not with `malachite`")]
-                    while (prng.rand() % one_in_n) != 0 {
+                    while (prng.rand() & 3) != 0 {
                         acc <<= 1_u8;
                         acc |= Self::from((prng.rand() & 1) != 0);
-
-                        one_in_n = one_in_n.saturating_add(1);
                     }
                     acc
                 },
@@ -116,23 +110,18 @@ mod num_bigint {
             TypeFormer::Literal(Literal {
                 generate: |prng| {
                     // Copied with small (unfortunately incompatible)
-                    // modifications from `arbitrary_unsigned` above.
+                    // modifications from `arbitrary_unsigned`.
 
-                    let mut one_in_n = const { NonZero::new(4_u64).unwrap() };
-
-                    if (prng.rand() % one_in_n) == 0 {
+                    if (prng.rand() & 3) == 0 {
                         return Self::ZERO;
                     }
-                    one_in_n = one_in_n.saturating_add(1);
 
                     let mut acc: Self = Self::from(1_u8);
 
                     #[expect(clippy::arithmetic_side_effects, reason = "not with `malachite`")]
-                    while (prng.rand() % one_in_n) != 0 {
+                    while (prng.rand() & 3) != 0 {
                         acc <<= 1_u8;
                         acc |= Self::from((prng.rand() & 1) != 0);
-
-                        one_in_n = one_in_n.saturating_add(1);
                     }
                     acc
                 },
@@ -170,7 +159,6 @@ use {
         construct::{Construct, Literal, TypeFormer, visit_self},
         reflection::{Type, type_of},
     },
-    core::num::NonZero,
     std::collections::BTreeSet,
 };
 
@@ -180,20 +168,13 @@ macro_rules! arbitrary_unsigned {
     // TODO: iterate over a `u64` as 64 booleans
     // instead of recomputing each
     ($u:ty, $prng:ident) => {{
-        // Larger bit widths should be allowed to generate
-        // huge values, whereas all integers should
-        // generate relatively small numbers relatively often,
-        // so this probability denominator increments each round.
-        let mut one_in_n = const { NonZero::new(4_u64).unwrap() };
-
-        if ($prng.rand() % one_in_n) == 0 {
+        if ($prng.rand() & 3) == 0 {
             return 0;
         }
-        one_in_n = one_in_n.saturating_add(1);
 
         let mut acc: $u = 1;
 
-        while ($prng.rand() % one_in_n) != 0 {
+        while ($prng.rand() & 3) != 0 {
             #[allow(
                 clippy::allow_attributes,
                 clippy::default_numeric_fallback,
@@ -205,8 +186,6 @@ macro_rules! arbitrary_unsigned {
             }
             acc <<= 1_u8;
             acc |= <$u>::from(($prng.rand() & 1) != 0);
-
-            one_in_n = one_in_n.saturating_add(1);
         }
         acc
     }};

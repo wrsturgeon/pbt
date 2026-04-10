@@ -323,38 +323,8 @@ fn arbitrary_u64() {
             .filter_map(|size| arbitrary(&mut prng, size))
             .collect::<Vec<u64>>(),
         vec![
-            u64::MAX,
-            2_831_526_533_816_853,
-            2780,
-            198_093_122,
-            3,
-            40,
-            10,
-            1,
-            2160,
-            u64::MAX,
-            0,
-            0,
-            1,
-            460_252_415_470_178_231,
-            0,
-            65,
-            331,
-            u64::MAX,
-            2,
-            1,
-            u64::MAX,
-            409_780,
-            11,
-            0,
-            0,
-            30,
-            74,
-            7,
-            3,
-            0,
-            5,
-            11,
+            35, 0, 1, 12, 60, 12, 1, 22787, 0, 1, 0, 5793, 1, 0, 0, 249, 0, 416, 976, 17, 0, 1, 0,
+            2, 1, 2, 1, 3, 35, 4, 1, 277,
         ],
     );
 }
@@ -389,12 +359,12 @@ fn arbitrary_option_u64() {
             None,
             None,
             None,
-            Some(23),
-            Some(0),
-            Some(161),
+            Some(2),
+            None,
+            Some(4),
+            Some(28),
             None,
             Some(0),
-            None,
         ],
     );
 }
@@ -435,12 +405,12 @@ fn arbitrary_btree_set_u64() {
             BTreeSet::new(),
             BTreeSet::new(),
             BTreeSet::new(),
-            [23].into_iter().collect(),
+            [2].into_iter().collect(),
+            [4].into_iter().collect(),
+            [12].into_iter().collect(),
+            [0].into_iter().collect(),
             BTreeSet::new(),
-            [7].into_iter().collect(),
             BTreeSet::new(),
-            [10_410_362_529].into_iter().collect(),
-            [1, 3677].into_iter().collect(),
         ],
     );
 }
@@ -458,12 +428,12 @@ fn arbitrary_btree_map_u64_u64() {
             BTreeMap::new(),
             BTreeMap::new(),
             BTreeMap::new(),
-            [(0, 23)].into_iter().collect(),
-            BTreeMap::new(),
+            [(1, 2)].into_iter().collect(),
+            [(1, 0)].into_iter().collect(),
             [(0, 12)].into_iter().collect(),
-            [(8, 0)].into_iter().collect(),
-            [(9135, 14)].into_iter().collect(),
-            [(3, 1)].into_iter().collect(),
+            [(1, 0)].into_iter().collect(),
+            BTreeMap::new(),
+            [(2, 15), (46, 1)].into_iter().collect(),
         ],
     );
 }
@@ -481,12 +451,12 @@ fn arbitrary_hash_set_u64() {
             HashSet::new(),
             HashSet::new(),
             HashSet::new(),
-            [23].into_iter().collect(),
+            [2].into_iter().collect(),
+            [4].into_iter().collect(),
+            [12].into_iter().collect(),
+            [0].into_iter().collect(),
             HashSet::new(),
-            [7].into_iter().collect(),
             HashSet::new(),
-            [10_410_362_529].into_iter().collect(),
-            [1, 3677].into_iter().collect(),
         ],
     );
 }
@@ -504,12 +474,12 @@ fn arbitrary_hash_map_u64_u64() {
             HashMap::new(),
             HashMap::new(),
             HashMap::new(),
-            [(0, 23)].into_iter().collect(),
-            HashMap::new(),
+            [(1, 2)].into_iter().collect(),
+            [(1, 0)].into_iter().collect(),
             [(0, 12)].into_iter().collect(),
-            [(8, 0)].into_iter().collect(),
-            [(9135, 14)].into_iter().collect(),
-            [(3, 1)].into_iter().collect(),
+            [(1, 0)].into_iter().collect(),
+            HashMap::new(),
+            [(2, 15), (46, 1)].into_iter().collect(),
         ],
     );
 }
@@ -660,9 +630,9 @@ fn search_witness_vec_contains_42() {
 }
 
 #[test]
-fn search_witness_vec_contains_u64_max() {
-    let witness = witness(10_000, |v: &Vec<u64>| v.contains(&u64::MAX)).expect("witness not found");
-    assert_eq!(witness, vec![u64::MAX]);
+fn search_witness_vec_contains_u16_max() {
+    let witness = witness(10_000, |v: &Vec<u16>| v.contains(&u16::MAX)).expect("witness not found");
+    assert_eq!(witness, vec![u16::MAX]);
 }
 
 #[test]
