@@ -28,7 +28,7 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
             introduction_rules: vec![
                 IntroductionRule {
                     arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
-                    call: CtorFn::new(|_| BTreeSet::new()),
+                    call: CtorFn::new(|_| Some(BTreeSet::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
@@ -41,7 +41,7 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.insert(terms.must_pop::<T>()); // head
-                        acc
+                        Some(acc)
                     }),
                     immediate_dependencies: [type_of::<T>(), type_of::<Self>()]
                         .into_iter()
@@ -96,7 +96,7 @@ impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
             introduction_rules: vec![
                 IntroductionRule {
                     arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
-                    call: CtorFn::new(|_| BTreeMap::new()),
+                    call: CtorFn::new(|_| Some(BTreeMap::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
@@ -110,7 +110,7 @@ impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>();
                         acc.insert(terms.must_pop::<K>(), terms.must_pop::<V>());
-                        acc
+                        Some(acc)
                     }),
                     immediate_dependencies: [type_of::<K>(), type_of::<V>(), type_of::<Self>()]
                         .into_iter()

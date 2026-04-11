@@ -18,7 +18,7 @@ use {
 pub struct CtorFn<T> {
     /// Function to construct a term which is an
     /// application of this constructor to arbitrary fields.
-    pub call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T,
+    pub call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> Option<T>,
 }
 
 #[non_exhaustive]
@@ -121,7 +121,7 @@ impl<T> CtorFn<T> {
     }
 
     #[inline]
-    pub const fn new(call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T) -> Self {
+    pub const fn new(call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> Option<T>) -> Self {
         Self { call }
     }
 }
@@ -132,7 +132,9 @@ impl CtorFn<Erased> {
     /// You'd better be damn well sure that you're specifying the right type.
     #[inline]
     #[must_use]
-    pub const unsafe fn unerase<T>(self) -> for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T {
+    pub const unsafe fn unerase<T>(
+        self,
+    ) -> for<'terms> fn(&'terms mut TermsOfVariousTypes) -> Option<T> {
         // SAFETY: Same size, still a function pointer with the same arguments.
         unsafe { mem::transmute::<CtorFn<Erased>, CtorFn<T>>(self) }.call
     }
@@ -146,7 +148,7 @@ impl<T> fmt::Debug for CtorFn<T> {
 }
 
 impl<T> Deref for CtorFn<T> {
-    type Target = for<'terms> fn(&'terms mut TermsOfVariousTypes) -> T;
+    type Target = for<'terms> fn(&'terms mut TermsOfVariousTypes) -> Option<T>;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -206,46 +208,61 @@ impl<T> Deref for ElimFn<T> {
 }
 
 #[inline]
-pub fn arbitrary<T: Construct>(prng: &mut WyRand, size: Size) -> Option<T> {
+pub fn arbitrary<T: Construct>(prng: &mut WyRand, mut size: Size) -> Option<T> {
     let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Algebraic(ref adt) => {
             let potential_loops = adt.potential_loops();
-            let (ctor, minus_one) = if size.should_recurse(prng)
-                && let Some(n) = NonZero::new(potential_loops.len())
-            {
-                #[expect(
-                    clippy::as_conversions,
-                    clippy::cast_possible_truncation,
-                    reason = "fine: definitely not > `u64::MAX` constructors"
-                )]
-                let i = prng.rand() as usize % n;
-                // SAFETY: Bounded by length above (see `% n`).
-                (unsafe { potential_loops.get_unchecked(i) }, true)
-            } else {
-                let potential_leaves = adt.potential_leaves();
-                let n = NonZero::new(potential_leaves.len())?;
-                #[expect(
-                    clippy::as_conversions,
-                    clippy::cast_possible_truncation,
-                    reason = "fine: definitely not > `u64::MAX` constructors"
-                )]
-                let i = prng.rand() as usize % n;
-                // SAFETY: Bounded by length above (see `% n`).
-                (unsafe { potential_leaves.get_unchecked(i) }, false)
-            };
-            let sizes = size.partition_into(ctor.n_big, prng, minus_one);
-            let mut fields = (ctor.arbitrary_fields)(prng, sizes);
-            // SAFETY: By the soundness of the type-`TypeId` relation,
-            // which holds as long as no lifetime subtyping takes place,
-            // and since only `'static` types have IDs and we can't generate functions,
-            // it holds here.
-            let result = unsafe { ctor.unerase::<T>() }(&mut fields);
-            debug_assert!(
-                fields.is_empty(),
-                "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
-            );
-            Some(result)
+            let mut canary = 0_u8;
+            loop {
+                let (ctor, minus_one) = if size.should_recurse(prng)
+                    && let Some(n) = NonZero::new(potential_loops.len())
+                {
+                    #[expect(
+                        clippy::as_conversions,
+                        clippy::cast_possible_truncation,
+                        reason = "fine: definitely not > `u64::MAX` constructors"
+                    )]
+                    let i = prng.rand() as usize % n;
+                    // SAFETY: Bounded by length above (see `% n`).
+                    (unsafe { potential_loops.get_unchecked(i) }, true)
+                } else {
+                    let potential_leaves = adt.potential_leaves();
+                    let n = NonZero::new(potential_leaves.len())?;
+                    #[expect(
+                        clippy::as_conversions,
+                        clippy::cast_possible_truncation,
+                        reason = "fine: definitely not > `u64::MAX` constructors"
+                    )]
+                    let i = prng.rand() as usize % n;
+                    // SAFETY: Bounded by length above (see `% n`).
+                    (unsafe { potential_leaves.get_unchecked(i) }, false)
+                };
+                let sizes = size._partition_into(ctor.n_big, prng, minus_one);
+                let mut fields = (ctor.arbitrary_fields)(prng, sizes);
+                // SAFETY: By the soundness of the type-`TypeId` relation,
+                // which holds as long as no lifetime subtyping takes place,
+                // and since only `'static` types have IDs and we can't generate functions,
+                // it holds here.
+                let result = unsafe { ctor.unerase::<T>() }(&mut fields);
+                debug_assert!(
+                    fields.is_empty(),
+                    "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
+                );
+                if let Some(result) = result {
+                    return Some(result);
+                }
+
+                // If that failed, then there's (almost surely) a Sigma-type,
+                // in which case its instantiability might be size-dependent
+                // (e.g. a non-empty vector/string/etc.), in which case
+                // we should occasionally bump the size just in case:
+                let (next_canary, ovf) = canary.overflowing_add(1);
+                canary = next_canary;
+                if ovf {
+                    let () = size._increment();
+                }
+            }
         }
         PrecomputedTypeFormer::Literal { generate, .. } => {
             // SAFETY: Undoing an earlier transmute.
@@ -295,7 +312,7 @@ pub fn check_eta_expansion<T: Construct>() {
             fields.is_empty(),
             "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
         );
-        (constructed, orig.clone())
+        (constructed, Some(orig.clone()))
     });
 }
 

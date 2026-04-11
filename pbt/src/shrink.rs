@@ -52,7 +52,7 @@ pub fn shrink<T: Construct>(t: T) -> Box<dyn Iterator<Item = T>> {
     let shrink_fields = fields
         .clone()
         .shrink()
-        .map(move |mut fields| orig_ctor_fn(&mut fields));
+        .filter_map(move |mut fields| orig_ctor_fn(&mut fields));
 
     // Try all other constructors whose field multisets are subsets of `t`'s fields:
     // (It's fine that constructors are unsorted, since success will effectively restart,
@@ -81,7 +81,7 @@ pub fn shrink<T: Construct>(t: T) -> Box<dyn Iterator<Item = T>> {
             // TODO: should we do this for *all* (deep) terms
             // or just immediate toplevel fields?
         })
-        .map(move |(f, _)| {
+        .filter_map(move |(f, _)| {
             // SAFETY: Undoing an earlier `erase`.
             let f = unsafe { f.unerase::<T>() };
             // TODO: iterate over sections if there would be fields left over;

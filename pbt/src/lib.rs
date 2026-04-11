@@ -5,6 +5,7 @@ pub mod reflection;
 mod scc;
 pub mod search;
 pub mod shrink;
+pub mod sigma;
 pub mod size;
 
 #[cfg(test)]

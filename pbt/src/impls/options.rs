@@ -28,7 +28,7 @@ impl<T: Construct> Construct for Option<T> {
             introduction_rules: vec![
                 IntroductionRule {
                     arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
-                    call: CtorFn::new(|_| None),
+                    call: CtorFn::new(|_| Some(None)),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
@@ -37,7 +37,7 @@ impl<T: Construct> Construct for Option<T> {
                         fields.push(sizes.arbitrary::<T>(prng));
                         fields
                     },
-                    call: CtorFn::new(|terms| Some(terms.must_pop())),
+                    call: CtorFn::new(|terms| Some(Some(terms.must_pop()))),
                     immediate_dependencies: iter::once(type_of::<T>()).collect(),
                 },
             ],

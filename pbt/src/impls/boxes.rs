@@ -30,7 +30,7 @@ impl<T: Construct> Construct for Box<T> {
                     fields.push(sizes.arbitrary::<T>(prng));
                     fields
                 },
-                call: CtorFn::new(|terms| Box::new(terms.must_pop())),
+                call: CtorFn::new(|terms| Some(Box::new(terms.must_pop()))),
                 immediate_dependencies: iter::once(type_of::<T>()).collect(),
             }],
             elimination_rule: ElimFn::new(|boxed| {

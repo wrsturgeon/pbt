@@ -35,10 +35,85 @@ pub struct Sizes {
 }
 
 impl Size {
+    /// Increase this size by one.
+    #[inline]
+    pub(crate) fn _increment(&mut self) {
+        #![expect(
+            clippy::arithmetic_side_effects,
+            reason = "Extremely rare: should panic."
+        )]
+        self.size += 1;
+    }
+
+    /// Partition this total size into `n` sizes
+    /// which add up to the original size,
+    /// optionally minus one iff `minus_one`.
+    /// # Panics
+    /// If `size` is `usize::MAX` and `!minus_one`.
+    #[inline]
+    pub(crate) fn _partition_into(&self, n: usize, prng: &mut WyRand, minus_one: bool) -> Sizes {
+        self._partition_into_opt(n, prng, minus_one)
+            .unwrap_or_default()
+    }
+
+    /// Partition this total size into `n` sizes
+    /// which add up to the original size,
+    /// optionally minus one iff `minus_one`.
+    /// # Panics
+    /// If `size` is `usize::MAX` and `!minus_one`.
+    #[inline]
+    pub(crate) fn _partition_into_opt(
+        &self,
+        n: usize,
+        prng: &mut WyRand,
+        minus_one: bool,
+    ) -> Option<Sizes> {
+        let end = NonZero::new(self.size.checked_sub(usize::from(minus_one))?)?;
+
+        // We want `n` sections, so we'll use the spaces between
+        // the beginning, the end, and `n - 1` bars:
+        let n_bars = n.checked_sub(1)?;
+
+        // If this is a trivial wrapper and/or non-inductive type,
+        // don't account for it while tracking full AST size;
+        // otherwise, this AST node counts, so we should
+        // decrement the remaining size for the rest of the structure.
+        let n_inclusive = NonZero::new(
+            #[expect(
+                clippy::expect_used,
+                clippy::unwrap_in_result,
+                reason = "internal invariants; violation should panic"
+            )]
+            self.size
+                .checked_add(usize::from(!minus_one))
+                .expect("internal `pbt` error: size of `usize::MAX`"),
+        )?;
+        #[expect(
+            clippy::as_conversions,
+            clippy::cast_possible_truncation,
+            reason = "fine: definitely not > `u64::MAX` fields"
+        )]
+        let bars: BinaryHeap<cmp::Reverse<usize>> =
+            iter::repeat_with(|| cmp::Reverse(prng.rand() as usize % n_inclusive))
+                .take(n_bars)
+                .collect();
+
+        Some(Sizes {
+            bars,
+            prev: 0,
+            end: Some(end),
+        })
+    }
+
     #[inline]
     pub fn expanding() -> impl Iterator<Item = Self> {
-        (0_usize..).map(|squared_size| Self {
-            size: squared_size.isqrt(),
+        (1_usize..).map(|squared_size| Self {
+            #[expect(
+                clippy::as_conversions,
+                reason = "We're taking the `ilog2` of a `usize`. That's, at most, the number of bits in a `usize`, and that clearly fits within a `usize`."
+            )]
+            // SAFETY: Always `>= 1` by the range above.
+            size: unsafe { squared_size.checked_ilog2().unwrap_unchecked() } as usize,
         })
     }
 
@@ -80,62 +155,7 @@ impl Size {
             }
         }
 
-        self.partition_into(n_ind, prng, !info.trivial)
-    }
-
-    /// Partition this total size into `n` sizes
-    /// which add up to the original size,
-    /// optionally minus one iff `minus_one`.
-    /// # Panics
-    /// If `size` is `usize::MAX` and `!minus_one`.
-    #[inline]
-    pub fn partition_into(self, n: usize, prng: &mut WyRand, minus_one: bool) -> Sizes {
-        self.partition_into_opt(n, prng, minus_one)
-            .unwrap_or_default()
-    }
-
-    /// Partition this total size into `n` sizes
-    /// which add up to the original size,
-    /// optionally minus one iff `minus_one`.
-    /// # Panics
-    /// If `size` is `usize::MAX` and `!minus_one`.
-    #[inline]
-    pub fn partition_into_opt(self, n: usize, prng: &mut WyRand, minus_one: bool) -> Option<Sizes> {
-        let end = NonZero::new(self.size.checked_sub(usize::from(minus_one))?)?;
-
-        // We want `n` sections, so we'll use the spaces between
-        // the beginning, the end, and `n - 1` bars:
-        let n_bars = n.checked_sub(1)?;
-
-        // If this is a trivial wrapper and/or non-inductive type,
-        // don't account for it while tracking full AST size;
-        // otherwise, this AST node counts, so we should
-        // decrement the remaining size for the rest of the structure.
-        let n_inclusive = NonZero::new(
-            #[expect(
-                clippy::expect_used,
-                clippy::unwrap_in_result,
-                reason = "internal invariants; violation should panic"
-            )]
-            self.size
-                .checked_add(usize::from(!minus_one))
-                .expect("internal `pbt` error: size of `usize::MAX`"),
-        )?;
-        #[expect(
-            clippy::as_conversions,
-            clippy::cast_possible_truncation,
-            reason = "fine: definitely not > `u64::MAX` fields"
-        )]
-        let bars: BinaryHeap<cmp::Reverse<usize>> =
-            iter::repeat_with(|| cmp::Reverse(prng.rand() as usize % n_inclusive))
-                .take(n_bars)
-                .collect();
-
-        Some(Sizes {
-            bars,
-            prev: 0,
-            end: Some(end),
-        })
+        self._partition_into(n_ind, prng, !info.trivial)
     }
 
     /// Whether to choose a potential leaf or loop constructor.

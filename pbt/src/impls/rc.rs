@@ -30,7 +30,7 @@ impl<T: Construct> Construct for Rc<T> {
                     fields.push(sizes.arbitrary::<T>(prng));
                     fields
                 },
-                call: CtorFn::new(|terms| Rc::new(terms.must_pop())),
+                call: CtorFn::new(|terms| Some(Rc::new(terms.must_pop()))),
                 immediate_dependencies: iter::once(type_of::<T>()).collect(),
             }],
             elimination_rule: ElimFn::new(|rc| {
@@ -69,7 +69,7 @@ impl<T: Construct> Construct for Arc<T> {
                     fields.push(sizes.arbitrary::<T>(prng));
                     fields
                 },
-                call: CtorFn::new(|terms| Arc::new(terms.must_pop())),
+                call: CtorFn::new(|terms| Some(Arc::new(terms.must_pop()))),
                 immediate_dependencies: iter::once(type_of::<T>()).collect(),
             }],
             elimination_rule: ElimFn::new(|arc| {

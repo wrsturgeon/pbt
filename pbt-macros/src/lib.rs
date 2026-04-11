@@ -442,62 +442,74 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                                 .collect(),
                                 or2_token: <Token![|]>::default(),
                                 output: ReturnType::Default,
-                                body: Box::new(match *fields {
-                                    Fields::Unit => Expr::Path(ExprPath {
-                                        attrs: vec![],
-                                        qself: None,
-                                        path: path.clone(),
-                                    }),
-                                    Fields::Unnamed(ref fields) => Expr::Call(ExprCall {
+                                body: {
+                                    let some = match *fields {
+                                        Fields::Unit => Expr::Path(ExprPath {
+                                            attrs: vec![],
+                                            qself: None,
+                                            path: path.clone(),
+                                        }),
+                                        Fields::Unnamed(ref fields) => Expr::Call(ExprCall {
+                                            attrs: vec![],
+                                            func: Box::new(Expr::Path(ExprPath {
+                                                attrs: vec![],
+                                                qself: None,
+                                                path: path.clone(),
+                                            })),
+                                            paren_token: fields.paren_token,
+                                            args: fields
+                                                .unnamed
+                                                .iter()
+                                                .map(|&Field { ref ty, .. }| {
+                                                    Expr::Verbatim(quote! {
+                                                        terms.must_pop::<#ty>()
+                                                    })
+                                                })
+                                                .collect(),
+                                        }),
+                                        Fields::Named(ref fields) => Expr::Struct(ExprStruct {
+                                            attrs: vec![],
+                                            qself: None,
+                                            path: path.clone(),
+                                            brace_token: fields.brace_token,
+                                            fields: fields
+                                                .named
+                                                .iter()
+                                                .enumerate()
+                                                .map(
+                                                    |(
+                                                        i,
+                                                        &Field {
+                                                            ref ident, ref ty, ..
+                                                        },
+                                                    )| {
+                                                        let ident = force_ident(ident.as_ref(), i);
+                                                        FieldValue {
+                                                            attrs: vec![],
+                                                            member: Member::Named(ident),
+                                                            colon_token: Some(<Token![:]>::default()),
+                                                            expr: Expr::Verbatim(quote! {
+                                                                terms.must_pop::<#ty>()
+                                                            }),
+                                                        }
+                                                    },
+                                                )
+                                                .collect(),
+                                            dot2_token: None,
+                                            rest: None,
+                                        }),
+                                    };
+                                    Box::new(Expr::Call(ExprCall {
                                         attrs: vec![],
                                         func: Box::new(Expr::Path(ExprPath {
                                             attrs: vec![],
                                             qself: None,
-                                            path: path.clone(),
+                                            path: path_of_str("Some"),
                                         })),
-                                        paren_token: fields.paren_token,
-                                        args: fields
-                                            .unnamed
-                                            .iter()
-                                            .map(|&Field { ref ty, .. }| {
-                                                Expr::Verbatim(quote! {
-                                                    terms.must_pop::<#ty>()
-                                                })
-                                            })
-                                            .collect(),
-                                    }),
-                                    Fields::Named(ref fields) => Expr::Struct(ExprStruct {
-                                        attrs: vec![],
-                                        qself: None,
-                                        path: path.clone(),
-                                        brace_token: fields.brace_token,
-                                        fields: fields
-                                            .named
-                                            .iter()
-                                            .enumerate()
-                                            .map(
-                                                |(
-                                                    i,
-                                                    &Field {
-                                                        ref ident, ref ty, ..
-                                                    },
-                                                )| {
-                                                    let ident = force_ident(ident.as_ref(), i);
-                                                    FieldValue {
-                                                        attrs: vec![],
-                                                        member: Member::Named(ident),
-                                                        colon_token: Some(<Token![:]>::default()),
-                                                        expr: Expr::Verbatim(quote! {
-                                                            terms.must_pop::<#ty>()
-                                                        }),
-                                                    }
-                                                },
-                                            )
-                                            .collect(),
-                                        dot2_token: None,
-                                        rest: None,
-                                    }),
-                                }),
+                                        paren_token: Paren::default(),
+                                        args: iter::once(some).collect(),
+                                    }))
+                                },
                             }))
                             .collect(),
                         }),

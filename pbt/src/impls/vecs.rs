@@ -28,7 +28,7 @@ impl<T: Construct> Construct for Vec<T> {
             introduction_rules: vec![
                 IntroductionRule {
                     arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
-                    call: CtorFn::new(|_| vec![]),
+                    call: CtorFn::new(|_| Some(vec![])),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
@@ -41,7 +41,7 @@ impl<T: Construct> Construct for Vec<T> {
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.push(terms.must_pop::<T>()); // head
-                        acc
+                        Some(acc)
                     }),
                     immediate_dependencies: [type_of::<T>(), type_of::<Self>()]
                         .into_iter()

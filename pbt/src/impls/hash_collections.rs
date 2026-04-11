@@ -32,7 +32,7 @@ impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct 
             introduction_rules: vec![
                 IntroductionRule {
                     arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
-                    call: CtorFn::new(|_| HashSet::with_hasher(S::default())),
+                    call: CtorFn::new(|_| Some(HashSet::with_hasher(S::default()))),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
@@ -45,7 +45,7 @@ impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct 
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.insert(terms.must_pop::<T>()); // head
-                        acc
+                        Some(acc)
                     }),
                     immediate_dependencies: [type_of::<T>(), type_of::<Self>()]
                         .into_iter()
@@ -105,7 +105,7 @@ impl<K: Construct + Hash, V: Construct, S: 'static + BuildHasher + Clone + Defau
             introduction_rules: vec![
                 IntroductionRule {
                     arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
-                    call: CtorFn::new(|_| HashMap::with_hasher(S::default())),
+                    call: CtorFn::new(|_| Some(HashMap::with_hasher(S::default()))),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
@@ -119,7 +119,7 @@ impl<K: Construct + Hash, V: Construct, S: 'static + BuildHasher + Clone + Defau
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>();
                         acc.insert(terms.must_pop::<K>(), terms.must_pop::<V>());
-                        acc
+                        Some(acc)
                     }),
                     immediate_dependencies: [type_of::<K>(), type_of::<V>(), type_of::<Self>()]
                         .into_iter()

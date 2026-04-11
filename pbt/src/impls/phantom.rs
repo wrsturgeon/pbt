@@ -27,7 +27,7 @@ impl<T: Construct> Construct for PhantomData<T> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
                 arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
-                call: CtorFn::new(|_terms| PhantomData),
+                call: CtorFn::new(|_terms| Some(PhantomData)),
                 immediate_dependencies: Multiset::new(),
             }],
             elimination_rule: ElimFn::new(|_| Decomposition {

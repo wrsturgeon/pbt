@@ -66,7 +66,7 @@ impl Construct for String {
             introduction_rules: vec![
                 IntroductionRule {
                     arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
-                    call: CtorFn::new(|_| String::new()),
+                    call: CtorFn::new(|_| Some(String::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
@@ -79,7 +79,7 @@ impl Construct for String {
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.push(terms.must_pop::<char>()); // head
-                        acc
+                        Some(acc)
                     }),
                     immediate_dependencies: [type_of::<char>(), type_of::<Self>()]
                         .into_iter()
@@ -145,7 +145,7 @@ impl Construct for CString {
                     let bytes: Vec<u8> =
                         unsafe { mem::transmute::<Vec<NonZero<u8>>, Vec<u8>>(bytes) };
                     #[expect(clippy::expect_used, reason = "logically impossible")]
-                    CString::new(bytes).expect("internal `pbt` error: C-string error")
+                    Some(CString::new(bytes).expect("internal `pbt` error: C-string error"))
                 }),
                 immediate_dependencies: iter::once(type_of::<Vec<NonZero<u8>>>()).collect(),
             }],
