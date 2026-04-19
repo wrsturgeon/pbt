@@ -6,12 +6,36 @@ use {
         size::Size,
     },
     core::fmt,
+    std::env,
     wyrand::WyRand,
 };
 
+#[derive(Clone, Copy, Debug)]
+#[expect(clippy::exhaustive_structs, reason = "genuinely exhaustive")]
+pub struct Named<T> {
+    pub name: &'static str,
+    pub value: T,
+}
+
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl<T: Eq> Eq for Named<T> {}
+
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl<T: PartialEq> PartialEq for Named<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        T::eq(&self.value, &other.value)
+    }
+}
+
 #[inline]
 pub fn witness<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> Option<T> {
-    let mut prng = WyRand::new(u64::from(SEED));
+    let mut prng = WyRand::new(
+        env::var("PBT_SEED")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or_else(|| getrandom::u64().unwrap_or_else(|_| u64::from(SEED))),
+    );
     for size in Size::expanding().take(n_cases) {
         let t = arbitrary::<T>(&mut prng, size)?;
         if property(&t) {
@@ -42,8 +66,7 @@ pub fn assert<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) {
     if let Some(t) = witness(n_cases, |t| !property(t)) {
         assert!(
             property(&t),
-            "\r\n\r\nnot always true: for example, the input\r\n{t:#?}\r\nreturned `{:?}`\r\n\r\n",
-            false,
+            "\r\n\r\nnot always true: for example, consider the input\r\n{t:#?}\r\n\r\n",
         );
         panic!(
             "\r\n\r\nflaky test! the input\r\n{t:#?}\r\noriginally returned `{:?}`, but when run again, it returned `{:?}`\r\n\r\n",
@@ -72,7 +95,7 @@ pub fn assert_eq<X: Construct, Y: fmt::Debug + Eq, P: Fn(&X) -> (Y, Y)>(
         pretty_assertions::assert_eq!(
             lhs,
             rhs,
-            "\r\n\r\nnot always equal: for example, the input\r\n{x:#?}\r\nproduced\r\n{lhs:#?}\r\nand\r\n{rhs:#?}\r\n\r\n",
+            "\r\n\r\nnot always equal: for example, consider the input\r\n{x:#?}\r\n\r\n",
         );
         panic!(
             "\r\n\r\nflaky test! the input\r\n{x:#?}\r\noriginally failed, but when run again, it produced\r\n{lhs:#?}\r\nand\r\n{rhs:#?}\r\nwhich were judged to be equal\r\n\r\n",

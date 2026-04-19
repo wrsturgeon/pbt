@@ -13,6 +13,7 @@ version.workspace = true
 
 [dependencies]
 ahash = "~0.8"
+getrandom = "~0.3"
 malachite = { version = "~0.9", optional = true }
 num-bigint = { version = "~0.4", optional = true }
 papaya = "~0.2"

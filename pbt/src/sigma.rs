@@ -43,8 +43,10 @@ pub struct Sigma<T, P: Predicate<T>> {
 impl<T, P: Predicate<T>> Sigma<T, P> {
     /// Attempt to create a new term of this Sigma-type
     /// by checking the predicate and succeeding iff the predicate holds.
+    /// # Errors
+    /// If the property does not hold for the candidate provided.
     #[inline]
-    fn new(candidate: T) -> Result<Self, T> {
+    pub fn new(candidate: T) -> Result<Self, T> {
         if P::check(&candidate) {
             Ok(Self {
                 _predicate: PhantomData,
@@ -52,6 +54,23 @@ impl<T, P: Predicate<T>> Sigma<T, P> {
             })
         } else {
             Err(candidate)
+        }
+    }
+
+    /// Attempt to create a new term of this Sigma-type
+    /// by checking the predicate and succeeding iff the predicate holds.
+    /// # Safety
+    /// Nonsensical value if the property does not hold for the candidate provided.
+    #[inline]
+    pub unsafe fn new_unchecked(candidate: T) -> Self {
+        #[cfg(debug_assertions)]
+        {
+            #![expect(clippy::missing_assert_message, reason = "to avoid bounds on `T`")]
+            debug_assert!(P::check(&candidate));
+        }
+        Self {
+            _predicate: PhantomData,
+            value: candidate,
         }
     }
 }
