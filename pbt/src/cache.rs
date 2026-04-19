@@ -8,10 +8,19 @@ use {
         },
         size::Size,
     },
-    core::{any::type_name, iter, mem, num::NonZero},
+    core::{
+        any::type_name,
+        iter, mem,
+        num::NonZero,
+        sync::atomic::{AtomicU64, Ordering},
+    },
     serde::{Deserialize, Serialize},
     std::{
-        env, fs, io,
+        env,
+        ffi::OsString,
+        fs::{self, File, OpenOptions},
+        io,
+        os::fd::AsRawFd as _,
         path::{Path, PathBuf},
         process,
     },
@@ -22,6 +31,11 @@ use {
 const FORMAT_VERSION: u8 = 1;
 /// Environment variable enabling persistent witness caching.
 const ENV_VAR: &str = "PBT_CACHE_DIR";
+/// Test-only delay hook used to widen store races in regression tests.
+const STORE_DELAY_ENV_VAR: &str = "PBT_TEST_CACHE_STORE_DELAY_MS";
+
+/// Distinguish temporary rewrite paths created by concurrent writers in one process.
+static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[expect(clippy::exhaustive_enums, reason = "cache format")]
@@ -205,18 +219,28 @@ pub fn load<T: Construct>() -> Vec<T> {
 #[inline]
 pub fn store<T: Construct>(t: &T) {
     let path = cache_path::<T>();
-    let mut witnesses = load::<T>()
-        .into_iter()
-        .map(|witness| serialize_term(&witness))
-        .collect::<Vec<_>>();
-    witnesses.push(serialize_term(t));
-    canonicalize_terms(&mut witnesses);
     let Some(parent) = path.parent() else {
         return;
     };
     if fs::create_dir_all(parent).is_err() {
         return;
     }
+    let serialized = serialize_term(t);
+    let Ok(()) = with_cache_lock(&path, || store_locked::<T>(&path, &serialized)) else {
+        return;
+    };
+}
+
+/// Rewrite a cache file after the caller has acquired the per-file cache lock.
+#[inline]
+fn store_locked<T: Construct>(path: &Path, term: &WitnessTerm) -> io::Result<()> {
+    let mut witnesses = load::<T>()
+        .into_iter()
+        .map(|witness| serialize_term(&witness))
+        .collect::<Vec<_>>();
+    maybe_test_store_delay();
+    witnesses.push(term.clone());
+    canonicalize_terms(&mut witnesses);
     let encoded = witnesses
         .into_iter()
         .map(|term| CacheLine {
@@ -226,9 +250,7 @@ pub fn store<T: Construct>(t: &T) {
         })
         .map(|line| serde_json::to_string(&line))
         .collect::<Result<Vec<_>, _>>();
-    let Ok(lines) = encoded else {
-        return;
-    };
+    let lines = encoded.map_err(io::Error::other)?;
     let body = if lines.is_empty() {
         String::new()
     } else {
@@ -236,15 +258,88 @@ pub fn store<T: Construct>(t: &T) {
         body.push('\n');
         body
     };
-    drop(atomic_write(&path, &body));
+    atomic_write(path, &body)
+}
+
+/// Hold an exclusive sibling lock file while running a cache read-modify-write step.
+#[inline]
+fn with_cache_lock<R>(path: &Path, f: impl FnOnce() -> io::Result<R>) -> io::Result<R> {
+    let lock = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(lock_path(path))?;
+    lock_exclusive(&lock)?;
+    let result = f();
+    let unlock_result = unlock(&lock);
+    match (result, unlock_result) {
+        (Ok(value), Ok(())) => Ok(value),
+        (Err(error), _) | (Ok(_), Err(error)) => Err(error),
+    }
+}
+
+/// Compute the sibling lock-file path for a cache file.
+#[inline]
+fn lock_path(path: &Path) -> PathBuf {
+    let mut lock_path = OsString::from(path.as_os_str());
+    lock_path.push(".lock");
+    PathBuf::from(lock_path)
+}
+
+/// Acquire an exclusive advisory lock on an already-open lock file.
+#[inline]
+fn lock_exclusive(file: &File) -> io::Result<()> {
+    let fd = file.as_raw_fd();
+    // SAFETY: `fd` is a live file descriptor for the duration of this call.
+    let result = unsafe { libc::flock(fd, libc::LOCK_EX) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
+/// Release an advisory lock previously acquired by [`lock_exclusive`].
+#[inline]
+fn unlock(file: &File) -> io::Result<()> {
+    let fd = file.as_raw_fd();
+    // SAFETY: `fd` is a live file descriptor for the duration of this call.
+    let result = unsafe { libc::flock(fd, libc::LOCK_UN) };
+    if result == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
 }
 
 /// Atomically rewrite a cache file via a temporary sibling path.
 #[inline]
 fn atomic_write(path: &Path, body: &str) -> io::Result<()> {
-    let tmp = path.with_extension(format!("{}.tmp", process::id()));
+    let tmp = path.with_extension(format!(
+        "{}.{}.tmp",
+        process::id(),
+        TEMP_FILE_COUNTER.fetch_add(1, Ordering::Relaxed)
+    ));
     fs::write(&tmp, body)?;
     fs::rename(tmp, path)
+}
+
+/// Delay a cache store during tests so inter-process races can be reproduced reliably.
+#[inline]
+fn maybe_test_store_delay() {
+    use {core::time::Duration, std::thread};
+
+    if !cfg!(test) {
+        return;
+    }
+    let Ok(delay_ms) = env::var(STORE_DELAY_ENV_VAR) else {
+        return;
+    };
+    let Ok(delay_ms) = delay_ms.parse::<u64>() else {
+        return;
+    };
+    thread::sleep(Duration::from_millis(delay_ms));
 }
 
 /// Compute the NDJSON cache path for a top-level witness type.
@@ -330,20 +425,24 @@ mod test {
             construct::Construct,
             sigma::{Predicate, Sigma},
         },
-        core::{convert::Infallible, num::NonZero},
+        core::{convert::Infallible, num::NonZero, time::Duration},
         std::{
             collections::{BTreeMap, BTreeSet, HashMap, HashSet},
             env,
             env::temp_dir,
             ffi::CString,
+            process::Command,
             rc::Rc,
             sync::Arc,
             sync::{LazyLock, Mutex},
+            thread,
             time::{SystemTime, UNIX_EPOCH},
         },
     };
 
     static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+    const CHILD_ROOT_ENV_VAR: &str = "PBT_CACHE_TEST_CHILD_ROOT";
+    const CHILD_VALUE_ENV_VAR: &str = "PBT_CACHE_TEST_CHILD_VALUE";
 
     enum NotTheAnswer {}
 
@@ -469,6 +568,73 @@ mod test {
         let sizes = terms.iter().map(witness_size).collect::<Vec<_>>();
         assert_eq!(sizes, vec![1, 2, 2]);
 
+        // SAFETY: This test holds a global mutex to serialize environment mutation.
+        unsafe {
+            env::remove_var(ENV_VAR);
+        }
+        drop(fs::remove_dir_all(root));
+    }
+
+    #[test]
+    #[expect(
+        clippy::expect_used,
+        reason = "test worker setup failures should panic"
+    )]
+    fn parallel_writer_child() {
+        let Some(root) = env::var_os(CHILD_ROOT_ENV_VAR) else {
+            return;
+        };
+        let value = env::var(CHILD_VALUE_ENV_VAR)
+            .expect("child witness value")
+            .parse::<u64>()
+            .expect("child witness should be a u64");
+        // SAFETY: This test process controls its own environment.
+        unsafe {
+            env::set_var(ENV_VAR, root);
+        }
+        store(&value);
+    }
+
+    #[test]
+    #[expect(clippy::expect_used, reason = "test setup failures should panic")]
+    fn cache_store_serializes_parallel_writers() {
+        let _guard = ENV_LOCK.lock().expect("test env lock poisoned");
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        let root = temp_dir().join(format!("pbt-cache-test-{unique}"));
+        fs::create_dir_all(&root).expect("create cache root");
+
+        let test_bin = env::current_exe().expect("test binary path");
+        let mut first = Command::new(&test_bin);
+        first
+            .arg("cache::test::parallel_writer_child")
+            .arg("--exact")
+            .env(CHILD_ROOT_ENV_VAR, &root)
+            .env(CHILD_VALUE_ENV_VAR, "1")
+            .env(STORE_DELAY_ENV_VAR, "300");
+        let mut first = first.spawn().expect("spawn first cache writer");
+
+        thread::sleep(Duration::from_millis(75));
+
+        let mut second = Command::new(&test_bin);
+        second
+            .arg("cache::test::parallel_writer_child")
+            .arg("--exact")
+            .env(CHILD_ROOT_ENV_VAR, &root)
+            .env(CHILD_VALUE_ENV_VAR, "2");
+        let mut second = second.spawn().expect("spawn second cache writer");
+
+        assert!(first.wait().expect("wait for first writer").success());
+        assert!(second.wait().expect("wait for second writer").success());
+
+        // SAFETY: This test holds a global mutex to serialize environment mutation.
+        unsafe {
+            env::set_var(ENV_VAR, &root);
+        }
+        assert_eq!(load::<u64>(), vec![1, 2]);
         // SAFETY: This test holds a global mutex to serialize environment mutation.
         unsafe {
             env::remove_var(ENV_VAR);

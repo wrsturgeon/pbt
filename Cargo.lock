@@ -216,10 +216,11 @@ dependencies = [
 
 [[package]]
 name = "pbt"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "ahash",
  "getrandom",
+ "libc",
  "malachite",
  "num-bigint",
  "papaya",
@@ -232,7 +233,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-macros"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -241,7 +242,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-tests"
-version = "0.4.7"
+version = "0.4.8"
 dependencies = [
  "pbt",
  "pretty_assertions",
