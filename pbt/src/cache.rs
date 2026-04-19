@@ -23,7 +23,7 @@ const FORMAT_VERSION: u8 = 1;
 /// Environment variable enabling persistent witness caching.
 const ENV_VAR: &str = "PBT_CACHE_DIR";
 
-#[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[expect(clippy::exhaustive_enums, reason = "cache format")]
 pub enum WitnessTerm {
     Literal(String),
@@ -165,7 +165,7 @@ pub fn deserialize_term<T: Construct>(term: &WitnessTerm) -> Option<T> {
     clippy::panic,
     reason = "round-trip test helper should panic on mismatch"
 )]
-pub fn check_round_trip<T: Construct>() {
+pub fn check_roundtrip<T: Construct>() {
     let mut prng = WyRand::new(u64::from(SEED));
     for size in Size::expanding().take(32) {
         let Some(original) = arbitrary::<T>(&mut prng, size) else {
@@ -205,11 +205,12 @@ pub fn load<T: Construct>() -> Vec<T> {
 #[inline]
 pub fn store<T: Construct>(t: &T) {
     let path = cache_path::<T>();
-    let mut witnesses = load::<T>();
-    if witnesses.iter().any(|cached| cached == t) {
-        return;
-    }
-    witnesses.push(t.clone());
+    let mut witnesses = load::<T>()
+        .into_iter()
+        .map(|witness| serialize_term(&witness))
+        .collect::<Vec<_>>();
+    witnesses.push(serialize_term(t));
+    canonicalize_terms(&mut witnesses);
     let Some(parent) = path.parent() else {
         return;
     };
@@ -218,8 +219,8 @@ pub fn store<T: Construct>(t: &T) {
     }
     let encoded = witnesses
         .into_iter()
-        .map(|witness| CacheLine {
-            term: serialize_term(&witness),
+        .map(|term| CacheLine {
+            term,
             ty: type_name::<T>().to_owned(),
             v: FORMAT_VERSION,
         })
@@ -254,6 +255,30 @@ fn cache_path<T: Construct>() -> PathBuf {
     let hash = fnv1a64(ty.as_bytes());
     root.join("witnesses")
         .join(format!("{hash:016x}--{}.ndjson", slugify(ty)))
+}
+
+/// Sort serialized witnesses into a canonical smallest-first order and drop duplicates.
+#[inline]
+fn canonicalize_terms(terms: &mut Vec<WitnessTerm>) {
+    terms.sort_unstable_by(|lhs, rhs| {
+        witness_size(lhs)
+            .cmp(&witness_size(rhs))
+            .then_with(|| lhs.cmp(rhs))
+    });
+    terms.dedup();
+}
+
+/// Count the total number of serialized witness nodes in a decomposition tree.
+#[inline]
+#[must_use]
+fn witness_size(term: &WitnessTerm) -> usize {
+    match *term {
+        WitnessTerm::Literal(_) => 1,
+        WitnessTerm::Node { ref fields, .. } => {
+            let child_nodes = fields.iter().flatten().map(witness_size).sum::<usize>();
+            child_nodes.saturating_add(1)
+        }
+    }
 }
 
 /// Resolve the default persistent cache root for this crate or workspace.
@@ -330,30 +355,30 @@ mod test {
 
     type NonAnswer = Sigma<u8, NotTheAnswer>;
 
-    fn round_trip<T: Construct>() {
-        check_round_trip::<T>();
+    fn roundtrip<T: Construct>() {
+        check_roundtrip::<T>();
     }
 
     #[test]
-    fn round_trip_literals_and_builtins() {
-        round_trip::<bool>();
-        round_trip::<u64>();
-        round_trip::<char>();
-        round_trip::<NonZero<u8>>();
-        round_trip::<Box<bool>>();
-        round_trip::<Option<u64>>();
-        round_trip::<Vec<u64>>();
-        round_trip::<BTreeSet<u64>>();
-        round_trip::<BTreeMap<u64, u64>>();
-        round_trip::<HashSet<u64>>();
-        round_trip::<HashMap<u64, u64>>();
-        round_trip::<Rc<bool>>();
-        round_trip::<Arc<bool>>();
-        round_trip::<(u64, u64)>();
-        round_trip::<String>();
-        round_trip::<CString>();
-        round_trip::<NonAnswer>();
-        round_trip::<Infallible>();
+    fn roundtrip_literals_and_builtins() {
+        roundtrip::<bool>();
+        roundtrip::<u64>();
+        roundtrip::<char>();
+        roundtrip::<NonZero<u8>>();
+        roundtrip::<Box<bool>>();
+        roundtrip::<Option<u64>>();
+        roundtrip::<Vec<u64>>();
+        roundtrip::<BTreeSet<u64>>();
+        roundtrip::<BTreeMap<u64, u64>>();
+        roundtrip::<HashSet<u64>>();
+        roundtrip::<HashMap<u64, u64>>();
+        roundtrip::<Rc<bool>>();
+        roundtrip::<Arc<bool>>();
+        roundtrip::<(u64, u64)>();
+        roundtrip::<String>();
+        roundtrip::<CString>();
+        roundtrip::<NonAnswer>();
+        roundtrip::<Infallible>();
     }
 
     #[test]
@@ -410,5 +435,44 @@ mod test {
             "{path:?} should live under {:?}",
             default_cache_root()
         );
+    }
+
+    #[test]
+    #[expect(clippy::expect_used, reason = "test setup failures should panic")]
+    fn cache_store_sorts_and_deduplicates_by_size() {
+        let _guard = ENV_LOCK.lock().expect("test env lock poisoned");
+
+        let unique = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time went backwards")
+            .as_nanos();
+        let root = temp_dir().join(format!("pbt-cache-test-{unique}"));
+        // SAFETY: This test holds a global mutex to serialize environment mutation.
+        unsafe {
+            env::set_var(ENV_VAR, &root);
+        }
+
+        store(&Some(2_u64));
+        store(&None::<u64>);
+        store(&Some(1_u64));
+        store(&Some(1_u64));
+
+        assert_eq!(load::<Option<u64>>(), vec![None, Some(1), Some(2)]);
+
+        let path = cache_path::<Option<u64>>();
+        let terms = fs::read_to_string(path)
+            .expect("cache file")
+            .lines()
+            .map(|line| serde_json::from_str::<CacheLine>(line).expect("cache line"))
+            .map(|line| line.term)
+            .collect::<Vec<_>>();
+        let sizes = terms.iter().map(witness_size).collect::<Vec<_>>();
+        assert_eq!(sizes, vec![1, 2, 2]);
+
+        // SAFETY: This test holds a global mutex to serialize environment mutation.
+        unsafe {
+            env::remove_var(ENV_VAR);
+        }
+        drop(fs::remove_dir_all(root));
     }
 }

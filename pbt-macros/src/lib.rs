@@ -168,8 +168,8 @@ fn derive_pbt_for_ctors(
             }
 
             #[test]
-            fn round_trip_serialization() {
-                let () = ::pbt::cache::check_round_trip::<#test_path>();
+            fn serialization_roundtrip() {
+                let () = ::pbt::cache::check_roundtrip::<#test_path>();
             }
         }
     }
