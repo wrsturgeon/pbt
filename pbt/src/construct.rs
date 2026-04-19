@@ -1,5 +1,6 @@
 use {
     crate::{
+        cache,
         multiset::Multiset,
         reflection::{
             AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type, info,
@@ -57,7 +58,9 @@ pub struct Algebraic<T> {
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Literal<T> {
+    pub deserialize: fn(&str) -> Option<T>,
     pub generate: for<'prng> fn(&'prng mut WyRand) -> T,
+    pub serialize: fn(&T) -> String,
     pub shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
 }
 
@@ -342,4 +345,17 @@ pub fn visit_self_owned<V: Construct, S: Construct>(s: S) -> Option<V> {
         let () = mem::forget(s);
         v
     })
+}
+
+/// Deserialize a cached witness term of type `T` and push it into a typed term bucket.
+#[inline]
+pub(crate) fn deserialize_into_terms<T: Construct>(
+    term: &cache::WitnessTerm,
+    terms: &mut TermsOfVariousTypes,
+) -> bool {
+    let Some(value) = cache::deserialize_term::<T>(term) else {
+        return false;
+    };
+    terms.push(value);
+    true
 }

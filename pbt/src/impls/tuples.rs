@@ -41,7 +41,11 @@ impl<Lhs: Construct, Rhs: Construct> Construct for (Lhs, Rhs) {
                     fields.push(sizes.arbitrary::<Rhs>(prng));
                     fields
                 },
-                call: CtorFn::new(|fields| Some((fields.must_pop(), fields.must_pop()))),
+                call: CtorFn::new(|fields| {
+                    let rhs: Rhs = fields.must_pop();
+                    let lhs: Lhs = fields.must_pop();
+                    Some((lhs, rhs))
+                }),
                 immediate_dependencies: [type_of::<Lhs>(), type_of::<Rhs>()].into_iter().collect(),
             }],
         })

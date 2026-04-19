@@ -37,6 +37,7 @@ mod malachite {
         #[inline]
         fn type_former() -> TypeFormer<Self> {
             TypeFormer::Literal(Literal {
+                deserialize: |s| s.parse().ok(),
                 generate: |prng| {
                     if (prng.rand() & 3) == 0 {
                         return Self::ZERO;
@@ -70,6 +71,7 @@ mod malachite {
                         (subtrahend != 0).then(|| &u - subtrahend)
                     }))
                 },
+                serialize: |value: &Self| value.to_string(),
             })
         }
 
@@ -108,6 +110,7 @@ mod num_bigint {
         #[inline]
         fn type_former() -> TypeFormer<Self> {
             TypeFormer::Literal(Literal {
+                deserialize: |s| s.parse().ok(),
                 generate: |prng| {
                     // Copied with small (unfortunately incompatible)
                     // modifications from `arbitrary_unsigned`.
@@ -144,6 +147,7 @@ mod num_bigint {
                         (subtrahend != Self::ZERO).then(|| &u - subtrahend)
                     }))
                 },
+                serialize: |value: &Self| value.to_string(),
             })
         }
 
@@ -240,7 +244,9 @@ impl Construct for bool {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| (prng.rand() & 1) != 0,
+            serialize: |value: &Self| value.to_string(),
             shrink: |b| -> Box<dyn Iterator<Item = Self>> {
                 Box::new(b.then_some(false).into_iter())
             },
@@ -269,7 +275,9 @@ impl Construct for u8 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -296,7 +304,9 @@ impl Construct for u16 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -323,7 +333,9 @@ impl Construct for u32 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -350,7 +362,9 @@ impl Construct for u64 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -377,7 +391,9 @@ impl Construct for u128 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -404,7 +420,9 @@ impl Construct for usize {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_unsigned!(Self, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -431,7 +449,9 @@ impl Construct for i8 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_signed!(u8, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -458,7 +478,9 @@ impl Construct for i16 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_signed!(u16, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -485,7 +507,9 @@ impl Construct for i32 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_signed!(u32, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -512,7 +536,9 @@ impl Construct for i64 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_signed!(u64, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -539,7 +565,9 @@ impl Construct for i128 {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_signed!(u128, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }
@@ -566,7 +594,9 @@ impl Construct for isize {
     #[inline]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| arbitrary_signed!(usize, prng),
+            serialize: |value: &Self| value.to_string(),
             shrink: shrink_int!(),
         })
     }

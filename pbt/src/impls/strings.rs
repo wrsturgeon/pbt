@@ -35,12 +35,14 @@ impl Construct for char {
     )]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| s.parse().ok(),
             generate: |prng| loop {
                 let u = prng.rand() as u32;
                 if let Ok(c) = char::try_from(u) {
                     return c;
                 }
             },
+            serialize: |value: &Self| value.to_string(),
             shrink: |c| Box::new(shrink(c as u32).filter_map(|u| char::try_from(u).ok())),
         })
     }
@@ -151,7 +153,10 @@ impl Construct for CString {
             }],
             elimination_rule: ElimFn::new(|s| {
                 let mut fields = TermsOfVariousTypes::new();
-                let () = fields.push(s.into_bytes());
+                let bytes = s.into_bytes();
+                // SAFETY: `CString::into_bytes` never returns interior zero bytes.
+                let bytes = unsafe { mem::transmute::<Vec<u8>, Vec<NonZero<u8>>>(bytes) };
+                let () = fields.push(bytes);
                 Decomposition {
                     ctor_idx: const { NonZero::new(1).unwrap() },
                     fields,

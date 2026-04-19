@@ -1,9 +1,10 @@
 use {
     crate::{
         SEED,
+        cache::{self, WitnessTerm},
         construct::{
             Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
-            TypeFormer,
+            TypeFormer, deserialize_into_terms,
         },
         multiset::Multiset,
         scc::{self, StronglyConnectedComponents},
@@ -41,6 +42,7 @@ pub struct Terms {
     pub debug: for<'t, 'm, 'f> fn(&'t Vec<Erased>, &'m mut fmt::Formatter<'f>) -> fmt::Result,
     pub drop: fn(Vec<Erased>),
     pub eq: for<'lhs, 'rhs> fn(&'lhs Vec<Erased>, &'rhs Vec<Erased>) -> bool,
+    pub pop_serialize: fn(&mut Vec<Erased>) -> Option<WitnessTerm>,
     pub shrink: fn(Vec<Erased>) -> Box<dyn Iterator<Item = Vec<Erased>>>,
     pub terms: Vec<Erased>,
 }
@@ -103,6 +105,7 @@ pub struct TypeInfo {
     /// If this is a "big" type:
     /// either inductive or contains a big type.
     pub cached_big: OnceLock<bool>,
+    pub deserialize_into_terms: fn(&WitnessTerm, &mut TermsOfVariousTypes) -> bool,
     /// The pretty-printed name of this type.
     pub name: &'static str,
     /// Whether this type is uninteresting: specifically, whether it is either
@@ -166,7 +169,9 @@ pub struct AlgebraicTypeFormer {
 pub enum PrecomputedTypeFormer {
     Algebraic(AlgebraicTypeFormer),
     Literal {
+        deserialize: fn(&str) -> Option<Erased>,
         generate: for<'prng> fn(&'prng mut WyRand) -> Erased,
+        serialize: for<'t> fn(&'t Erased) -> String,
         shrink: fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
     },
 }
@@ -334,16 +339,28 @@ impl PrecomputedTypeFormer {
     #[inline]
     #[must_use]
     pub fn literal<T>(
+        deserialize: fn(&str) -> Option<T>,
         generate: for<'prng> fn(&'prng mut WyRand) -> T,
+        serialize: fn(&T) -> String,
         shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
     ) -> Self {
         Self::Literal {
+            // SAFETY: Same size, still a function pointer with the same arguments.
+            deserialize: unsafe {
+                mem::transmute::<fn(&str) -> Option<T>, fn(&str) -> Option<Erased>>(deserialize)
+            },
             // SAFETY: Same size, still a function pointer with the same arguments.
             generate: unsafe {
                 mem::transmute::<
                     for<'prng> fn(&'prng mut WyRand) -> T,
                     for<'prng> fn(&'prng mut WyRand) -> Erased,
                 >(generate)
+            },
+            // SAFETY: Same size, still a function pointer with the same arguments.
+            serialize: unsafe {
+                mem::transmute::<for<'t> fn(&'t T) -> String, for<'t> fn(&'t Erased) -> String>(
+                    serialize,
+                )
             },
             // SAFETY: Same size, still a function pointer.
             shrink: unsafe {
@@ -437,6 +454,7 @@ impl Clone for Terms {
             debug,
             drop,
             eq,
+            pop_serialize,
             shrink,
             ref terms,
         } = *self;
@@ -445,6 +463,7 @@ impl Clone for Terms {
             debug,
             drop,
             eq,
+            pop_serialize,
             shrink,
             terms: (self.clone)(terms),
         }
@@ -484,6 +503,7 @@ impl Terms {
             debug,
             drop,
             eq,
+            pop_serialize,
             shrink,
             ref terms,
         } = self;
@@ -499,6 +519,7 @@ impl Terms {
             debug,
             drop,
             eq,
+            pop_serialize,
             shrink,
             terms,
         })
@@ -594,6 +615,17 @@ impl TermsOfVariousTypes {
     }
 
     #[inline]
+    pub fn pop_serialize_by_id(&mut self, ty: Type) -> Option<WitnessTerm> {
+        let terms = self.map.get_mut(&ty)?;
+        let term = (terms.pop_serialize)(&mut terms.terms)?;
+        if terms.terms.is_empty() {
+            let removed = self.map.remove(&ty)?;
+            drop(removed)
+        }
+        Some(term)
+    }
+
+    #[inline]
     #[expect(clippy::transmute_ptr_to_ptr, reason = "maximally explicit types")]
     pub fn push<T: Construct>(&mut self, t: T) {
         let id = type_of::<T>();
@@ -619,6 +651,11 @@ impl TermsOfVariousTypes {
                     // SAFETY: Undoing an earlier `transmute`.
                     unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(rhs) },
                 )
+            },
+            pop_serialize: |v| {
+                // SAFETY: Undoing the earlier `transmute` in `push`; the bucket is keyed by `T`.
+                let typed = unsafe { mem::transmute::<&mut Vec<Erased>, &mut Vec<T>>(v) };
+                typed.pop().map(|t| cache::serialize_term(&t))
             },
             shrink: |v| {
                 // SAFETY: Never used in its erased form, and
@@ -889,7 +926,12 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             introduction_rules,
             elimination_rule,
         }) => (introduction_rules, elimination_rule),
-        TypeFormer::Literal(Literal { generate, shrink }) => {
+        TypeFormer::Literal(Literal {
+            deserialize,
+            generate,
+            serialize,
+            shrink,
+        }) => {
             #[expect(clippy::expect_used, reason = "extremely unlikely & unrecoverable")]
             let _: Option<scc::Node> = _sccs()
                 .write()
@@ -904,9 +946,15 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
                 );
             return TypeInfo {
                 cached_big: OnceLock::from(false),
+                deserialize_into_terms: deserialize_into_terms::<T>,
                 name: type_name::<T>(),
                 trivial: true,
-                type_former: PrecomputedTypeFormer::literal(generate, shrink),
+                type_former: PrecomputedTypeFormer::literal(
+                    deserialize,
+                    generate,
+                    serialize,
+                    shrink,
+                ),
                 vertex: Vertex {
                     cached_inductivity: OnceLock::from(false),
                     ty: self_ty,
@@ -1003,6 +1051,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
 
     TypeInfo {
         cached_big: OnceLock::new(),
+        deserialize_into_terms: deserialize_into_terms::<T>,
         name: type_name::<T>(),
         trivial,
         type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),

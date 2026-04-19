@@ -27,12 +27,14 @@ impl Construct for NonZero<u8> {
     )]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| NonZero::new(s.parse().ok()?),
             generate: |prng| loop {
                 let u = prng.rand() as u8;
                 if let Some(nz) = NonZero::new(u) {
                     return nz;
                 }
             },
+            serialize: |value: &Self| value.get().to_string(),
             shrink: |u| Box::new(shrink(u.get()).filter_map(NonZero::new)),
         })
     }
@@ -60,6 +62,7 @@ impl Construct for NonZero<char> {
     )]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
+            deserialize: |s| NonZero::new(s.parse().ok()?),
             generate: |prng| loop {
                 let u = prng.rand() as u32;
                 if let Ok(c) = char::try_from(u)
@@ -68,6 +71,7 @@ impl Construct for NonZero<char> {
                     return nz;
                 }
             },
+            serialize: |value: &Self| value.get().to_string(),
             shrink: |c| {
                 Box::new(
                     shrink(c.get() as u32).filter_map(|u| NonZero::new(char::try_from(u).ok()?)),

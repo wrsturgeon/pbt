@@ -581,7 +581,7 @@ fn breadth_first_iteration() {
 
 #[test]
 fn shrink_bool() {
-    assert_eq!(shrink(false).collect::<Vec<_>>(), vec![]);
+    assert_eq!(shrink(false).collect::<Vec<_>>(), Vec::<bool>::new());
     assert_eq!(shrink(true).collect::<Vec<_>>(), vec![false]);
 }
 

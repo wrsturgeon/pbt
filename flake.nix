@@ -68,6 +68,7 @@
             cargo-expand
             cargo-outdated
           ];
+          MIRIFLAGS = "-Zmiri-disable-isolation";
         };
         formatter = treefmt.config.build.wrapper;
         packages.default = craneArtifacts;

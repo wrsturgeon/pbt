@@ -1,6 +1,6 @@
 use {
     crate::{
-        SEED,
+        SEED, cache,
         construct::{Construct, arbitrary},
         shrink::shrink,
         size::Size,
@@ -36,7 +36,27 @@ pub fn witness<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> 
             .and_then(|s| s.parse().ok())
             .unwrap_or_else(|| getrandom::u64().unwrap_or_else(|_| u64::from(SEED))),
     );
-    for size in Size::expanding().take(n_cases) {
+    let mut remaining = n_cases;
+    for t in cache::load::<T>() {
+        if remaining == 0 {
+            break;
+        }
+        remaining = remaining.saturating_sub(1);
+        if property(&t) {
+            let mut best_yet = t;
+            'restart: loop {
+                for candidate in shrink::<T>(best_yet.clone()) {
+                    if property(&candidate) {
+                        best_yet = candidate;
+                        continue 'restart;
+                    }
+                }
+                cache::store(&best_yet);
+                return Some(best_yet);
+            }
+        }
+    }
+    for size in Size::expanding().take(remaining) {
         let t = arbitrary::<T>(&mut prng, size)?;
         if property(&t) {
             let mut best_yet = t;
@@ -48,6 +68,7 @@ pub fn witness<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> 
                     }
                 }
                 // nothing better, so return our best-yet as the best overall:
+                cache::store(&best_yet);
                 return Some(best_yet);
             }
         }
