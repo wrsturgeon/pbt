@@ -107,13 +107,8 @@ impl Size {
 
     #[inline]
     pub fn expanding() -> impl Iterator<Item = Self> {
-        (1_usize..).map(|squared_size| Self {
-            #[expect(
-                clippy::as_conversions,
-                reason = "We're taking the `ilog2` of a `usize`. That's, at most, the number of bits in a `usize`, and that clearly fits within a `usize`."
-            )]
-            // SAFETY: Always `>= 1` by the range above.
-            size: unsafe { squared_size.checked_ilog2().unwrap_unchecked() } as usize,
+        (0_usize..).map(|squared_size| Self {
+            size: squared_size.isqrt(),
         })
     }
 

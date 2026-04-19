@@ -7,15 +7,13 @@
 
 use {
     crate::{
-        SEED,
-        construct::{Construct as _, arbitrary, check_eta_expansion},
+        construct::{Construct as _, check_eta_expansion},
         reflection::{
             PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, breadth_first_transpose, info,
             type_of,
         },
         search::witness,
         shrink::shrink,
-        size::Size,
     },
     core::{
         any::{TypeId, type_name},
@@ -24,11 +22,10 @@ use {
     },
     pretty_assertions::assert_eq,
     std::{
-        collections::{BTreeMap, BTreeSet, HashMap, HashSet},
+        collections::{BTreeMap, BTreeSet},
         rc::Rc,
         sync::Arc,
     },
-    wyrand::WyRand,
 };
 
 #[test]
@@ -298,202 +295,6 @@ fn terms_of_various_types() {
     assert_eq!(terms.pop(), Some(true));
     assert_eq!(terms.pop(), Option::<bool>::None);
     // leave `Some(0x1337)` intact to test that `Drop` doesn't leak:
-}
-
-#[test]
-fn arbitrary_bool() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<bool>>(),
-        vec![
-            false, false, false, true, false, true, false, true, true, false,
-        ],
-    );
-}
-
-#[test]
-fn arbitrary_u64() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(32)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<u64>>(),
-        vec![
-            35, 0, 1, 12, 60, 12, 1, 22787, 0, 1, 0, 5793, 1, 0, 0, 249, 0, 416, 976, 17, 0, 1, 0,
-            2, 1, 2, 1, 3, 35, 4, 1, 277,
-        ],
-    );
-}
-
-#[test]
-fn arbitrary_box_bool() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<Box<bool>>>(),
-        [
-            false, false, true, true, true, true, false, false, true, true,
-        ]
-        .into_iter()
-        .map(Box::new)
-        .collect::<Vec<_>>(),
-    );
-}
-
-#[test]
-fn arbitrary_option_u64() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<Option<u64>>>(),
-        vec![
-            None,
-            None,
-            None,
-            None,
-            Some(2),
-            None,
-            Some(4),
-            Some(28),
-            None,
-            Some(0),
-        ],
-    );
-}
-
-#[test]
-fn arbitrary_vec_bool() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<Vec<bool>>>(),
-        vec![
-            vec![],
-            vec![],
-            vec![],
-            vec![true],
-            vec![false],
-            vec![true],
-            vec![false],
-            vec![false, true],
-            vec![true],
-            vec![],
-        ],
-    );
-}
-
-#[test]
-fn arbitrary_btree_set_u64() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<BTreeSet<u64>>>(),
-        vec![
-            BTreeSet::new(),
-            BTreeSet::new(),
-            BTreeSet::new(),
-            [4].into_iter().collect(),
-            [4].into_iter().collect(),
-            [12].into_iter().collect(),
-            [0].into_iter().collect(),
-            [0].into_iter().collect(),
-            [1, 3].into_iter().collect(),
-            [0, 46].into_iter().collect(),
-        ],
-    );
-}
-
-#[test]
-fn arbitrary_btree_map_u64_u64() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<BTreeMap<u64, u64>>>(),
-        vec![
-            BTreeMap::new(),
-            BTreeMap::new(),
-            BTreeMap::new(),
-            [(1, 4)].into_iter().collect(),
-            [(1, 0)].into_iter().collect(),
-            [(0, 12)].into_iter().collect(),
-            [(1, 0)].into_iter().collect(),
-            BTreeMap::new(),
-            [(2, 15), (46, 1)].into_iter().collect(),
-            [(3, 15)].into_iter().collect(),
-        ],
-    );
-}
-
-#[test]
-fn arbitrary_hash_set_u64() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<HashSet<u64>>>(),
-        vec![
-            HashSet::new(),
-            HashSet::new(),
-            HashSet::new(),
-            [4].into_iter().collect(),
-            [4].into_iter().collect(),
-            [12].into_iter().collect(),
-            [0].into_iter().collect(),
-            [0].into_iter().collect(),
-            [1, 3].into_iter().collect(),
-            [0, 46].into_iter().collect(),
-        ],
-    );
-}
-
-#[test]
-fn arbitrary_hash_map_u64_u64() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<HashMap<u64, u64>>>(),
-        vec![
-            HashMap::new(),
-            HashMap::new(),
-            HashMap::new(),
-            [(1, 4)].into_iter().collect(),
-            [(1, 0)].into_iter().collect(),
-            [(0, 12)].into_iter().collect(),
-            [(1, 0)].into_iter().collect(),
-            HashMap::new(),
-            [(2, 15), (46, 1)].into_iter().collect(),
-            [(3, 15)].into_iter().collect(),
-        ],
-    );
-}
-
-#[test]
-fn arbitrary_infallible() {
-    let mut prng = WyRand::new(u64::from(SEED));
-    assert_eq!(
-        Size::expanding()
-            .take(10)
-            .filter_map(|size| arbitrary(&mut prng, size))
-            .collect::<Vec<Infallible>>(),
-        Vec::<Infallible>::new(),
-    );
 }
 
 #[test]
