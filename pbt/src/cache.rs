@@ -2,8 +2,9 @@ use {
     crate::{
         SEED,
         construct::{Construct, Decomposition, ElimFn, arbitrary},
+        multiset::Multiset,
         reflection::{
-            AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, info,
+            AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type, info,
             info_by_id,
         },
         size::Size,
@@ -16,6 +17,7 @@ use {
     },
     serde::{Deserialize, Serialize},
     std::{
+        collections::BTreeMap,
         env,
         ffi::OsString,
         fs::{self, File, OpenOptions},
@@ -27,8 +29,6 @@ use {
     wyrand::WyRand,
 };
 
-/// Current serialized witness schema version.
-const FORMAT_VERSION: u8 = 1;
 /// Environment variable enabling persistent witness caching.
 const ENV_VAR: &str = "PBT_CACHE_DIR";
 /// Test-only delay hook used to widen store races in regression tests.
@@ -39,34 +39,29 @@ static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[expect(clippy::exhaustive_enums, reason = "cache format")]
-pub enum WitnessTerm {
-    Literal(String),
-    Node {
+pub enum CachedTerm {
+    Algebraic {
         ctor_idx: NonZero<usize>,
-        fields: Vec<Vec<WitnessTerm>>,
+        fields: BTreeMap<String, Vec<CachedTerm>>,
     },
+    Literal(String),
 }
+
+pub type CachedTerms = BTreeMap<String, Vec<CachedTerm>>;
 
 /// One line in the per-type NDJSON cache file.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 struct CacheLine {
     /// The cached witness term.
-    term: WitnessTerm,
+    term: CachedTerm,
     /// Fully qualified type name of the top-level witness.
     #[serde(rename = "type")]
     ty: String,
-    /// Cache format version.
-    v: u8,
 }
 
 #[inline]
 #[must_use]
-#[expect(
-    clippy::missing_panics_doc,
-    clippy::panic,
-    reason = "internal decomposition invariants should panic if violated"
-)]
-pub fn serialize_term<T: Construct>(t: &T) -> WitnessTerm {
+pub fn serialize_term<T: Construct>(t: &T) -> CachedTerm {
     let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Literal { serialize, .. } => {
@@ -76,55 +71,19 @@ pub fn serialize_term<T: Construct>(t: &T) -> WitnessTerm {
                     serialize,
                 )
             };
-            WitnessTerm::Literal(serialize(t))
+            CachedTerm::Literal(serialize(t))
         }
-        PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
-            ref all_constructors,
-            eliminator,
-            ..
-        }) => {
+        PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer { eliminator, .. }) => {
             // SAFETY: Undoing an earlier `transmute` keyed by the surrounding concrete `T`.
             let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
-            let Decomposition {
-                ctor_idx,
-                mut fields,
-            } = eliminator(t.clone());
-            let idx = ctor_idx
-                .get()
-                .checked_sub(1)
-                .unwrap_or_else(|| panic!("internal `pbt` error: zero constructor index"));
-            let Some(&(_, ref ctor)) = all_constructors.get(idx) else {
-                panic!("internal `pbt` error: constructor index out of bounds")
-            };
-            let grouped_fields = ctor
-                .constructor
-                .immediate
-                .iter()
-                .map(|(&ty, count)| {
-                    iter::repeat_with(|| {
-                        fields.pop_serialize_by_id(ty).unwrap_or_else(|| {
-                            panic!("internal `pbt` error: missing serialized field")
-                        })
-                    })
-                    .take(count.get())
-                    .collect()
-                })
-                .collect();
-            assert!(
-                fields.is_empty(),
-                "internal `pbt` error: leftover terms after serializing a decomposition: {fields:#?}",
-            );
-            WitnessTerm::Node {
-                ctor_idx,
-                fields: grouped_fields,
-            }
+            serialize_decomposition(eliminator(t.clone()))
         }
     }
 }
 
 #[inline]
 #[must_use]
-pub fn deserialize_term<T: Construct>(term: &WitnessTerm) -> Option<T> {
+pub fn deserialize_term<T: Construct>(term: &CachedTerm) -> Option<T> {
     let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Literal { deserialize, .. } => {
@@ -132,7 +91,7 @@ pub fn deserialize_term<T: Construct>(term: &WitnessTerm) -> Option<T> {
             let deserialize = unsafe {
                 mem::transmute::<fn(&str) -> Option<Erased>, fn(&str) -> Option<T>>(deserialize)
             };
-            let WitnessTerm::Literal(ref payload) = *term else {
+            let CachedTerm::Literal(ref payload) = *term else {
                 return None;
             };
             deserialize(payload)
@@ -141,7 +100,7 @@ pub fn deserialize_term<T: Construct>(term: &WitnessTerm) -> Option<T> {
             ref all_constructors,
             ..
         }) => {
-            let WitnessTerm::Node {
+            let CachedTerm::Algebraic {
                 ctor_idx,
                 ref fields,
             } = *term
@@ -149,20 +108,7 @@ pub fn deserialize_term<T: Construct>(term: &WitnessTerm) -> Option<T> {
                 return None;
             };
             let &(ctor, ref ctor_meta) = all_constructors.get(ctor_idx.get().checked_sub(1)?)?;
-            if ctor_meta.constructor.immediate.iter().count() != fields.len() {
-                return None;
-            }
-            let mut terms = TermsOfVariousTypes::new();
-            for ((&ty, count), bucket) in ctor_meta.constructor.immediate.iter().zip(fields) {
-                if bucket.len() != count.get() {
-                    return None;
-                }
-                for subterm in bucket.iter().rev() {
-                    if !(info_by_id(ty).deserialize_into_terms)(subterm, &mut terms) {
-                        return None;
-                    }
-                }
-            }
+            let mut terms = deserialize_terms(&ctor_meta.constructor.immediate, fields)?;
             // SAFETY: Undoing an earlier `transmute` keyed by the constructor-selected `T`.
             let constructed = unsafe { ctor.unerase::<T>() }(&mut terms)?;
             if !terms.is_empty() {
@@ -171,6 +117,80 @@ pub fn deserialize_term<T: Construct>(term: &WitnessTerm) -> Option<T> {
             Some(constructed)
         }
     }
+}
+
+#[inline]
+#[must_use]
+pub fn serialize_decomposition(decomposition: Decomposition) -> CachedTerm {
+    let Decomposition { ctor_idx, fields } = decomposition;
+    CachedTerm::Algebraic {
+        ctor_idx,
+        fields: serialize_terms(fields),
+    }
+}
+
+#[inline]
+#[must_use]
+#[expect(
+    clippy::missing_panics_doc,
+    clippy::panic,
+    reason = "internal decomposition invariants should panic if violated"
+)]
+pub fn serialize_terms(mut terms: TermsOfVariousTypes) -> CachedTerms {
+    let bucket_keys: Vec<_> = terms
+        .map
+        .keys()
+        .copied()
+        .map(|ty| (info_by_id(ty).name, ty))
+        .collect();
+    let buckets = bucket_keys
+        .into_iter()
+        .map(|(name, ty)| {
+            let count = terms
+                .map
+                .get(&ty)
+                .unwrap_or_else(|| panic!("internal `pbt` error: missing term bucket"))
+                .terms
+                .len();
+            let serialized_terms = iter::repeat_with(|| {
+                terms.pop_serialize_by_id(ty).unwrap_or_else(|| {
+                    panic!("internal `pbt` error: missing serialized term in bucket")
+                })
+            })
+            .take(count)
+            .collect();
+            (name.to_owned(), serialized_terms)
+        })
+        .collect();
+    assert!(
+        terms.is_empty(),
+        "internal `pbt` error: leftover terms after serializing buckets: {terms:#?}",
+    );
+    buckets
+}
+
+#[inline]
+#[must_use]
+pub fn deserialize_terms(
+    expected: &Multiset<Type>,
+    fields: &CachedTerms,
+) -> Option<TermsOfVariousTypes> {
+    if expected.iter().count() != fields.len() {
+        return None;
+    }
+    let mut terms = TermsOfVariousTypes::new();
+    for (&ty, count) in expected.iter() {
+        let bucket = fields.get(info_by_id(ty).name)?;
+        if bucket.len() != count.get() {
+            return None;
+        }
+        for subterm in bucket.iter().rev() {
+            if !(info_by_id(ty).deserialize_into_terms)(subterm, &mut terms) {
+                return None;
+            }
+        }
+    }
+    Some(terms)
 }
 
 #[inline]
@@ -211,7 +231,7 @@ pub fn load<T: Construct>() -> Vec<T> {
     contents
         .lines()
         .filter_map(|line| serde_json::from_str::<CacheLine>(line).ok())
-        .filter(|line| line.v == FORMAT_VERSION && line.ty == type_name::<T>())
+        .filter(|line| line.ty == type_name::<T>())
         .filter_map(|line| deserialize_term::<T>(&line.term))
         .collect()
 }
@@ -233,7 +253,7 @@ pub fn store<T: Construct>(t: &T) {
 
 /// Rewrite a cache file after the caller has acquired the per-file cache lock.
 #[inline]
-fn store_locked<T: Construct>(path: &Path, term: &WitnessTerm) -> io::Result<()> {
+fn store_locked<T: Construct>(path: &Path, term: &CachedTerm) -> io::Result<()> {
     let mut witnesses = load::<T>()
         .into_iter()
         .map(|witness| serialize_term(&witness))
@@ -246,7 +266,6 @@ fn store_locked<T: Construct>(path: &Path, term: &WitnessTerm) -> io::Result<()>
         .map(|term| CacheLine {
             term,
             ty: type_name::<T>().to_owned(),
-            v: FORMAT_VERSION,
         })
         .map(|line| serde_json::to_string(&line))
         .collect::<Result<Vec<_>, _>>();
@@ -354,7 +373,7 @@ fn cache_path<T: Construct>() -> PathBuf {
 
 /// Sort serialized witnesses into a canonical smallest-first order and drop duplicates.
 #[inline]
-fn canonicalize_terms(terms: &mut Vec<WitnessTerm>) {
+fn canonicalize_terms(terms: &mut Vec<CachedTerm>) {
     terms.sort_unstable_by(|lhs, rhs| {
         witness_size(lhs)
             .cmp(&witness_size(rhs))
@@ -366,11 +385,11 @@ fn canonicalize_terms(terms: &mut Vec<WitnessTerm>) {
 /// Count the total number of serialized witness nodes in a decomposition tree.
 #[inline]
 #[must_use]
-fn witness_size(term: &WitnessTerm) -> usize {
+fn witness_size(term: &CachedTerm) -> usize {
     match *term {
-        WitnessTerm::Literal(_) => 1,
-        WitnessTerm::Node { ref fields, .. } => {
-            let child_nodes = fields.iter().flatten().map(witness_size).sum::<usize>();
+        CachedTerm::Literal(_) => 1,
+        CachedTerm::Algebraic { ref fields, .. } => {
+            let child_nodes = fields.values().flatten().map(witness_size).sum::<usize>();
             child_nodes.saturating_add(1)
         }
     }

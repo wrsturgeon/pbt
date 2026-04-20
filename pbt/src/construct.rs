@@ -350,7 +350,7 @@ pub fn visit_self_owned<V: Construct, S: Construct>(s: S) -> Option<V> {
 /// Deserialize a cached witness term of type `T` and push it into a typed term bucket.
 #[inline]
 pub(crate) fn deserialize_into_terms<T: Construct>(
-    term: &cache::WitnessTerm,
+    term: &cache::CachedTerm,
     terms: &mut TermsOfVariousTypes,
 ) -> bool {
     let Some(value) = cache::deserialize_term::<T>(term) else {

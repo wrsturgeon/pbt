@@ -1,7 +1,7 @@
 use {
     crate::{
         SEED,
-        cache::{self, WitnessTerm},
+        cache::{self, CachedTerm},
         construct::{
             Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
             TypeFormer, deserialize_into_terms,
@@ -42,7 +42,7 @@ pub struct BucketOps {
     pub debug: for<'t, 'm, 'f> fn(&'t Vec<Erased>, &'m mut fmt::Formatter<'f>) -> fmt::Result,
     pub drop: fn(Vec<Erased>),
     pub eq: for<'lhs, 'rhs> fn(&'lhs Vec<Erased>, &'rhs Vec<Erased>) -> bool,
-    pub pop_serialize: fn(&mut Vec<Erased>) -> Option<WitnessTerm>,
+    pub pop_serialize: fn(&mut Vec<Erased>) -> Option<CachedTerm>,
     pub shrink: fn(Vec<Erased>) -> Box<dyn Iterator<Item = Vec<Erased>>>,
 }
 
@@ -111,7 +111,7 @@ pub struct TypeInfo {
     /// If this is a "big" type:
     /// either inductive or contains a big type.
     pub cached_big: OnceLock<bool>,
-    pub deserialize_into_terms: fn(&WitnessTerm, &mut TermsOfVariousTypes) -> bool,
+    pub deserialize_into_terms: fn(&CachedTerm, &mut TermsOfVariousTypes) -> bool,
     /// The pretty-printed name of this type.
     pub name: &'static str,
     /// Whether this type is uninteresting: specifically, whether it is either
@@ -639,7 +639,7 @@ impl TermsOfVariousTypes {
     }
 
     #[inline]
-    pub fn pop_serialize_by_id(&mut self, ty: Type) -> Option<WitnessTerm> {
+    pub fn pop_serialize_by_id(&mut self, ty: Type) -> Option<CachedTerm> {
         let terms = self.map.get_mut(&ty)?;
         let term = (info_by_id(ty).bucket_ops.pop_serialize)(&mut terms.terms)?;
         if terms.terms.is_empty() {
