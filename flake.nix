@@ -67,6 +67,7 @@
           packages = with pkgs; [
             cargo-expand
             cargo-outdated
+            valgrind
           ];
           MIRIFLAGS = "-Zmiri-disable-isolation";
         };

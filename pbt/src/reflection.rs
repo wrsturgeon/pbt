@@ -35,16 +35,22 @@ pub enum Erased {
     // uninstantiable
 }
 
-/// An erased term of some type that implements `Clone + Debug + Eq`.
+#[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
-pub struct Terms {
+pub struct BucketOps {
     pub clone: for<'t> fn(&'t Vec<Erased>) -> Vec<Erased>,
     pub debug: for<'t, 'm, 'f> fn(&'t Vec<Erased>, &'m mut fmt::Formatter<'f>) -> fmt::Result,
     pub drop: fn(Vec<Erased>),
     pub eq: for<'lhs, 'rhs> fn(&'lhs Vec<Erased>, &'rhs Vec<Erased>) -> bool,
     pub pop_serialize: fn(&mut Vec<Erased>) -> Option<WitnessTerm>,
     pub shrink: fn(Vec<Erased>) -> Box<dyn Iterator<Item = Vec<Erased>>>,
+}
+
+/// An erased term bucket together with the type key needed to recover its vtable.
+#[non_exhaustive]
+pub struct Terms {
     pub terms: Vec<Erased>,
+    pub ty: Type,
 }
 
 /// A map from types to ordered collections of terms of those types.
@@ -53,7 +59,6 @@ pub struct Terms {
 /// so it can request exactly enough terms of various types to do so.
 #[non_exhaustive]
 #[repr(transparent)]
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TermsOfVariousTypes {
     /// A map from types to ordered collections of terms of those types.
     pub map: BTreeMap<Type, Terms>,
@@ -102,6 +107,7 @@ pub struct CtorVertex {
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct TypeInfo {
+    pub bucket_ops: BucketOps,
     /// If this is a "big" type:
     /// either inductive or contains a big type.
     pub cached_big: OnceLock<bool>,
@@ -449,23 +455,10 @@ impl Construct for Erased {
 impl Clone for Terms {
     #[inline]
     fn clone(&self) -> Self {
-        let Self {
-            clone,
-            debug,
-            drop,
-            eq,
-            pop_serialize,
-            shrink,
-            ref terms,
-        } = *self;
+        let clone = info_by_id(self.ty).bucket_ops.clone;
         Self {
-            clone,
-            debug,
-            drop,
-            eq,
-            pop_serialize,
-            shrink,
-            terms: (self.clone)(terms),
+            terms: clone(&self.terms),
+            ty: self.ty,
         }
     }
 }
@@ -473,14 +466,14 @@ impl Clone for Terms {
 impl fmt::Debug for Terms {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (self.debug)(&self.terms, f)
+        (info_by_id(self.ty).bucket_ops.debug)(&self.terms, f)
     }
 }
 
 impl Drop for Terms {
     #[inline]
     fn drop(&mut self) {
-        (self.drop)(mem::take(&mut self.terms))
+        (info_by_id(self.ty).bucket_ops.drop)(mem::take(&mut self.terms))
     }
 }
 
@@ -491,38 +484,69 @@ impl Eq for Terms {}
 impl PartialEq for Terms {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        (self.eq)(&self.terms, &other.terms)
+        self.ty == other.ty && (info_by_id(self.ty).bucket_ops.eq)(&self.terms, &other.terms)
     }
 }
 
 impl Terms {
     #[inline]
     pub fn shrink(self) -> impl Iterator<Item = Self> {
-        let Self {
-            clone,
-            debug,
-            drop,
-            eq,
-            pop_serialize,
-            shrink,
-            ref terms,
-        } = self;
+        let ty = self.ty;
+        let shrink = info_by_id(ty).bucket_ops.shrink;
         // SAFETY: Not double-dropped b/c `mem::forget` below.
-        let terms = unsafe { ptr::read(terms) };
+        let terms = unsafe { ptr::read(ptr::from_ref(&self.terms)) };
         #[expect(
             clippy::mem_forget,
             reason = "to avoid double-dropping the `Vec<Erased>` moved above"
         )]
         let () = mem::forget(self);
-        shrink(terms).map(move |terms| Self {
-            clone,
-            debug,
-            drop,
-            eq,
-            pop_serialize,
-            shrink,
-            terms,
-        })
+        shrink(terms).map(move |terms| Self { terms, ty })
+    }
+}
+
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl Clone for TermsOfVariousTypes {
+    #[inline]
+    fn clone(&self) -> Self {
+        Self {
+            map: self
+                .map
+                .iter()
+                .map(|(&ty, terms)| (ty, terms.clone()))
+                .collect(),
+        }
+    }
+}
+
+impl fmt::Debug for TermsOfVariousTypes {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut map = f.debug_map();
+        for (&ty, terms) in &self.map {
+            let info = info_by_id(ty);
+            map.entry(&info.name, terms);
+        }
+        map.finish()
+    }
+}
+
+impl Drop for TermsOfVariousTypes {
+    #[inline]
+    fn drop(&mut self) {
+        for (_, terms) in mem::take(&mut self.map) {
+            drop(terms);
+        }
+    }
+}
+
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl Eq for TermsOfVariousTypes {}
+
+#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
+impl PartialEq for TermsOfVariousTypes {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.map == other.map
     }
 }
 
@@ -617,7 +641,7 @@ impl TermsOfVariousTypes {
     #[inline]
     pub fn pop_serialize_by_id(&mut self, ty: Type) -> Option<WitnessTerm> {
         let terms = self.map.get_mut(&ty)?;
-        let term = (terms.pop_serialize)(&mut terms.terms)?;
+        let term = (info_by_id(ty).bucket_ops.pop_serialize)(&mut terms.terms)?;
         if terms.terms.is_empty() {
             let removed = self.map.remove(&ty)?;
             drop(removed)
@@ -626,50 +650,14 @@ impl TermsOfVariousTypes {
     }
 
     #[inline]
-    #[expect(clippy::transmute_ptr_to_ptr, reason = "maximally explicit types")]
     pub fn push<T: Construct>(&mut self, t: T) {
+        drop(info::<T>());
         let id = type_of::<T>();
         let terms = self.map.entry(id).or_insert_with(|| Terms {
             // SAFETY: Never used in its erased form, and
             // `Vec<_>`s all have the same size+alignment.
             terms: unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(vec![]) },
-            clone: |v| {
-                // SAFETY: Undoing an earlier `transmute`.
-                let erased = unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(v) }.clone();
-                // SAFETY: Never used in its erased form, and
-                // `Vec<_>`s all have the same size+alignment.
-                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(erased) }
-            },
-            // SAFETY: Undoing an earlier `transmute`.
-            debug: |v, f| fmt::Debug::fmt(unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(v) }, f),
-            // SAFETY: Undoing an earlier `transmute`.
-            drop: |v| mem::drop(unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) }),
-            eq: |lhs, rhs| {
-                <Vec<T> as PartialEq>::eq(
-                    // SAFETY: Undoing an earlier `transmute`.
-                    unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(lhs) },
-                    // SAFETY: Undoing an earlier `transmute`.
-                    unsafe { mem::transmute::<&Vec<Erased>, &Vec<T>>(rhs) },
-                )
-            },
-            pop_serialize: |v| {
-                // SAFETY: Undoing the earlier `transmute` in `push`; the bucket is keyed by `T`.
-                let typed = unsafe { mem::transmute::<&mut Vec<Erased>, &mut Vec<T>>(v) };
-                typed.pop().map(|t| cache::serialize_term(&t))
-            },
-            shrink: |v| {
-                // SAFETY: Never used in its erased form, and
-                // `Box<_>`es all have the same size+alignment.
-                let v = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) };
-                let vec_of_iterators = v.into_iter().map(|t| (t.clone(), shrink(t))).collect(); // beautiful -- rust <3
-                let iterator_of_vecs = breadth_first_transpose(vec_of_iterators);
-                let iterator_of_erased_vecs = iterator_of_vecs.map(|v| {
-                    // SAFETY: Never used in its erased form, and
-                    // `Box<_>`es all have the same size+alignment.
-                    unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) }
-                });
-                Box::new(iterator_of_erased_vecs)
-            },
+            ty: id,
         });
         let v: *mut Vec<Erased> = ptr::from_mut(&mut terms.terms);
         let v: *mut Vec<T> = v.cast();
@@ -681,7 +669,8 @@ impl TermsOfVariousTypes {
 
     #[inline]
     pub fn shrink(self) -> impl Iterator<Item = Self> {
-        let Self { map } = self;
+        let mut this = self;
+        let map = mem::take(&mut this.map);
 
         // The general idea here is "breadth-first iteration":
         // given some collection of iterators,
@@ -713,14 +702,7 @@ impl TermsOfVariousTypes {
         // so we can apply breadth-first iteration to the latter:
         let (keys, value_iterators): (Vec<Type>, Vec<_>) = map
             .into_iter()
-            .map(|(k, v)| {
-                (
-                    k,
-                    // Ask `Terms::shrink` to do the heavy lifting,
-                    // giving us a vector of *iterators over* collections of terms:
-                    (v.clone(), v.shrink()),
-                )
-            })
+            .map(|(k, v)| (k, (v.clone(), v.shrink())))
             .unzip();
 
         // Transpose from a collection of iterators
@@ -911,6 +893,52 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
     })
 }
 
+/// Build the erased bucket operations for one concrete term type.
+#[inline]
+fn bucket_ops<T: Construct>() -> BucketOps {
+    BucketOps {
+        clone: |v| {
+            // SAFETY: Undoing an earlier pointer cast; the bucket is keyed by `T`.
+            let erased = unsafe { &*(ptr::from_ref(v).cast::<Vec<T>>()) }.clone();
+            // SAFETY: Never used in its erased form, and
+            // `Vec<_>`s all have the same size+alignment.
+            unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(erased) }
+        },
+        debug: |v, f| {
+            // SAFETY: Undoing an earlier pointer cast; the bucket is keyed by `T`.
+            fmt::Debug::fmt(unsafe { &*(ptr::from_ref(v).cast::<Vec<T>>()) }, f)
+        },
+        // SAFETY: Undoing an earlier `transmute`.
+        drop: |v| mem::drop(unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) }),
+        eq: |lhs, rhs| {
+            <Vec<T> as PartialEq>::eq(
+                // SAFETY: Undoing an earlier pointer cast; the bucket is keyed by `T`.
+                unsafe { &*(ptr::from_ref(lhs).cast::<Vec<T>>()) },
+                // SAFETY: Undoing an earlier pointer cast; the bucket is keyed by `T`.
+                unsafe { &*(ptr::from_ref(rhs).cast::<Vec<T>>()) },
+            )
+        },
+        pop_serialize: |v| {
+            // SAFETY: Undoing the earlier pointer cast in `push`; the bucket is keyed by `T`.
+            let typed = unsafe { &mut *(ptr::from_mut(v).cast::<Vec<T>>()) };
+            typed.pop().map(|t| cache::serialize_term(&t))
+        },
+        shrink: |v| {
+            // SAFETY: Never used in its erased form, and
+            // `Box<_>`es all have the same size+alignment.
+            let v = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) };
+            let vec_of_iterators = v.into_iter().map(|t| (t.clone(), shrink(t))).collect();
+            let iterator_of_vecs = breadth_first_transpose(vec_of_iterators);
+            let iterator_of_erased_vecs = iterator_of_vecs.map(|v| {
+                // SAFETY: Never used in its erased form, and
+                // `Vec<_>`s all have the same size+alignment.
+                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) }
+            });
+            Box::new(iterator_of_erased_vecs)
+        },
+    }
+}
+
 /// Register a type with the global registry of type dependency information.
 /// If this function is called, then the function is *not* already in the registry,
 /// and the return value of this function will be *automatically* added to the registry.
@@ -945,6 +973,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
                     }),
                 );
             return TypeInfo {
+                bucket_ops: bucket_ops::<T>(),
                 cached_big: OnceLock::from(false),
                 deserialize_into_terms: deserialize_into_terms::<T>,
                 name: type_name::<T>(),
@@ -1050,6 +1079,7 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         );
 
     TypeInfo {
+        bucket_ops: bucket_ops::<T>(),
         cached_big: OnceLock::new(),
         deserialize_into_terms: deserialize_into_terms::<T>,
         name: type_name::<T>(),

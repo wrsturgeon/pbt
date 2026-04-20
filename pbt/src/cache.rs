@@ -459,6 +459,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "Round-trip coverage is too slow under Miri")]
     fn roundtrip_literals_and_builtins() {
         roundtrip::<bool>();
         roundtrip::<u64>();
@@ -576,6 +577,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "Miri does not support spawning child processes")]
     #[expect(
         clippy::expect_used,
         reason = "test worker setup failures should panic"
@@ -596,6 +598,7 @@ mod test {
     }
 
     #[test]
+    #[cfg_attr(miri, ignore = "Miri does not support spawning child processes")]
     #[expect(clippy::expect_used, reason = "test setup failures should panic")]
     fn cache_store_serializes_parallel_writers() {
         let _guard = ENV_LOCK.lock().expect("test env lock poisoned");
