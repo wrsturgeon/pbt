@@ -8,6 +8,7 @@ use {
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
+        scc::StronglyConnectedComponents,
         shrink::shrink,
     },
     core::{iter, mem, num::NonZero},
@@ -20,7 +21,10 @@ impl Construct for char {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -55,11 +59,14 @@ impl Construct for char {
 
 impl Construct for String {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<char>(visited.clone());
+        let () = register::<char>(visited.clone(), sccs);
     }
 
     #[inline]
@@ -125,11 +132,14 @@ impl Construct for String {
 
 impl Construct for CString {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<Vec<NonZero<u8>>>(visited.clone());
+        let () = register::<Vec<NonZero<u8>>>(visited.clone(), sccs);
     }
 
     #[inline]

@@ -27,7 +27,10 @@ mod malachite {
             clippy::needless_return,
             reason = "in case a function body is added later"
         )]
-        fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        fn register_all_immediate_dependencies(
+            visited: &mut BTreeSet<Type>,
+            _sccs: &mut StronglyConnectedComponents,
+        ) {
             if !visited.insert(type_of::<Self>()) {
                 return;
             }
@@ -100,7 +103,10 @@ mod num_bigint {
             clippy::needless_return,
             reason = "in case a function body is added later"
         )]
-        fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+        fn register_all_immediate_dependencies(
+            visited: &mut BTreeSet<Type>,
+            _sccs: &mut StronglyConnectedComponents,
+        ) {
             if !visited.insert(type_of::<Self>()) {
                 return;
             }
@@ -160,38 +166,26 @@ mod num_bigint {
 
 use {
     crate::{
+        arbitrary_nonzero_unsigned,
         construct::{Construct, Literal, TypeFormer, visit_self},
         reflection::{Type, type_of},
+        scc::StronglyConnectedComponents,
     },
     std::collections::BTreeSet,
 };
 
 /// Generate an arbitrary value for an
 /// unsigned integer of fixed but unspecified width.
+#[macro_export]
 macro_rules! arbitrary_unsigned {
     // TODO: iterate over a `u64` as 64 booleans
     // instead of recomputing each
     ($u:ty, $prng:ident) => {{
         if ($prng.rand() & 3) == 0 {
-            return 0;
+            0
+        } else {
+            arbitrary_nonzero_unsigned!($u, $prng)
         }
-
-        let mut acc: $u = 1;
-
-        while ($prng.rand() & 3) != 0 {
-            #[allow(
-                clippy::allow_attributes,
-                clippy::default_numeric_fallback,
-                reason = "type varies"
-            )]
-            if acc.cast_signed() < 0 {
-                acc = <$u>::MAX;
-                break;
-            }
-            acc <<= 1_u8;
-            acc |= <$u>::from(($prng.rand() & 1) != 0);
-        }
-        acc
     }};
 }
 
@@ -234,7 +228,10 @@ impl Construct for bool {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -265,7 +262,10 @@ impl Construct for u8 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -294,7 +294,10 @@ impl Construct for u16 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -323,7 +326,10 @@ impl Construct for u32 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -352,7 +358,10 @@ impl Construct for u64 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -381,7 +390,10 @@ impl Construct for u128 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -410,7 +422,10 @@ impl Construct for usize {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -439,7 +454,10 @@ impl Construct for i8 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -468,7 +486,10 @@ impl Construct for i16 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -497,7 +518,10 @@ impl Construct for i32 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -526,7 +550,10 @@ impl Construct for i64 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -555,7 +582,10 @@ impl Construct for i128 {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
@@ -584,7 +614,10 @@ impl Construct for isize {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }

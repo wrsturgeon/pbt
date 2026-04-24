@@ -10,6 +10,7 @@ use {
             visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
+        scc::StronglyConnectedComponents,
     },
     core::{
         cmp, fmt,
@@ -24,8 +25,12 @@ use {
 
 /// A runtime-decidable predicate on some type.
 pub trait Predicate<T>: 'static {
+    /// Printable error iff `check` fails.
+    type Error: fmt::Display;
     /// Decide whether an arbitrary candidate satisfies this predicate.
-    fn check(candidate: &T) -> bool;
+    /// # Errors
+    /// If this predicate does not hold.
+    fn check(candidate: &T) -> Result<(), Self::Error>;
 }
 
 /// Sigma-types: types whose terms satisfy a predicate
@@ -46,14 +51,13 @@ impl<T, P: Predicate<T>> Sigma<T, P> {
     /// # Errors
     /// If the property does not hold for the candidate provided.
     #[inline]
-    pub fn new(candidate: T) -> Result<Self, T> {
-        if P::check(&candidate) {
-            Ok(Self {
+    pub fn new(candidate: T) -> Result<Self, (P::Error, T)> {
+        match P::check(&candidate) {
+            Ok(()) => Ok(Self {
                 _predicate: PhantomData,
                 value: candidate,
-            })
-        } else {
-            Err(candidate)
+            }),
+            Err(e) => Err((e, candidate)),
         }
     }
 
@@ -61,12 +65,17 @@ impl<T, P: Predicate<T>> Sigma<T, P> {
     /// by checking the predicate and succeeding iff the predicate holds.
     /// # Safety
     /// Nonsensical value if the property does not hold for the candidate provided.
+    /// # Panics
+    /// If debug assertions are enabled and `P::check` fails.
     #[inline]
     pub unsafe fn new_unchecked(candidate: T) -> Self {
         #[cfg(debug_assertions)]
         {
-            #![expect(clippy::missing_assert_message, reason = "to avoid bounds on `T`")]
-            debug_assert!(P::check(&candidate));
+            match P::check(&candidate) {
+                Ok(()) => {}
+                #[expect(clippy::panic, reason = "better than unsafe values")]
+                Err(e) => panic!("{e}"),
+            }
         }
         Self {
             _predicate: PhantomData,
@@ -145,11 +154,14 @@ impl<T: fmt::Display, P: Predicate<T>> fmt::Display for Sigma<T, P> {
 // (since that's impossible and will loop forever)?
 impl<T: Construct, P: Predicate<T>> Construct for Sigma<T, P> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<T>(visited.clone());
+        let () = register::<T>(visited.clone(), sccs);
     }
 
     #[inline]

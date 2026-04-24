@@ -13,7 +13,7 @@ pub mod size;
 mod test;
 
 // Re-exports for macros:
-pub use {pbt_macros::Pbt, wyrand::WyRand};
+pub use {pbt_macros::Pbt, scc::StronglyConnectedComponents, wyrand::WyRand};
 
 /// The 16-bit hash seed, to be zero-extended for various platforms.
 pub const SEED: u16 = 0x1337;

@@ -4,71 +4,106 @@ use {
     crate::{
         construct::{Construct, Literal, TypeFormer, visit_self, visit_self_owned},
         reflection::{Type, register, type_of},
+        scc::StronglyConnectedComponents,
         shrink::shrink,
     },
     core::num::NonZero,
     std::collections::BTreeSet,
 };
 
-impl Construct for NonZero<u8> {
-    #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
-        if !visited.insert(type_of::<Self>()) {
-            return;
+/// Generate an arbitrary nonzero value for an
+/// unsigned integer of fixed but unspecified width.
+#[macro_export]
+macro_rules! arbitrary_nonzero_unsigned {
+    // TODO: iterate over a `u64` as 64 booleans
+    // instead of recomputing each
+    ($u:ty, $prng:ident) => {{
+        let mut acc: $u = 1;
+
+        while ($prng.rand() & 3) != 0 {
+            #[allow(
+                clippy::allow_attributes,
+                clippy::default_numeric_fallback,
+                reason = "type varies"
+            )]
+            if acc.cast_signed() < 0 {
+                acc = <$u>::MAX;
+                break;
+            }
+            acc <<= 1_u8;
+            acc |= <$u>::from(($prng.rand() & 1) != 0);
         }
-        let () = register::<u8>(visited.clone());
-    }
-
-    #[inline]
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_possible_truncation,
-        reason = "intentional"
-    )]
-    fn type_former() -> TypeFormer<Self> {
-        TypeFormer::Literal(Literal {
-            deserialize: |s| NonZero::new(s.parse().ok()?),
-            generate: |prng| loop {
-                let u = prng.rand() as u8;
-                if let Some(nz) = NonZero::new(u) {
-                    return nz;
-                }
-            },
-            serialize: |value: &Self| value.get().to_string(),
-            shrink: |u| Box::new(shrink(u.get()).filter_map(NonZero::new)),
-        })
-    }
-
-    #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
-        visit_self(self).chain(visit_self_owned(self.get()))
-    }
+        acc
+    }};
 }
+
+/// Implement `Construct` for `NonZero<$u>`.
+macro_rules! impl_for {
+    ($u:ty) => {
+        impl Construct for NonZero<$u> {
+            #[inline]
+            fn register_all_immediate_dependencies(
+                visited: &mut BTreeSet<Type>,
+                sccs: &mut StronglyConnectedComponents,
+            ) {
+                if !visited.insert(type_of::<Self>()) {
+                    return;
+                }
+                let () = register::<$u>(visited.clone(), sccs);
+            }
+
+            #[inline]
+            fn type_former() -> TypeFormer<Self> {
+                TypeFormer::Literal(Literal {
+                    deserialize: |s| NonZero::new(s.parse().ok()?),
+                    // SAFETY: Internals of `arbitrary_nonzero_unsigned`
+                    // prevent `0` (see above).
+                    generate: |prng| unsafe {
+                        NonZero::new_unchecked(arbitrary_nonzero_unsigned!($u, prng))
+                    },
+                    serialize: |value: &Self| value.get().to_string(),
+                    shrink: |u| Box::new(shrink(u.get()).filter_map(NonZero::new)),
+                })
+            }
+
+            #[inline]
+            fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+                visit_self(self).chain(visit_self_owned(self.get()))
+            }
+        }
+    };
+}
+
+impl_for!(u8);
+impl_for!(u16);
+impl_for!(u32);
+impl_for!(u64);
+impl_for!(u128);
+impl_for!(usize);
 
 impl Construct for NonZero<char> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<char>(visited.clone());
+        let () = register::<char>(visited.clone(), sccs);
     }
 
     #[inline]
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_possible_truncation,
-        reason = "intentional"
-    )]
+    #[expect(clippy::as_conversions, reason = "intentional")]
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Literal(Literal {
             deserialize: |s| NonZero::new(s.parse().ok()?),
             generate: |prng| loop {
-                let u = prng.rand() as u32;
-                if let Ok(c) = char::try_from(u)
-                    && let Some(nz) = NonZero::new(c)
-                {
-                    return nz;
+                let u: u32 = arbitrary_nonzero_unsigned!(u32, prng);
+                if let Ok(c) = char::try_from(u) {
+                    // SAFETY: Internals of `arbitrary_nonzero_unsigned`
+                    // prevent `0` (see above).
+                    return unsafe { NonZero::new_unchecked(c) };
                 }
             },
             serialize: |value: &Self| value.get().to_string(),

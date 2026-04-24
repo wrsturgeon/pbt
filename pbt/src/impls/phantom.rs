@@ -8,6 +8,7 @@ use {
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
+        scc::StronglyConnectedComponents,
     },
     core::{marker::PhantomData, num::NonZero},
     std::collections::BTreeSet,
@@ -15,11 +16,14 @@ use {
 
 impl<T: Construct> Construct for PhantomData<T> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<T>(visited.clone());
+        let () = register::<T>(visited.clone(), sccs);
     }
 
     #[inline]

@@ -98,6 +98,71 @@ fn derive_pbt_for_ctors(
         })
         .collect(),
     };
+    if ctors.is_empty() {
+        let test_path = Path {
+            leading_colon: None,
+            segments: [
+                seg(id("super")),
+                PathSegment {
+                    ident,
+                    arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                        colon2_token: None,
+                        lt_token: <Token![<]>::default(),
+                        args: generics
+                            .params
+                            .iter()
+                            .map(|_| {
+                                GenericArgument::Type(Type::Path(TypePath {
+                                    qself: None,
+                                    path: path_of_str("usize"),
+                                }))
+                            })
+                            .collect(),
+                        gt_token: <Token![>]>::default(),
+                    }),
+                },
+            ]
+            .into_iter()
+            .collect(),
+        };
+        return quote! {
+            impl #generics #construct_trait_path for #impl_path {
+                #[inline]
+                fn register_all_immediate_dependencies(
+                    visited: &mut ::std::collections::BTreeSet<::pbt::reflection::Type>,
+                    _sccs: &mut ::pbt::StronglyConnectedComponents,
+                ) {
+                    let _ = visited.insert(::pbt::reflection::type_of::<Self>());
+                }
+
+                #[inline]
+                fn type_former() -> ::pbt::construct::TypeFormer<Self> {
+                    ::pbt::construct::TypeFormer::Algebraic(::pbt::construct::Algebraic {
+                        introduction_rules: vec![],
+                        elimination_rule: ::pbt::construct::ElimFn::new(|uninhabited| match uninhabited {}),
+                    })
+                }
+
+                #[inline]
+                fn visit_deep<V: ::pbt::construct::Construct>(&self) -> impl ::core::iter::Iterator<Item = V> {
+                    ::core::iter::empty()
+                }
+            }
+
+            #[cfg(test)]
+            mod #test_mod_id {
+                #[test]
+                fn eta_expansion() {
+                    let () = ::pbt::construct::check_eta_expansion::<#test_path>();
+                }
+
+                #[test]
+                fn serialization_roundtrip() {
+                    let () = ::pbt::cache::check_roundtrip::<#test_path>();
+                }
+            }
+        };
+    }
     let test_path = Path {
         leading_colon: None,
         segments: [
@@ -128,7 +193,10 @@ fn derive_pbt_for_ctors(
     quote! {
         impl #generics #construct_trait_path for #impl_path {
             #[inline]
-            fn register_all_immediate_dependencies(visited: &mut ::std::collections::BTreeSet<::pbt::reflection::Type>) {
+            fn register_all_immediate_dependencies(
+                visited: &mut ::std::collections::BTreeSet<::pbt::reflection::Type>,
+                sccs: &mut ::pbt::StronglyConnectedComponents,
+            ) {
                 if !visited.insert(::pbt::reflection::type_of::<Self>()) {
                     return;
                 }
@@ -282,7 +350,7 @@ fn register_all_immediate_dependencies(ctors: &[(Path, &Fields)]) -> Block {
                         init: Some(LocalInit {
                             eq_token: <Token![=]>::default(),
                             expr: Box::new(Expr::Verbatim(quote! {
-                                ::pbt::reflection::register::<#ty>(visited.clone())
+                                ::pbt::reflection::register::<#ty>(visited.clone(), sccs)
                             })),
                             diverge: None,
                         }),

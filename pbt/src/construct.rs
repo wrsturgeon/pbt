@@ -3,9 +3,10 @@ use {
         cache,
         multiset::Multiset,
         reflection::{
-            AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type, info,
+            AlgebraicTypeFormer, Erased, ErasedTermBuckets, PrecomputedTypeFormer, Type, info,
             type_of,
         },
+        scc::StronglyConnectedComponents,
         search,
         size::{Size, Sizes},
     },
@@ -19,7 +20,7 @@ use {
 pub struct CtorFn<T> {
     /// Function to construct a term which is an
     /// application of this constructor to arbitrary fields.
-    pub call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> Option<T>,
+    pub call: for<'terms> fn(&'terms mut ErasedTermBuckets) -> Option<T>,
 }
 
 #[non_exhaustive]
@@ -27,7 +28,7 @@ pub struct CtorFn<T> {
 pub struct IndexedCtorFn<T> {
     /// Generate precisely enough arbitrary fields
     /// to immediately invoke this constructor.
-    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> TermsOfVariousTypes,
+    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> ErasedTermBuckets,
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
     /// 1-indexed constructor/variant index.
@@ -78,7 +79,8 @@ pub enum TypeFormer<T> {
 pub struct Decomposition {
     /// 1-indexed constructor/variant index.
     pub ctor_idx: NonZero<usize>,
-    pub fields: TermsOfVariousTypes,
+    /// The immediate fields grouped into erased buckets by concrete type.
+    pub fields: ErasedTermBuckets,
 }
 
 #[derive(Clone, Debug)]
@@ -86,7 +88,7 @@ pub struct Decomposition {
 pub struct IntroductionRule<T> {
     /// Generate precisely enough arbitrary fields
     /// to immediately invoke this constructor.
-    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> TermsOfVariousTypes,
+    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> ErasedTermBuckets,
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
     /// The multiset of types necessary to call this constructor.
@@ -94,16 +96,21 @@ pub struct IntroductionRule<T> {
 }
 
 pub trait Construct: 'static + Clone + fmt::Debug + Eq {
-    /// Run depth-first search on the global type dependency graph.
-    /// All this needs to do in practice is to
-    /// let some variable, e.g. `ty`, `= ::pbt::reflection::type_of::<Self>()`,
-    /// add `ty` to `visited`, then,
-    /// for each `T` in the `immediate_dependencies` fields of `Self::_constructors()`,
-    /// call `::pbt::reflection::register::<T>(visited)`
-    /// and add `::pbt::reflection::type_of::<T>()`
-    /// to a set `edges` which is then passed to
-    /// `::pbt::reflection::_sccs().write().register(ty, edges)`.
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>);
+    /// Register the immediate dependencies of `Self` within the current
+    /// type-registration traversal.
+    ///
+    /// In practice, implementations should:
+    /// compute `ty = ::pbt::reflection::type_of::<Self>()`,
+    /// insert `ty` into `visited`,
+    /// and then call `::pbt::reflection::register::<Dependency>(visited.clone(), sccs)`
+    /// for each immediate dependency needed by `Self`.
+    ///
+    /// The surrounding registration walk is responsible for publishing the final
+    /// type metadata and SCC node once this dependency recursion has completed.
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    );
 
     /// The exhaustive disjoint set of methods
     /// to construct a term of this type.
@@ -124,7 +131,7 @@ impl<T> CtorFn<T> {
     }
 
     #[inline]
-    pub const fn new(call: for<'terms> fn(&'terms mut TermsOfVariousTypes) -> Option<T>) -> Self {
+    pub const fn new(call: for<'terms> fn(&'terms mut ErasedTermBuckets) -> Option<T>) -> Self {
         Self { call }
     }
 }
@@ -137,7 +144,7 @@ impl CtorFn<Erased> {
     #[must_use]
     pub const unsafe fn unerase<T>(
         self,
-    ) -> for<'terms> fn(&'terms mut TermsOfVariousTypes) -> Option<T> {
+    ) -> for<'terms> fn(&'terms mut ErasedTermBuckets) -> Option<T> {
         // SAFETY: Same size, still a function pointer with the same arguments.
         unsafe { mem::transmute::<CtorFn<Erased>, CtorFn<T>>(self) }.call
     }
@@ -151,7 +158,7 @@ impl<T> fmt::Debug for CtorFn<T> {
 }
 
 impl<T> Deref for CtorFn<T> {
-    type Target = for<'terms> fn(&'terms mut TermsOfVariousTypes) -> Option<T>;
+    type Target = for<'terms> fn(&'terms mut ErasedTermBuckets) -> Option<T>;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -349,9 +356,9 @@ pub fn visit_self_owned<V: Construct, S: Construct>(s: S) -> Option<V> {
 
 /// Deserialize a cached witness term of type `T` and push it into a typed term bucket.
 #[inline]
-pub(crate) fn deserialize_into_terms<T: Construct>(
+pub(crate) fn deserialize_cached_term_into_buckets<T: Construct>(
     term: &cache::CachedTerm,
-    terms: &mut TermsOfVariousTypes,
+    terms: &mut ErasedTermBuckets,
 ) -> bool {
     let Some(value) = cache::deserialize_term::<T>(term) else {
         return false;

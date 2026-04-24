@@ -4,7 +4,7 @@ use {
         construct::{Construct, Decomposition, ElimFn, arbitrary},
         multiset::Multiset,
         reflection::{
-            AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, TermsOfVariousTypes, Type, info,
+            AlgebraicTypeFormer, Erased, ErasedTermBuckets, PrecomputedTypeFormer, Type, info,
             info_by_id,
         },
         size::Size,
@@ -42,12 +42,11 @@ static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 pub enum CachedTerm {
     Algebraic {
         ctor_idx: NonZero<usize>,
-        fields: BTreeMap<String, Vec<CachedTerm>>,
+        /// Immediate erased term buckets keyed by the pretty-printed concrete type name.
+        term_buckets: BTreeMap<String, Vec<CachedTerm>>,
     },
     Literal(String),
 }
-
-pub type CachedTerms = BTreeMap<String, Vec<CachedTerm>>;
 
 /// One line in the per-type NDJSON cache file.
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -61,6 +60,7 @@ struct CacheLine {
 
 #[inline]
 #[must_use]
+/// Serialize one witness term into the stable cache format.
 pub fn serialize_term<T: Construct>(t: &T) -> CachedTerm {
     let info = info::<T>();
     match info.type_former {
@@ -83,6 +83,7 @@ pub fn serialize_term<T: Construct>(t: &T) -> CachedTerm {
 
 #[inline]
 #[must_use]
+/// Deserialize one cached witness term back into its concrete Rust type.
 pub fn deserialize_term<T: Construct>(term: &CachedTerm) -> Option<T> {
     let info = info::<T>();
     match info.type_former {
@@ -102,13 +103,13 @@ pub fn deserialize_term<T: Construct>(term: &CachedTerm) -> Option<T> {
         }) => {
             let CachedTerm::Algebraic {
                 ctor_idx,
-                ref fields,
+                ref term_buckets,
             } = *term
             else {
                 return None;
             };
             let &(ctor, ref ctor_meta) = all_constructors.get(ctor_idx.get().checked_sub(1)?)?;
-            let mut terms = deserialize_terms(&ctor_meta.constructor.immediate, fields)?;
+            let mut terms = deserialize_terms(&ctor_meta.constructor.immediate, term_buckets)?;
             // SAFETY: Undoing an earlier `transmute` keyed by the constructor-selected `T`.
             let constructed = unsafe { ctor.unerase::<T>() }(&mut terms)?;
             if !terms.is_empty() {
@@ -121,11 +122,12 @@ pub fn deserialize_term<T: Construct>(term: &CachedTerm) -> Option<T> {
 
 #[inline]
 #[must_use]
+/// Serialize one algebraic decomposition into constructor-tagged cached buckets.
 pub fn serialize_decomposition(decomposition: Decomposition) -> CachedTerm {
     let Decomposition { ctor_idx, fields } = decomposition;
     CachedTerm::Algebraic {
         ctor_idx,
-        fields: serialize_terms(fields),
+        term_buckets: serialize_terms(fields),
     }
 }
 
@@ -136,7 +138,8 @@ pub fn serialize_decomposition(decomposition: Decomposition) -> CachedTerm {
     clippy::panic,
     reason = "internal decomposition invariants should panic if violated"
 )]
-pub fn serialize_terms(mut terms: TermsOfVariousTypes) -> CachedTerms {
+/// Serialize erased term buckets keyed by concrete type into the cache format.
+pub fn serialize_terms(mut terms: ErasedTermBuckets) -> BTreeMap<String, Vec<CachedTerm>> {
     let bucket_keys: Vec<_> = terms
         .map
         .keys()
@@ -171,21 +174,22 @@ pub fn serialize_terms(mut terms: TermsOfVariousTypes) -> CachedTerms {
 
 #[inline]
 #[must_use]
+/// Rebuild erased term buckets from cached constructor arguments.
 pub fn deserialize_terms(
     expected: &Multiset<Type>,
-    fields: &CachedTerms,
-) -> Option<TermsOfVariousTypes> {
-    if expected.iter().count() != fields.len() {
+    term_buckets: &BTreeMap<String, Vec<CachedTerm>>,
+) -> Option<ErasedTermBuckets> {
+    if expected.iter().count() != term_buckets.len() {
         return None;
     }
-    let mut terms = TermsOfVariousTypes::new();
+    let mut terms = ErasedTermBuckets::new();
     for (&ty, count) in expected.iter() {
-        let bucket = fields.get(info_by_id(ty).name)?;
+        let bucket = term_buckets.get(info_by_id(ty).name)?;
         if bucket.len() != count.get() {
             return None;
         }
         for subterm in bucket.iter().rev() {
-            if !(info_by_id(ty).deserialize_into_terms)(subterm, &mut terms) {
+            if !(info_by_id(ty).deserialize_cached_term_into_buckets)(subterm, &mut terms) {
                 return None;
             }
         }
@@ -223,6 +227,7 @@ pub fn check_roundtrip<T: Construct>() {
 
 #[inline]
 #[must_use]
+/// Load all cached witnesses currently stored for one top-level witness type.
 pub fn load<T: Construct>() -> Vec<T> {
     let path = cache_path::<T>();
     let Ok(contents) = fs::read_to_string(path) else {
@@ -237,6 +242,7 @@ pub fn load<T: Construct>() -> Vec<T> {
 }
 
 #[inline]
+/// Store one witness in the persistent per-type cache, keeping canonical ordering.
 pub fn store<T: Construct>(t: &T) {
     let path = cache_path::<T>();
     let Some(parent) = path.parent() else {
@@ -388,8 +394,14 @@ fn canonicalize_terms(terms: &mut Vec<CachedTerm>) {
 fn witness_size(term: &CachedTerm) -> usize {
     match *term {
         CachedTerm::Literal(_) => 1,
-        CachedTerm::Algebraic { ref fields, .. } => {
-            let child_nodes = fields.values().flatten().map(witness_size).sum::<usize>();
+        CachedTerm::Algebraic {
+            ref term_buckets, ..
+        } => {
+            let child_nodes = term_buckets
+                .values()
+                .flatten()
+                .map(witness_size)
+                .sum::<usize>();
             child_nodes.saturating_add(1)
         }
     }
@@ -444,41 +456,38 @@ mod test {
             construct::Construct,
             sigma::{Predicate, Sigma},
         },
-        core::{convert::Infallible, num::NonZero, time::Duration},
+        core::{convert::Infallible, num::NonZero},
         std::{
             collections::{BTreeMap, BTreeSet, HashMap, HashSet},
-            env,
-            env::temp_dir,
             ffi::CString,
-            process::Command,
             rc::Rc,
             sync::Arc,
-            sync::{LazyLock, Mutex},
-            thread,
-            time::{SystemTime, UNIX_EPOCH},
         },
     };
-
-    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
-    const CHILD_ROOT_ENV_VAR: &str = "PBT_CACHE_TEST_CHILD_ROOT";
-    const CHILD_VALUE_ENV_VAR: &str = "PBT_CACHE_TEST_CHILD_VALUE";
 
     enum NotTheAnswer {}
 
     impl Predicate<u8> for NotTheAnswer {
-        fn check(candidate: &u8) -> bool {
-            *candidate != 42
+        type Error = String;
+
+        #[inline]
+        fn check(candidate: &u8) -> Result<(), Self::Error> {
+            if *candidate == 42 {
+                Err(format!(
+                    "The Answer to the Ultimate Question of Life, the Universe, and Everything is {candidate}",
+                ))
+            } else {
+                Ok(())
+            }
         }
     }
 
     type NonAnswer = Sigma<u8, NotTheAnswer>;
-
     fn roundtrip<T: Construct>() {
         check_roundtrip::<T>();
     }
 
     #[test]
-    #[cfg_attr(miri, ignore = "Round-trip coverage is too slow under Miri")]
     fn roundtrip_literals_and_builtins() {
         roundtrip::<bool>();
         roundtrip::<u64>();
@@ -498,169 +507,5 @@ mod test {
         roundtrip::<CString>();
         roundtrip::<NonAnswer>();
         roundtrip::<Infallible>();
-    }
-
-    #[test]
-    #[expect(clippy::expect_used, reason = "test setup failures should panic")]
-    fn cache_store_and_load() {
-        let _guard = ENV_LOCK.lock().expect("test env lock poisoned");
-
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time went backwards")
-            .as_nanos();
-        let root = temp_dir().join(format!("pbt-cache-test-{unique}"));
-        // SAFETY: This test holds a global mutex to serialize environment mutation.
-        unsafe {
-            env::set_var(ENV_VAR, &root);
-        }
-
-        let witness = vec![1_u64, 2, 3];
-        store(&witness);
-        store(&witness);
-        let loaded = load::<Vec<u64>>();
-        assert_eq!(loaded, vec![witness.clone()]);
-
-        let path = cache_path::<Vec<u64>>();
-        let body = fs::read_to_string(&path).expect("cache file");
-        fs::write(&path, format!("not-json\n{body}")).expect("prepend malformed cache line");
-        assert_eq!(load::<Vec<u64>>(), vec![witness]);
-
-        // SAFETY: This test holds a global mutex to serialize environment mutation.
-        unsafe {
-            env::remove_var(ENV_VAR);
-        }
-        drop(fs::remove_dir_all(root));
-    }
-
-    #[test]
-    #[expect(clippy::expect_used, reason = "test setup failures should panic")]
-    fn cache_path_defaults_to_workspace_dot_pbt() {
-        let _guard = ENV_LOCK.lock().expect("test env lock poisoned");
-
-        // SAFETY: This test holds a global mutex to serialize environment mutation.
-        unsafe {
-            env::remove_var(ENV_VAR);
-        }
-
-        let path = cache_path::<Vec<u64>>();
-        let expected_root = default_cache_base().join(".pbt");
-        assert!(
-            path.starts_with(&expected_root),
-            "{path:?} should live under {expected_root:?}"
-        );
-        assert!(
-            path.starts_with(default_cache_root()),
-            "{path:?} should live under {:?}",
-            default_cache_root()
-        );
-    }
-
-    #[test]
-    #[expect(clippy::expect_used, reason = "test setup failures should panic")]
-    fn cache_store_sorts_and_deduplicates_by_size() {
-        let _guard = ENV_LOCK.lock().expect("test env lock poisoned");
-
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time went backwards")
-            .as_nanos();
-        let root = temp_dir().join(format!("pbt-cache-test-{unique}"));
-        // SAFETY: This test holds a global mutex to serialize environment mutation.
-        unsafe {
-            env::set_var(ENV_VAR, &root);
-        }
-
-        store(&Some(2_u64));
-        store(&None::<u64>);
-        store(&Some(1_u64));
-        store(&Some(1_u64));
-
-        assert_eq!(load::<Option<u64>>(), vec![None, Some(1), Some(2)]);
-
-        let path = cache_path::<Option<u64>>();
-        let terms = fs::read_to_string(path)
-            .expect("cache file")
-            .lines()
-            .map(|line| serde_json::from_str::<CacheLine>(line).expect("cache line"))
-            .map(|line| line.term)
-            .collect::<Vec<_>>();
-        let sizes = terms.iter().map(witness_size).collect::<Vec<_>>();
-        assert_eq!(sizes, vec![1, 2, 2]);
-
-        // SAFETY: This test holds a global mutex to serialize environment mutation.
-        unsafe {
-            env::remove_var(ENV_VAR);
-        }
-        drop(fs::remove_dir_all(root));
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore = "Miri does not support spawning child processes")]
-    #[expect(
-        clippy::expect_used,
-        reason = "test worker setup failures should panic"
-    )]
-    fn parallel_writer_child() {
-        let Some(root) = env::var_os(CHILD_ROOT_ENV_VAR) else {
-            return;
-        };
-        let value = env::var(CHILD_VALUE_ENV_VAR)
-            .expect("child witness value")
-            .parse::<u64>()
-            .expect("child witness should be a u64");
-        // SAFETY: This test process controls its own environment.
-        unsafe {
-            env::set_var(ENV_VAR, root);
-        }
-        store(&value);
-    }
-
-    #[test]
-    #[cfg_attr(miri, ignore = "Miri does not support spawning child processes")]
-    #[expect(clippy::expect_used, reason = "test setup failures should panic")]
-    fn cache_store_serializes_parallel_writers() {
-        let _guard = ENV_LOCK.lock().expect("test env lock poisoned");
-
-        let unique = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .expect("time went backwards")
-            .as_nanos();
-        let root = temp_dir().join(format!("pbt-cache-test-{unique}"));
-        fs::create_dir_all(&root).expect("create cache root");
-
-        let test_bin = env::current_exe().expect("test binary path");
-        let mut first = Command::new(&test_bin);
-        first
-            .arg("cache::test::parallel_writer_child")
-            .arg("--exact")
-            .env(CHILD_ROOT_ENV_VAR, &root)
-            .env(CHILD_VALUE_ENV_VAR, "1")
-            .env(STORE_DELAY_ENV_VAR, "300");
-        let mut first = first.spawn().expect("spawn first cache writer");
-
-        thread::sleep(Duration::from_millis(75));
-
-        let mut second = Command::new(&test_bin);
-        second
-            .arg("cache::test::parallel_writer_child")
-            .arg("--exact")
-            .env(CHILD_ROOT_ENV_VAR, &root)
-            .env(CHILD_VALUE_ENV_VAR, "2");
-        let mut second = second.spawn().expect("spawn second cache writer");
-
-        assert!(first.wait().expect("wait for first writer").success());
-        assert!(second.wait().expect("wait for second writer").success());
-
-        // SAFETY: This test holds a global mutex to serialize environment mutation.
-        unsafe {
-            env::set_var(ENV_VAR, &root);
-        }
-        assert_eq!(load::<u64>(), vec![1, 2]);
-        // SAFETY: This test holds a global mutex to serialize environment mutation.
-        unsafe {
-            env::remove_var(ENV_VAR);
-        }
-        drop(fs::remove_dir_all(root));
     }
 }

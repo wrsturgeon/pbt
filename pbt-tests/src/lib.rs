@@ -19,6 +19,9 @@ pub enum PartiallyInstantiable {
     Uninstantiable(Infallible),
 }
 
+#[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+pub enum Uninhabited {}
+
 pub type NonAnswer = Sigma<u8, NotTheAnswer>;
 
 pub enum NotTheAnswer {}
@@ -35,9 +38,17 @@ impl Foo {
 }
 
 impl Predicate<u8> for NotTheAnswer {
+    type Error = String;
+
     #[inline]
-    fn check(candidate: &u8) -> bool {
-        *candidate != 42
+    fn check(candidate: &u8) -> Result<(), Self::Error> {
+        if *candidate == 42 {
+            Err(format!(
+                "The Answer to the Ultimate Question of Life, the Universe, and Everything is {candidate}",
+            ))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -71,5 +82,11 @@ mod test {
     #[test]
     fn sigma() {
         search::assert(N_CASES, |u: &NonAnswer| **u != 42);
+    }
+
+    #[test]
+    fn empty_enum_is_supported() {
+        let maybe_witness: Option<Uninhabited> = search::witness(N_CASES, |_| true);
+        assert_eq!(maybe_witness, None);
     }
 }

@@ -8,6 +8,7 @@ use {
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
+        scc::StronglyConnectedComponents,
     },
     core::{iter, num::NonZero},
     std::collections::{BTreeMap, BTreeSet},
@@ -15,11 +16,14 @@ use {
 
 impl<T: Construct + Ord> Construct for BTreeSet<T> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<T>(visited.clone());
+        let () = register::<T>(visited.clone(), sccs);
     }
 
     #[inline]
@@ -82,12 +86,15 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
 
 impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<K>(visited.clone());
-        let () = register::<V>(visited.clone());
+        let () = register::<K>(visited.clone(), sccs);
+        let () = register::<V>(visited.clone(), sccs);
     }
 
     #[inline]

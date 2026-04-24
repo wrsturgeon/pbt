@@ -1,12 +1,20 @@
 use {
-    core::{cmp, num::NonZero},
+    crate::{
+        StronglyConnectedComponents,
+        construct::{
+            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+            visit_self,
+        },
+        reflection::{TermsOfVariousTypes, Type, register, type_of},
+    },
+    core::{cmp, iter, num::NonZero},
     std::collections::{BTreeMap, BTreeSet, btree_map},
 };
 
 /// One, as a non-zero integer. Stupid but efficient.
 const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Multiset<T: Eq + Ord> {
     /// How many of each distinct element are in the bag?
     count: BTreeMap<T, NonZero<usize>>,
@@ -131,6 +139,52 @@ impl<T: Eq + Ord> Multiset<T> {
             let _: bool = acc.insert(element.clone());
         }
         acc
+    }
+}
+
+impl<T: Construct + Ord> Construct for Multiset<T> {
+    #[inline]
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
+        if !visited.insert(type_of::<Self>()) {
+            return;
+        }
+        let () = register::<T>(visited.clone(), sccs);
+    }
+
+    #[inline]
+    fn type_former() -> TypeFormer<Self> {
+        TypeFormer::Algebraic(Algebraic {
+            introduction_rules: vec![IntroductionRule {
+                arbitrary_fields: |prng, mut sizes| {
+                    let mut fields = TermsOfVariousTypes::new();
+                    fields.push(sizes.arbitrary::<BTreeMap<T, NonZero<usize>>>(prng));
+                    fields
+                },
+                call: CtorFn::new(|terms| {
+                    Some(Self {
+                        count: terms.must_pop(),
+                    })
+                }),
+                immediate_dependencies: iter::once(type_of::<BTreeMap<T, NonZero<usize>>>())
+                    .collect(),
+            }],
+            elimination_rule: ElimFn::new(|Multiset { count }| {
+                let mut fields = TermsOfVariousTypes::new();
+                let () = fields.push::<BTreeMap<T, NonZero<usize>>>(count);
+                Decomposition {
+                    ctor_idx: const { NonZero::new(1).unwrap() },
+                    fields,
+                }
+            }),
+        })
+    }
+
+    #[inline]
+    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+        visit_self(self).chain(self.count.visit_deep())
     }
 }
 

@@ -7,6 +7,7 @@ use {
             visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
+        scc::StronglyConnectedComponents,
     },
     core::{iter, num::NonZero},
     std::{collections::BTreeSet, rc::Rc, sync::Arc},
@@ -14,11 +15,14 @@ use {
 
 impl<T: Construct> Construct for Rc<T> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<T>(visited.clone());
+        let () = register::<T>(visited.clone(), sccs);
     }
 
     #[inline]
@@ -53,11 +57,14 @@ impl<T: Construct> Construct for Rc<T> {
 
 impl<T: Construct> Construct for Arc<T> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<T>(visited.clone());
+        let () = register::<T>(visited.clone(), sccs);
     }
 
     #[inline]

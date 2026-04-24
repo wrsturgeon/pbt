@@ -8,6 +8,7 @@ use {
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
+        scc::StronglyConnectedComponents,
     },
     core::{
         hash::{BuildHasher, Hash},
@@ -19,11 +20,14 @@ use {
 
 impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct for HashSet<T, S> {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<T>(visited.clone());
+        let () = register::<T>(visited.clone(), sccs);
     }
 
     #[inline]
@@ -91,12 +95,15 @@ impl<K: Construct + Hash, V: Construct, S: 'static + BuildHasher + Clone + Defau
     for HashMap<K, V, S>
 {
     #[inline]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<K>(visited.clone());
-        let () = register::<V>(visited.clone());
+        let () = register::<K>(visited.clone(), sccs);
+        let () = register::<V>(visited.clone(), sccs);
     }
 
     #[inline]

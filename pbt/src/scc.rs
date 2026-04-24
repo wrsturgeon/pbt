@@ -67,6 +67,7 @@ impl StronglyConnectedComponents {
 
     /// Empty set of disjoint sets.
     #[inline]
+    #[must_use]
     pub fn new() -> Self {
         Self {
             nodes: HashMap::with_hasher(RandomState::with_seed(usize::from(SEED))),
@@ -98,6 +99,9 @@ impl StronglyConnectedComponents {
     /// Tarjan's strongly connected components algorithm.
     /// # Source
     /// <https://en.wikipedia.org/wiki/Tarjan's_strongly_connected_components_algorithm#The_algorithm_in_pseudocode>.
+    /// # Panics
+    /// Panics if the graph contains an unregistered element referenced by an edge,
+    /// or if internal Tarjan bookkeeping becomes inconsistent.
     #[inline]
     #[expect(clippy::expect_used, clippy::panic, reason = "internal invariants")]
     pub fn tarjan_dfs(
@@ -176,6 +180,13 @@ impl StronglyConnectedComponents {
                 }
             }
         }
+    }
+}
+
+impl Default for StronglyConnectedComponents {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 

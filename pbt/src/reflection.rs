@@ -4,7 +4,7 @@ use {
         cache::{self, CachedTerm},
         construct::{
             Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
-            TypeFormer, deserialize_into_terms,
+            TypeFormer, deserialize_cached_term_into_buckets,
         },
         multiset::Multiset,
         scc::{self, StronglyConnectedComponents},
@@ -20,7 +20,7 @@ use {
     },
     std::{
         collections::{BTreeMap, BTreeSet},
-        sync::{Arc, LazyLock, OnceLock, RwLock},
+        sync::{Arc, LazyLock, OnceLock, PoisonError, RwLock},
     },
     wyrand::WyRand,
 };
@@ -35,9 +35,11 @@ pub enum Erased {
     // uninstantiable
 }
 
+/// The erased vtable used to manipulate one concrete bucket type inside
+/// [`ErasedTermBucket`] values without carrying monomorphized closures inline.
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
-pub struct BucketOps {
+pub struct ErasedBucketOps {
     pub clone: for<'t> fn(&'t Vec<Erased>) -> Vec<Erased>,
     pub debug: for<'t, 'm, 'f> fn(&'t Vec<Erased>, &'m mut fmt::Formatter<'f>) -> fmt::Result,
     pub drop: fn(Vec<Erased>),
@@ -48,7 +50,7 @@ pub struct BucketOps {
 
 /// An erased term bucket together with the type key needed to recover its vtable.
 #[non_exhaustive]
-pub struct Terms {
+pub struct ErasedTermBucket {
     pub terms: Vec<Erased>,
     pub ty: Type,
 }
@@ -59,10 +61,19 @@ pub struct Terms {
 /// so it can request exactly enough terms of various types to do so.
 #[non_exhaustive]
 #[repr(transparent)]
-pub struct TermsOfVariousTypes {
+pub struct ErasedTermBuckets {
     /// A map from types to ordered collections of terms of those types.
-    pub map: BTreeMap<Type, Terms>,
+    pub map: BTreeMap<Type, ErasedTermBucket>,
 }
+
+/// Backward-compatible alias for [`ErasedBucketOps`].
+pub type BucketOps = ErasedBucketOps;
+
+/// Backward-compatible alias for [`ErasedTermBucket`].
+pub type Terms = ErasedTermBucket;
+
+/// Backward-compatible alias for [`ErasedTermBuckets`].
+pub type TermsOfVariousTypes = ErasedTermBuckets;
 
 #[non_exhaustive]
 #[repr(transparent)]
@@ -105,13 +116,16 @@ pub struct CtorVertex {
 }
 
 #[non_exhaustive]
+/// Fully computed reflection metadata for one concrete type.
 #[derive(Debug)]
 pub struct TypeInfo {
-    pub bucket_ops: BucketOps,
     /// If this is a "big" type:
     /// either inductive or contains a big type.
     pub cached_big: OnceLock<bool>,
-    pub deserialize_into_terms: fn(&CachedTerm, &mut TermsOfVariousTypes) -> bool,
+    /// Decode one cached term of this type and push it into erased term buckets.
+    pub deserialize_cached_term_into_buckets: fn(&CachedTerm, &mut ErasedTermBuckets) -> bool,
+    /// Erased bucket operations for values of this concrete type.
+    pub erased_bucket_ops: ErasedBucketOps,
     /// The pretty-printed name of this type.
     pub name: &'static str,
     /// Whether this type is uninteresting: specifically, whether it is either
@@ -122,6 +136,15 @@ pub struct TypeInfo {
     /// The union and intersection of the bag of types that
     /// may be contained in a value of this type.
     pub vertex: Vertex,
+}
+
+/// The fully computed registration payload for one type before it is published
+/// to the global registry and SCC graph.
+struct ComputedTypeRegistration {
+    /// The registry payload to publish for this type.
+    info: TypeInfo,
+    /// The SCC graph node to publish alongside the registry payload.
+    scc_node: scc::Node,
 }
 
 #[non_exhaustive]
@@ -429,7 +452,10 @@ impl TypeInfo {
 )]
 impl Construct for Erased {
     #[inline]
-    fn register_all_immediate_dependencies(_visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        _visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
     }
 
@@ -455,7 +481,7 @@ impl Construct for Erased {
 impl Clone for Terms {
     #[inline]
     fn clone(&self) -> Self {
-        let clone = info_by_id(self.ty).bucket_ops.clone;
+        let clone = info_by_id(self.ty).erased_bucket_ops.clone;
         Self {
             terms: clone(&self.terms),
             ty: self.ty,
@@ -466,14 +492,14 @@ impl Clone for Terms {
 impl fmt::Debug for Terms {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        (info_by_id(self.ty).bucket_ops.debug)(&self.terms, f)
+        (info_by_id(self.ty).erased_bucket_ops.debug)(&self.terms, f)
     }
 }
 
 impl Drop for Terms {
     #[inline]
     fn drop(&mut self) {
-        (info_by_id(self.ty).bucket_ops.drop)(mem::take(&mut self.terms))
+        (info_by_id(self.ty).erased_bucket_ops.drop)(mem::take(&mut self.terms))
     }
 }
 
@@ -484,7 +510,7 @@ impl Eq for Terms {}
 impl PartialEq for Terms {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        self.ty == other.ty && (info_by_id(self.ty).bucket_ops.eq)(&self.terms, &other.terms)
+        self.ty == other.ty && (info_by_id(self.ty).erased_bucket_ops.eq)(&self.terms, &other.terms)
     }
 }
 
@@ -492,7 +518,7 @@ impl Terms {
     #[inline]
     pub fn shrink(self) -> impl Iterator<Item = Self> {
         let ty = self.ty;
-        let shrink = info_by_id(ty).bucket_ops.shrink;
+        let shrink = info_by_id(ty).erased_bucket_ops.shrink;
         // SAFETY: Not double-dropped b/c `mem::forget` below.
         let terms = unsafe { ptr::read(ptr::from_ref(&self.terms)) };
         #[expect(
@@ -553,6 +579,7 @@ impl PartialEq for TermsOfVariousTypes {
 impl TermsOfVariousTypes {
     #[inline]
     #[must_use]
+    /// Borrow the bucket for one concrete type without exposing the erased storage.
     pub fn get<T: Construct>(&self) -> Option<&[T]> {
         let id = type_of::<T>();
         let v = self.map.get(&id)?;
@@ -580,6 +607,7 @@ impl TermsOfVariousTypes {
 
     #[inline]
     #[must_use]
+    /// Return whether all term buckets have been drained.
     pub fn is_empty(&self) -> bool {
         self.map.is_empty()
             || {
@@ -608,6 +636,7 @@ impl TermsOfVariousTypes {
 
     #[inline]
     #[must_use]
+    /// Create an empty set of erased term buckets.
     pub fn new() -> Self {
         Self {
             map: BTreeMap::new(),
@@ -639,9 +668,10 @@ impl TermsOfVariousTypes {
     }
 
     #[inline]
+    /// Remove and serialize the most recently pushed term from the bucket keyed by `ty`.
     pub fn pop_serialize_by_id(&mut self, ty: Type) -> Option<CachedTerm> {
         let terms = self.map.get_mut(&ty)?;
-        let term = (info_by_id(ty).bucket_ops.pop_serialize)(&mut terms.terms)?;
+        let term = (info_by_id(ty).erased_bucket_ops.pop_serialize)(&mut terms.terms)?;
         if terms.terms.is_empty() {
             let removed = self.map.remove(&ty)?;
             drop(removed)
@@ -650,6 +680,7 @@ impl TermsOfVariousTypes {
     }
 
     #[inline]
+    /// Push one typed term into the bucket keyed by its concrete `TypeId`.
     pub fn push<T: Construct>(&mut self, t: T) {
         drop(info::<T>());
         let id = type_of::<T>();
@@ -668,6 +699,7 @@ impl TermsOfVariousTypes {
     }
 
     #[inline]
+    /// Breadth-first shrink this collection of erased term buckets.
     pub fn shrink(self) -> impl Iterator<Item = Self> {
         let mut this = self;
         let map = mem::take(&mut this.map);
@@ -895,8 +927,8 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
 
 /// Build the erased bucket operations for one concrete term type.
 #[inline]
-fn bucket_ops<T: Construct>() -> BucketOps {
-    BucketOps {
+fn erased_bucket_ops<T: Construct>() -> ErasedBucketOps {
+    ErasedBucketOps {
         clone: |v| {
             // SAFETY: Undoing an earlier pointer cast; the bucket is keyed by `T`.
             let erased = unsafe { &*(ptr::from_ref(v).cast::<Vec<T>>()) }.clone();
@@ -939,14 +971,19 @@ fn bucket_ops<T: Construct>() -> BucketOps {
     }
 }
 
-/// Register a type with the global registry of type dependency information.
-/// If this function is called, then the function is *not* already in the registry,
-/// and the return value of this function will be *automatically* added to the registry.
-/// Do not attempt either operation manually from within this function.
+/// Compute the complete reflection payload for one type within the current
+/// serialized registration traversal.
+///
+/// This computes the registry payload and the corresponding SCC node, but it
+/// does not publish either one globally. Publication happens in `register_inner`
+/// once the caller has confirmed that the type is still absent.
 #[inline]
 #[expect(clippy::too_many_lines, reason = "TODO: refactor")]
-fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
-    let () = T::register_all_immediate_dependencies(&mut visited);
+fn compute_type_registration<T: Construct>(
+    mut visited: BTreeSet<Type>,
+    sccs: &mut StronglyConnectedComponents,
+) -> ComputedTypeRegistration {
+    let () = T::register_all_immediate_dependencies(&mut visited, sccs);
     let self_ty = type_of::<T>();
     let type_former = T::type_former();
     let (shallow_ctors, eliminator) = match type_former {
@@ -960,35 +997,30 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
             serialize,
             shrink,
         }) => {
-            #[expect(clippy::expect_used, reason = "extremely unlikely & unrecoverable")]
-            let _: Option<scc::Node> = _sccs()
-                .write()
-                .expect("internal `pbt` error: SCC lock poisoned")
-                .insert(
-                    self_ty,
-                    scc::Node::Root(scc::Metadata {
-                        cardinality: None,
-                        edges: BTreeSet::new(),
+            return ComputedTypeRegistration {
+                info: TypeInfo {
+                    erased_bucket_ops: erased_bucket_ops::<T>(),
+                    cached_big: OnceLock::from(false),
+                    deserialize_cached_term_into_buckets: deserialize_cached_term_into_buckets::<T>,
+                    name: type_name::<T>(),
+                    trivial: true,
+                    type_former: PrecomputedTypeFormer::literal(
+                        deserialize,
+                        generate,
+                        serialize,
+                        shrink,
+                    ),
+                    vertex: Vertex {
+                        cached_inductivity: OnceLock::from(false),
                         ty: self_ty,
-                    }),
-                );
-            return TypeInfo {
-                bucket_ops: bucket_ops::<T>(),
-                cached_big: OnceLock::from(false),
-                deserialize_into_terms: deserialize_into_terms::<T>,
-                name: type_name::<T>(),
-                trivial: true,
-                type_former: PrecomputedTypeFormer::literal(
-                    deserialize,
-                    generate,
-                    serialize,
-                    shrink,
-                ),
-                vertex: Vertex {
-                    cached_inductivity: OnceLock::from(false),
-                    ty: self_ty,
-                    unavoidable: BTreeSet::new(),
+                        unavoidable: BTreeSet::new(),
+                    },
                 },
+                scc_node: scc::Node::Root(scc::Metadata {
+                    cardinality: None,
+                    edges: BTreeSet::new(),
+                    ty: self_ty,
+                }),
             };
         }
     };
@@ -1064,45 +1096,55 @@ fn compute_type_info<T: Construct>(mut visited: BTreeSet<Type>) -> TypeInfo {
         let () = constructors.push((call, deps));
     }
 
-    #[expect(clippy::expect_used, reason = "extremely unlikely & unrecoverable")]
-    let _: Option<scc::Node> = _sccs()
-        .write()
-        .expect("internal `pbt` error: SCC lock poisoned")
-        .insert(
-            self_ty,
-            scc::Node::Root(scc::Metadata {
-                cardinality: (immediately_reachable.contains(&self_ty))
-                    .then_some(const { NonZero::new(1).unwrap() }),
-                edges: immediately_reachable,
+    ComputedTypeRegistration {
+        info: TypeInfo {
+            erased_bucket_ops: erased_bucket_ops::<T>(),
+            cached_big: OnceLock::new(),
+            deserialize_cached_term_into_buckets: deserialize_cached_term_into_buckets::<T>,
+            name: type_name::<T>(),
+            trivial,
+            type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
+            vertex: Vertex {
+                cached_inductivity: OnceLock::new(),
                 ty: self_ty,
-            }),
-        );
-
-    TypeInfo {
-        bucket_ops: bucket_ops::<T>(),
-        cached_big: OnceLock::new(),
-        deserialize_into_terms: deserialize_into_terms::<T>,
-        name: type_name::<T>(),
-        trivial,
-        type_former: PrecomputedTypeFormer::algebraic(constructors, eliminator),
-        vertex: Vertex {
-            cached_inductivity: OnceLock::new(),
-            ty: self_ty,
-            unavoidable: unavoidable.unwrap_or_default(),
+                unavoidable: unavoidable.unwrap_or_default(),
+            },
         },
+        scc_node: scc::Node::Root(scc::Metadata {
+            cardinality: (immediately_reachable.contains(&self_ty))
+                .then_some(const { NonZero::new(1).unwrap() }),
+            edges: immediately_reachable,
+            ty: self_ty,
+        }),
     }
+}
+
+/// Register a single type inside an already-serialized registration traversal.
+#[inline]
+fn register_inner<T: Construct>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents) {
+    let id = type_of::<T>();
+    if visited.contains(&id) || try_info_by_id(id).is_some() {
+        return;
+    }
+
+    let ComputedTypeRegistration { info, scc_node } = compute_type_registration::<T>(visited, sccs);
+    let pinned = _registry().pin();
+    let _: &Arc<TypeInfo> = pinned.get_or_insert_with(id, || Arc::new(info));
+    let overwritten = sccs.insert(id, scc_node);
+    debug_assert!(
+        overwritten.is_none(),
+        "internal `pbt` error: duplicate SCC registration for {id:?}",
+    );
 }
 
 /// Register a type with the global registry of type dependency information.
 #[inline]
-pub fn register<T: Construct>(visited: BTreeSet<Type>) {
+pub fn register<T: Construct>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents) {
     let id = type_of::<T>();
     if visited.contains(&id) {
         return;
     }
-    let pinned = _registry().pin();
-    let _: &Arc<TypeInfo> =
-        pinned.get_or_insert_with(id, || Arc::new(compute_type_info::<T>(visited)));
+    let () = register_inner::<T>(visited, sccs);
 }
 
 /// Get a handle to the global type-information registry without trying to lock it.
@@ -1128,14 +1170,21 @@ pub fn _sccs() -> &'static RwLock<StronglyConnectedComponents> {
 /// Get type-level characteristics of a type,
 /// or compute and cache them if they
 /// haven't yet been determined.
+/// # Panics
+/// If registration completes but the just-registered type cannot be found in the registry.
 #[inline]
 #[must_use]
 pub fn info<T: Construct>() -> Arc<TypeInfo> {
-    let pinned = _registry().pin();
-    let in_registry = pinned.get_or_insert_with(type_of::<T>(), || {
-        Arc::new(compute_type_info::<T>(BTreeSet::new()))
-    });
-    Arc::clone(in_registry)
+    let mut sccs = _sccs().write().unwrap_or_else(PoisonError::into_inner);
+    let () = register_inner::<T>(BTreeSet::new(), &mut sccs);
+    match try_info_by_id(type_of::<T>()) {
+        Some(info) => info,
+        #[expect(
+            clippy::panic,
+            reason = "registration must publish the just-computed type info"
+        )]
+        None => panic!("internal `pbt` error: just-registered type missing"),
+    }
 }
 
 /// Get type-level characteristics of a type by its unique but opaque type ID.

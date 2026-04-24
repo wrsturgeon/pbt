@@ -4,6 +4,7 @@ use {
     crate::{
         construct::{Algebraic, Construct, ElimFn, TypeFormer},
         reflection::{Type, type_of},
+        scc::StronglyConnectedComponents,
     },
     core::{convert::Infallible, iter},
     std::collections::BTreeSet,
@@ -15,7 +16,10 @@ impl Construct for Infallible {
         clippy::needless_return,
         reason = "in case a function body is added later"
     )]
-    fn register_all_immediate_dependencies(visited: &mut BTreeSet<Type>) {
+    fn register_all_immediate_dependencies(
+        visited: &mut BTreeSet<Type>,
+        _sccs: &mut StronglyConnectedComponents,
+    ) {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
