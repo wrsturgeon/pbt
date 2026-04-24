@@ -46,6 +46,15 @@ impl<T: Eq + Hash> Multiset<T> {
         acc
     }
 
+    #[inline]
+    pub fn from_counts<I: IntoIterator<Item = (T, NonZero<usize>)>>(iter: I) -> Self {
+        let mut count = HashMap::with_hasher(RandomState::new());
+        for (element, n) in iter {
+            let _: Option<NonZero<usize>> = count.insert(element, n);
+        }
+        Self { count }
+    }
+
     /// Insert a single element, noting that
     /// this will increment that element's count if others are already present.
     /// # Panics
@@ -157,7 +166,7 @@ impl<T: Construct + Hash> Construct for Multiset<T> {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<T>(visited.clone(), sccs);
+        let () = register::<HashMap<T, NonZero<usize>>>(visited.clone(), sccs);
     }
 
     #[inline]
