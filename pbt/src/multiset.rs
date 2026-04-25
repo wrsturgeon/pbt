@@ -9,7 +9,7 @@ use {
     },
     ahash::{AHasher, HashMap, HashSet, RandomState},
     core::{
-        cmp,
+        cmp, fmt,
         hash::{Hash, Hasher},
         iter,
         num::NonZero,
@@ -20,7 +20,7 @@ use {
 /// One, as a non-zero integer. Stupid but efficient.
 const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Eq, PartialEq)]
 pub struct Multiset<T: Eq + Hash> {
     /// How many of each distinct element are in the bag?
     count: HashMap<T, NonZero<usize>>,
@@ -200,6 +200,13 @@ impl<T: Construct + Hash> Construct for Multiset<T> {
     #[inline]
     fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(self.count.visit_deep())
+    }
+}
+
+impl<T: fmt::Debug + Eq + Hash> fmt::Debug for Multiset<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.count, f)
     }
 }
 
