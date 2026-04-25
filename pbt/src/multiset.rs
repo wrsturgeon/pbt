@@ -166,7 +166,7 @@ impl<T: Construct + Hash> Construct for Multiset<T> {
         if !visited.insert(type_of::<Self>()) {
             return;
         }
-        let () = register::<HashMap<T, NonZero<usize>>>(visited.clone(), sccs);
+        let () = register::<Vec<T>>(visited.clone(), sccs);
     }
 
     #[inline]
@@ -175,20 +175,24 @@ impl<T: Construct + Hash> Construct for Multiset<T> {
             introduction_rules: vec![IntroductionRule {
                 arbitrary_fields: |prng, mut sizes| {
                     let mut fields = TermsOfVariousTypes::new();
-                    fields.push(sizes.arbitrary::<HashMap<T, NonZero<usize>>>(prng));
+                    fields.push(sizes.arbitrary::<Vec<T>>(prng));
                     fields
                 },
                 call: CtorFn::new(|terms| {
-                    Some(Self {
-                        count: terms.must_pop(),
-                    })
+                    let arbitrarily_ordered: Vec<T> = terms.must_pop();
+                    Some(arbitrarily_ordered.into_iter().collect())
                 }),
-                immediate_dependencies: iter::once(type_of::<HashMap<T, NonZero<usize>>>())
-                    .collect(),
+                immediate_dependencies: iter::once(type_of::<Vec<T>>()).collect(),
             }],
             elimination_rule: ElimFn::new(|Multiset { count }| {
                 let mut fields = TermsOfVariousTypes::new();
-                let () = fields.push::<HashMap<T, NonZero<usize>>>(count);
+                let mut arbitrarily_ordered: Vec<T> = vec![];
+                for (t, n) in count {
+                    for _ in 0..n.get() {
+                        let () = arbitrarily_ordered.push(t.clone());
+                    }
+                }
+                let () = fields.push::<Vec<T>>(arbitrarily_ordered);
                 Decomposition {
                     ctor_idx: const { NonZero::new(1).unwrap() },
                     fields,
