@@ -30,7 +30,7 @@ impl<T: Construct> Construct for PhantomData<T> {
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
-                arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
+                arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
                 call: CtorFn::new(|_terms| Some(PhantomData)),
                 immediate_dependencies: Multiset::new(),
             }],

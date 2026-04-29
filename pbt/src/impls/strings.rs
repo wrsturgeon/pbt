@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, Literal,
-            TypeFormer, visit_self, visit_self_opt,
+            TypeFormer, push_arbitrary_field, visit_self, visit_self_opt,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -74,16 +74,16 @@ impl Construct for String {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
+                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
                     call: CtorFn::new(|_| Some(String::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
                     arbitrary_fields: |prng, mut sizes| {
                         let mut fields = TermsOfVariousTypes::new();
-                        fields.push(sizes.arbitrary::<char>(prng));
-                        fields.push(sizes.arbitrary::<Self>(prng));
-                        fields
+                        push_arbitrary_field::<char>(&mut fields, &mut sizes, prng)?;
+                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
+                        Ok(fields)
                     },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
@@ -148,8 +148,8 @@ impl Construct for CString {
             introduction_rules: vec![IntroductionRule {
                 arbitrary_fields: |prng, mut sizes| {
                     let mut fields = TermsOfVariousTypes::new();
-                    fields.push(sizes.arbitrary::<Vec<NonZero<u8>>>(prng));
-                    fields
+                    push_arbitrary_field::<Vec<NonZero<u8>>>(&mut fields, &mut sizes, prng)?;
+                    Ok(fields)
                 },
                 call: CtorFn::new(|terms| {
                     let bytes: Vec<NonZero<u8>> = terms.must_pop();

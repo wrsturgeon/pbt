@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_opt,
+            push_arbitrary_field, visit_self, visit_self_opt,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -35,16 +35,16 @@ impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct 
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
+                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
                     call: CtorFn::new(|_| Some(HashSet::with_hasher(S::default()))),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
                     arbitrary_fields: |prng, mut sizes| {
                         let mut fields = TermsOfVariousTypes::new();
-                        fields.push(sizes.arbitrary::<T>(prng));
-                        fields.push(sizes.arbitrary::<Self>(prng));
-                        fields
+                        push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
+                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
+                        Ok(fields)
                     },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
@@ -111,17 +111,17 @@ impl<K: Construct + Hash, V: Construct, S: 'static + BuildHasher + Clone + Defau
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
+                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
                     call: CtorFn::new(|_| Some(HashMap::with_hasher(S::default()))),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
                     arbitrary_fields: |prng, mut sizes| {
                         let mut fields = TermsOfVariousTypes::new();
-                        fields.push(sizes.arbitrary::<K>(prng));
-                        fields.push(sizes.arbitrary::<V>(prng));
-                        fields.push(sizes.arbitrary::<Self>(prng));
-                        fields
+                        push_arbitrary_field::<K>(&mut fields, &mut sizes, prng)?;
+                        push_arbitrary_field::<V>(&mut fields, &mut sizes, prng)?;
+                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
+                        Ok(fields)
                     },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>();

@@ -1,6 +1,6 @@
 use {
     crate::{
-        construct::{Construct, arbitrary},
+        construct::{Construct, MaybeUninstantiable, arbitrary, try_arbitrary},
         reflection::{AlgebraicTypeFormer, PrecomputedTypeFormer, Type, info_by_id, type_of},
     },
     core::{any::type_name, cmp, fmt, iter, num::NonZero},
@@ -35,6 +35,12 @@ pub struct Sizes {
 }
 
 impl Size {
+    /// Copy this size for retrying a failed generation attempt.
+    #[inline]
+    pub(crate) fn _copy(&self) -> Self {
+        Self { size: self.size }
+    }
+
     /// Increase this size by one.
     #[inline]
     pub(crate) fn _increment(&mut self) {
@@ -206,6 +212,12 @@ impl Iterator for Sizes {
 }
 
 impl Sizes {
+    /// Discard all unused field sizes after abandoning constructor generation.
+    #[inline]
+    pub(crate) fn _discard_remaining(&mut self) {
+        while self.next().is_some() {}
+    }
+
     /// Generate an arbitrary term of type `T` using the
     /// size partitioned for it via `Size::partition`.
     /// # Panics
@@ -228,6 +240,27 @@ impl Sizes {
             );
         };
         t
+    }
+
+    /// Try to generate an arbitrary term of type `T` using the
+    /// size partitioned for it via `Size::partition`.
+    /// # Errors
+    /// Returns [`MaybeUninstantiable::Retry`] when rejection sampling could not
+    /// decide at this size, or [`MaybeUninstantiable::Uninstantiable`] when `T`
+    /// has no structurally available constructor.
+    #[inline]
+    pub fn try_arbitrary<T: Construct>(
+        &mut self,
+        prng: &mut WyRand,
+    ) -> Result<T, MaybeUninstantiable> {
+        let ty = type_of::<T>();
+        let info = info_by_id(ty);
+        let size = if info.is_big() {
+            self.next().unwrap_or_default()
+        } else {
+            Size { size: 0 }
+        };
+        try_arbitrary::<T>(prng, size)
     }
 }
 

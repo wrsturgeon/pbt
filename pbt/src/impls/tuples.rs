@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self,
+            push_arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -41,9 +41,9 @@ impl<Lhs: Construct, Rhs: Construct> Construct for (Lhs, Rhs) {
             introduction_rules: vec![IntroductionRule {
                 arbitrary_fields: |prng, mut sizes| {
                     let mut fields = TermsOfVariousTypes::new();
-                    fields.push(sizes.arbitrary::<Lhs>(prng));
-                    fields.push(sizes.arbitrary::<Rhs>(prng));
-                    fields
+                    push_arbitrary_field::<Lhs>(&mut fields, &mut sizes, prng)?;
+                    push_arbitrary_field::<Rhs>(&mut fields, &mut sizes, prng)?;
+                    Ok(fields)
                 },
                 call: CtorFn::new(|fields| {
                     let rhs: Rhs = fields.must_pop();

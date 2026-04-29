@@ -466,19 +466,21 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                                             }),
                                             init: Some(LocalInit {
                                                 eq_token: <Token![=]>::default(),
-                                                expr: Box::new(Expr::Verbatim(quote! {
-                                                   fields.push(sizes.arbitrary::<#ty>(prng))
-                                                })),
+                                            expr: Box::new(Expr::Verbatim(quote! {
+                                                ::pbt::construct::push_arbitrary_field::<#ty>(
+                                                    &mut fields,
+                                                    &mut sizes,
+                                                    prng,
+                                                )?
+                                            })),
                                                 diverge: None,
                                             }),
                                             semi_token: <Token![;]>::default(),
                                         })
                                     }))
                                     .chain(iter::once(Stmt::Expr(
-                                        Expr::Path(ExprPath {
-                                            attrs: vec![],
-                                            qself: None,
-                                            path: path_of_str("fields"),
+                                        Expr::Verbatim(quote! {
+                                            Ok(fields)
                                         }),
                                         None,
                                     )))

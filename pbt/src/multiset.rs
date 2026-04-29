@@ -3,7 +3,7 @@ use {
         StronglyConnectedComponents,
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self,
+            push_arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
     },
@@ -175,8 +175,8 @@ impl<T: Construct + Hash> Construct for Multiset<T> {
             introduction_rules: vec![IntroductionRule {
                 arbitrary_fields: |prng, mut sizes| {
                     let mut fields = TermsOfVariousTypes::new();
-                    fields.push(sizes.arbitrary::<Vec<T>>(prng));
-                    fields
+                    push_arbitrary_field::<Vec<T>>(&mut fields, &mut sizes, prng)?;
+                    Ok(fields)
                 },
                 call: CtorFn::new(|terms| {
                     let arbitrarily_ordered: Vec<T> = terms.must_pop();

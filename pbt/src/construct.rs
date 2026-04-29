@@ -28,7 +28,8 @@ pub struct CtorFn<T> {
 pub struct IndexedCtorFn<T> {
     /// Generate precisely enough arbitrary fields
     /// to immediately invoke this constructor.
-    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> ErasedTermBuckets,
+    pub arbitrary_fields:
+        for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<ErasedTermBuckets, MaybeUninstantiable>,
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
     /// 1-indexed constructor/variant index.
@@ -72,6 +73,13 @@ pub enum TypeFormer<T> {
     Literal(Literal<T>),
 }
 
+#[derive(Clone, Debug)]
+#[expect(clippy::exhaustive_enums, reason = "used internally")]
+pub enum MaybeUninstantiable {
+    Retry,
+    Uninstantiable,
+}
+
 /// Decomposition of an algebraic value into its
 /// constructor index and all immediate fields.
 #[derive(Debug)]
@@ -88,7 +96,8 @@ pub struct Decomposition {
 pub struct IntroductionRule<T> {
     /// Generate precisely enough arbitrary fields
     /// to immediately invoke this constructor.
-    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> ErasedTermBuckets,
+    pub arbitrary_fields:
+        for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<ErasedTermBuckets, MaybeUninstantiable>,
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
     /// The multiset of types necessary to call this constructor.
@@ -219,6 +228,52 @@ impl<T> Deref for ElimFn<T> {
 
 #[inline]
 pub fn arbitrary<T: Construct>(prng: &mut WyRand, mut size: Size) -> Option<T> {
+    loop {
+        match try_arbitrary::<T>(prng, size._copy()) {
+            Ok(t) => return Some(t),
+            Err(MaybeUninstantiable::Retry) => size._increment(),
+            Err(MaybeUninstantiable::Uninstantiable) => return None,
+        }
+    }
+}
+
+#[inline]
+/// Generate and push one constructor field.
+/// # Errors
+/// Returns [`MaybeUninstantiable::Retry`] or
+/// [`MaybeUninstantiable::Uninstantiable`] from field generation after
+/// draining unused field-size partitions for the abandoned constructor attempt.
+pub fn push_arbitrary_field<T: Construct>(
+    fields: &mut ErasedTermBuckets,
+    sizes: &mut Sizes,
+    prng: &mut WyRand,
+) -> Result<(), MaybeUninstantiable> {
+    match sizes.try_arbitrary::<T>(prng) {
+        Ok(t) => {
+            fields.push(t);
+            Ok(())
+        }
+        Err(error) => {
+            sizes._discard_remaining();
+            Err(error)
+        }
+    }
+}
+
+#[inline]
+#[expect(
+    clippy::needless_pass_by_value,
+    reason = "`Size` is intentionally consumed as the total budget for one generation attempt"
+)]
+/// Try to generate an arbitrary term of type `T`.
+/// # Errors
+/// Returns [`MaybeUninstantiable::Retry`] when rejection sampling could not
+/// decide at this size, or [`MaybeUninstantiable::Uninstantiable`] when `T`
+/// has no structurally available constructor.
+pub fn try_arbitrary<T: Construct>(
+    prng: &mut WyRand,
+    size: Size,
+) -> Result<T, MaybeUninstantiable> {
     let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Algebraic(ref adt) => {
@@ -238,7 +293,9 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, mut size: Size) -> Option<T> {
                     (unsafe { potential_loops.get_unchecked(i) }, true)
                 } else {
                     let potential_leaves = adt.potential_leaves();
-                    let n = NonZero::new(potential_leaves.len())?;
+                    let Some(n) = NonZero::new(potential_leaves.len()) else {
+                        return Err(MaybeUninstantiable::Uninstantiable);
+                    };
                     #[expect(
                         clippy::as_conversions,
                         clippy::cast_possible_truncation,
@@ -249,7 +306,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, mut size: Size) -> Option<T> {
                     (unsafe { potential_leaves.get_unchecked(i) }, false)
                 };
                 let sizes = size._partition_into(ctor.n_big, prng, minus_one);
-                let mut fields = (ctor.arbitrary_fields)(prng, sizes);
+                let mut fields = (ctor.arbitrary_fields)(prng, sizes)?;
                 // SAFETY: By the soundness of the type-`TypeId` relation,
                 // which holds as long as no lifetime subtyping takes place,
                 // and since only `'static` types have IDs and we can't generate functions,
@@ -260,18 +317,17 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, mut size: Size) -> Option<T> {
                     "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
                 );
                 if let Some(result) = result {
-                    return Some(result);
+                    return Ok(result);
                 }
 
                 // If that failed, then there's (almost surely) a Sigma-type,
                 // in which case its instantiability might be size-dependent
                 // (e.g. a non-empty vector/string/etc.), in which case
                 // we should occasionally bump the size just in case:
-                let (next_canary, ovf) = canary.overflowing_add(1);
+                let Some(next_canary) = canary.checked_add(1) else {
+                    return Err(MaybeUninstantiable::Retry);
+                };
                 canary = next_canary;
-                if ovf {
-                    let () = size._increment();
-                }
             }
         }
         PrecomputedTypeFormer::Literal { generate, .. } => {
@@ -280,7 +336,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, mut size: Size) -> Option<T> {
                 mem::transmute::<fn(&mut WyRand) -> Erased, fn(&mut WyRand) -> T>(generate)
             };
             // All literals are instantiable.
-            Some(generate(prng))
+            Ok(generate(prng))
         }
     }
 }

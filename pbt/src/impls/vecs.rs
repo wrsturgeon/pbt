@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_opt,
+            push_arbitrary_field, visit_self, visit_self_opt,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -31,16 +31,16 @@ impl<T: Construct> Construct for Vec<T> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
+                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
                     call: CtorFn::new(|_| Some(vec![])),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
                     arbitrary_fields: |prng, mut sizes| {
                         let mut fields = TermsOfVariousTypes::new();
-                        fields.push(sizes.arbitrary::<T>(prng));
-                        fields.push(sizes.arbitrary::<Self>(prng));
-                        fields
+                        push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
+                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
+                        Ok(fields)
                     },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail

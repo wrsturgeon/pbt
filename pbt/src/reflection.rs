@@ -4,7 +4,7 @@ use {
         cache::{self, CachedTerm},
         construct::{
             Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
-            TypeFormer, deserialize_cached_term_into_buckets,
+            MaybeUninstantiable, TypeFormer, deserialize_cached_term_into_buckets,
         },
         multiset::Multiset,
         scc::{self, StronglyConnectedComponents},
@@ -152,7 +152,8 @@ struct ComputedTypeRegistration {
 pub struct CtorInfo {
     /// Generate precisely enough arbitrary fields
     /// to immediately invoke this constructor.
-    pub arbitrary_fields: for<'prng> fn(&'prng mut WyRand, Sizes) -> TermsOfVariousTypes,
+    pub arbitrary_fields:
+        for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<TermsOfVariousTypes, MaybeUninstantiable>,
     /// The number of "big" types: types that either
     /// are inductive themselves or contain a big type.
     pub cached_n_big: OnceLock<usize>,

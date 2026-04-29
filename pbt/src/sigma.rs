@@ -7,7 +7,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self,
+            push_arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -178,8 +178,8 @@ impl<T: Construct, P: Predicate<T>> Construct for Sigma<T, P> {
             introduction_rules: vec![IntroductionRule {
                 arbitrary_fields: |prng, mut sizes| {
                     let mut fields = TermsOfVariousTypes::new();
-                    let () = fields.push(sizes.arbitrary::<T>(prng));
-                    fields
+                    push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
+                    Ok(fields)
                 },
                 call: CtorFn {
                     call: |terms| Self::new(terms.must_pop()).ok(),

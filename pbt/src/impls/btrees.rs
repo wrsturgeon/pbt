@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self, visit_self_opt,
+            push_arbitrary_field, visit_self, visit_self_opt,
         },
         multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -31,16 +31,16 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
+                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
                     call: CtorFn::new(|_| Some(BTreeSet::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
                     arbitrary_fields: |prng, mut sizes| {
                         let mut fields = TermsOfVariousTypes::new();
-                        fields.push(sizes.arbitrary::<T>(prng));
-                        fields.push(sizes.arbitrary::<Self>(prng));
-                        fields
+                        push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
+                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
+                        Ok(fields)
                     },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
@@ -102,17 +102,17 @@ impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| TermsOfVariousTypes::new(),
+                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
                     call: CtorFn::new(|_| Some(BTreeMap::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
                     arbitrary_fields: |prng, mut sizes| {
                         let mut fields = TermsOfVariousTypes::new();
-                        fields.push(sizes.arbitrary::<K>(prng));
-                        fields.push(sizes.arbitrary::<V>(prng));
-                        fields.push(sizes.arbitrary::<Self>(prng));
-                        fields
+                        push_arbitrary_field::<K>(&mut fields, &mut sizes, prng)?;
+                        push_arbitrary_field::<V>(&mut fields, &mut sizes, prng)?;
+                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
+                        Ok(fields)
                     },
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>();

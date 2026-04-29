@@ -4,7 +4,7 @@ use {
     crate::{
         construct::{
             Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
-            visit_self,
+            push_arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -31,8 +31,8 @@ impl<T: Construct> Construct for Rc<T> {
             introduction_rules: vec![IntroductionRule {
                 arbitrary_fields: |prng, mut sizes| {
                     let mut fields = TermsOfVariousTypes::new();
-                    fields.push(sizes.arbitrary::<T>(prng));
-                    fields
+                    push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
+                    Ok(fields)
                 },
                 call: CtorFn::new(|terms| Some(Rc::new(terms.must_pop()))),
                 immediate_dependencies: iter::once(type_of::<T>()).collect(),
@@ -73,8 +73,8 @@ impl<T: Construct> Construct for Arc<T> {
             introduction_rules: vec![IntroductionRule {
                 arbitrary_fields: |prng, mut sizes| {
                     let mut fields = TermsOfVariousTypes::new();
-                    fields.push(sizes.arbitrary::<T>(prng));
-                    fields
+                    push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
+                    Ok(fields)
                 },
                 call: CtorFn::new(|terms| Some(Arc::new(terms.must_pop()))),
                 immediate_dependencies: iter::once(type_of::<T>()).collect(),
