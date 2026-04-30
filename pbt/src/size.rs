@@ -168,13 +168,8 @@ impl Size {
             clippy::cast_possible_truncation,
             reason = "fine: definitely not > `u64::MAX` constructors"
         )]
-        NonZero::new(self.size).is_some_and(|size| prng.rand() as usize % size != 0)
-    }
-
-    #[inline]
-    #[must_use]
-    pub fn zero() -> Self {
-        Self { size: 0 }
+        NonZero::new(self.size.isqrt())
+            .is_some_and(|denominator| prng.rand() as usize % denominator != 0)
     }
 }
 
