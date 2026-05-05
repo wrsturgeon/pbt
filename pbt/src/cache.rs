@@ -1,8 +1,8 @@
 use {
     crate::{
         SEED,
-        construct::{Construct, Decomposition, ElimFn, arbitrary},
         multiset::Multiset,
+        pbt::{Decomposition, ElimFn, Pbt, arbitrary},
         reflection::{
             AlgebraicTypeFormer, Erased, ErasedTermBuckets, PrecomputedTypeFormer, Type, info,
             info_by_id,
@@ -61,7 +61,7 @@ struct CacheLine {
 #[inline]
 #[must_use]
 /// Serialize one witness term into the stable cache format.
-pub fn serialize_term<T: Construct>(t: &T) -> CachedTerm {
+pub fn serialize_term<T: Pbt>(t: &T) -> CachedTerm {
     let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Literal { serialize, .. } => {
@@ -84,7 +84,7 @@ pub fn serialize_term<T: Construct>(t: &T) -> CachedTerm {
 #[inline]
 #[must_use]
 /// Deserialize one cached witness term back into its concrete Rust type.
-pub fn deserialize_term<T: Construct>(term: &CachedTerm) -> Option<T> {
+pub fn deserialize_term<T: Pbt>(term: &CachedTerm) -> Option<T> {
     let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Literal { deserialize, .. } => {
@@ -203,7 +203,7 @@ pub fn deserialize_terms(
     clippy::panic,
     reason = "round-trip test helper should panic on mismatch"
 )]
-pub fn check_roundtrip<T: Construct>() {
+pub fn check_roundtrip<T: Pbt>() {
     let mut prng = WyRand::new(u64::from(SEED));
     for size in Size::expanding().take(32) {
         let Some(original) = arbitrary::<T>(&mut prng, size) else {
@@ -228,7 +228,7 @@ pub fn check_roundtrip<T: Construct>() {
 #[inline]
 #[must_use]
 /// Load all cached witnesses currently stored for one top-level witness type.
-pub fn load<T: Construct>() -> Vec<T> {
+pub fn load<T: Pbt>() -> Vec<T> {
     let path = cache_path::<T>();
     let Ok(contents) = fs::read_to_string(path) else {
         return vec![];
@@ -243,7 +243,7 @@ pub fn load<T: Construct>() -> Vec<T> {
 
 #[inline]
 /// Store one witness in the persistent per-type cache, keeping canonical ordering.
-pub fn store<T: Construct>(t: &T) {
+pub fn store<T: Pbt>(t: &T) {
     let path = cache_path::<T>();
     let Some(parent) = path.parent() else {
         return;
@@ -259,7 +259,7 @@ pub fn store<T: Construct>(t: &T) {
 
 /// Rewrite a cache file after the caller has acquired the per-file cache lock.
 #[inline]
-fn store_locked<T: Construct>(path: &Path, term: &CachedTerm) -> io::Result<()> {
+fn store_locked<T: Pbt>(path: &Path, term: &CachedTerm) -> io::Result<()> {
     let mut witnesses = load::<T>()
         .into_iter()
         .map(|witness| serialize_term(&witness))
@@ -369,7 +369,7 @@ fn maybe_test_store_delay() {
 
 /// Compute the NDJSON cache path for a top-level witness type.
 #[inline]
-fn cache_path<T: Construct>() -> PathBuf {
+fn cache_path<T: Pbt>() -> PathBuf {
     let root = env::var_os(ENV_VAR).map_or_else(default_cache_root, PathBuf::from);
     let ty = type_name::<T>();
     let hash = fnv1a64(ty.as_bytes());
@@ -453,7 +453,7 @@ mod test {
     use {
         super::*,
         crate::{
-            construct::Construct,
+            pbt::Pbt,
             sigma::{Predicate, Sigma},
         },
         core::{convert::Infallible, num::NonZero},
@@ -483,7 +483,7 @@ mod test {
     }
 
     type NonAnswer = Sigma<u8, NotTheAnswer>;
-    fn roundtrip<T: Construct>() {
+    fn roundtrip<T: Pbt>() {
         check_roundtrip::<T>();
     }
 

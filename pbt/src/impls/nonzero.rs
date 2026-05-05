@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        construct::{Construct, Literal, TypeFormer, visit_self, visit_self_owned},
+        pbt::{Literal, Pbt, TypeFormer, visit_self, visit_self_owned},
         reflection::{Type, register, type_of},
         scc::StronglyConnectedComponents,
         shrink::shrink,
@@ -37,10 +37,10 @@ macro_rules! arbitrary_nonzero_unsigned {
     }};
 }
 
-/// Implement `Construct` for `NonZero<$u>`.
+/// Implement `Pbt` for `NonZero<$u>`.
 macro_rules! impl_for {
     ($u:ty) => {
-        impl Construct for NonZero<$u> {
+        impl Pbt for NonZero<$u> {
             #[inline]
             fn register_all_immediate_dependencies(
                 visited: &mut BTreeSet<Type>,
@@ -67,7 +67,7 @@ macro_rules! impl_for {
             }
 
             #[inline]
-            fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+            fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
                 visit_self(self).chain(visit_self_owned(self.get()))
             }
         }
@@ -81,7 +81,7 @@ impl_for!(u64);
 impl_for!(u128);
 impl_for!(usize);
 
-impl Construct for NonZero<char> {
+impl Pbt for NonZero<char> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -116,7 +116,7 @@ impl Construct for NonZero<char> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(visit_self_owned(self.get()))
     }
 }

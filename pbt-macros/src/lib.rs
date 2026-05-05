@@ -73,7 +73,7 @@ fn derive_pbt_for_ctors(
 ) -> TokenStream {
     let construct_trait_path = Path {
         leading_colon: Some(PathSep::default()),
-        segments: [seg(id("pbt")), seg(id("construct")), seg(id("Construct"))]
+        segments: [seg(id("pbt")), seg(id("pbt")), seg(id("Pbt"))]
             .into_iter()
             .collect(),
     };
@@ -136,15 +136,15 @@ fn derive_pbt_for_ctors(
                 }
 
                 #[inline]
-                fn type_former() -> ::pbt::construct::TypeFormer<Self> {
-                    ::pbt::construct::TypeFormer::Algebraic(::pbt::construct::Algebraic {
+                fn type_former() -> ::pbt::pbt::TypeFormer<Self> {
+                    ::pbt::pbt::TypeFormer::Algebraic(::pbt::pbt::Algebraic {
                         introduction_rules: vec![],
-                        elimination_rule: ::pbt::construct::ElimFn::new(|uninhabited| match uninhabited {}),
+                        elimination_rule: ::pbt::pbt::ElimFn::new(|uninhabited| match uninhabited {}),
                     })
                 }
 
                 #[inline]
-                fn visit_deep<V: ::pbt::construct::Construct>(&self) -> impl ::core::iter::Iterator<Item = V> {
+                fn visit_deep<V: ::pbt::pbt::Pbt>(&self) -> impl ::core::iter::Iterator<Item = V> {
                     ::core::iter::empty()
                 }
             }
@@ -153,7 +153,7 @@ fn derive_pbt_for_ctors(
             mod #test_mod_id {
                 #[test]
                 fn eta_expansion() {
-                    let () = ::pbt::construct::check_eta_expansion::<#test_path>();
+                    let () = ::pbt::pbt::check_eta_expansion::<#test_path>();
                 }
 
                 #[test]
@@ -204,13 +204,13 @@ fn derive_pbt_for_ctors(
             }
 
             #[inline]
-            fn type_former() -> ::pbt::construct::TypeFormer<Self> {
-                ::pbt::construct::TypeFormer::Algebraic(::pbt::construct::Algebraic {
+            fn type_former() -> ::pbt::pbt::TypeFormer<Self> {
+                ::pbt::pbt::TypeFormer::Algebraic(::pbt::pbt::Algebraic {
                     introduction_rules: #introduction_rules,
-                    elimination_rule: ::pbt::construct::ElimFn::new(|constructed| {
+                    elimination_rule: ::pbt::pbt::ElimFn::new(|constructed| {
                         let mut fields = ::pbt::reflection::TermsOfVariousTypes::new();
                         let ctor_idx: usize = #elim_ctor_idx;
-                        ::pbt::construct::Decomposition {
+                        ::pbt::pbt::Decomposition {
                             // SAFETY: Case anaylsis above.
                             ctor_idx: unsafe { ::core::num::NonZero::new_unchecked(ctor_idx) },
                             fields,
@@ -220,8 +220,8 @@ fn derive_pbt_for_ctors(
             }
 
             #[inline]
-            fn visit_deep<V: ::pbt::construct::Construct>(&self) -> impl ::core::iter::Iterator<Item = V> {
-                ::pbt::construct::visit_self(self).chain({
+            fn visit_deep<V: ::pbt::pbt::Pbt>(&self) -> impl ::core::iter::Iterator<Item = V> {
+                ::pbt::pbt::visit_self(self).chain({
                     let iter: Box<dyn Iterator<Item = _>> = #visit_deep;
                     iter
                 })
@@ -232,7 +232,7 @@ fn derive_pbt_for_ctors(
         mod #test_mod_id {
             #[test]
             fn eta_expansion() {
-                let () = ::pbt::construct::check_eta_expansion::<#test_path>();
+                let () = ::pbt::pbt::check_eta_expansion::<#test_path>();
             }
 
             #[test]
@@ -374,7 +374,7 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                     leading_colon: Some(PathSep::default()),
                     segments: [
                         seg(id("pbt")),
-                        seg(id("construct")),
+                        seg(id("pbt")),
                         seg(id("IntroductionRule")),
                     ]
                     .into_iter()
@@ -467,7 +467,7 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                                             init: Some(LocalInit {
                                                 eq_token: <Token![=]>::default(),
                                             expr: Box::new(Expr::Verbatim(quote! {
-                                                ::pbt::construct::push_arbitrary_field::<#ty>(
+                                                ::pbt::pbt::push_arbitrary_field::<#ty>(
                                                     &mut fields,
                                                     &mut sizes,
                                                     prng,
@@ -496,7 +496,7 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                         expr: Expr::Call(ExprCall {
                             attrs: vec![],
                             func: Box::new(Expr::Verbatim(
-                                quote! { ::pbt::construct::CtorFn::new },
+                                quote! { ::pbt::pbt::CtorFn::new },
                             )),
                             paren_token: Paren::default(),
                             args: iter::once(Expr::Closure(ExprClosure {

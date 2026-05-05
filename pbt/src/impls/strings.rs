@@ -2,11 +2,11 @@
 
 use {
     crate::{
-        construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, Literal,
-            TypeFormer, push_arbitrary_field, visit_self, visit_self_opt,
-        },
         multiset::Multiset,
+        pbt::{
+            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Literal, Pbt, TypeFormer,
+            push_arbitrary_field, visit_self, visit_self_opt,
+        },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
         shrink::shrink,
@@ -15,7 +15,7 @@ use {
     std::{collections::BTreeSet, ffi::CString, vec},
 };
 
-impl Construct for char {
+impl Pbt for char {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -52,12 +52,12 @@ impl Construct for char {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for String {
+impl Pbt for String {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -114,7 +114,7 @@ impl Construct for String {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self::<V, Self>(self)
             .chain(
                 self.chars()
@@ -130,7 +130,7 @@ impl Construct for String {
     }
 }
 
-impl Construct for CString {
+impl Pbt for CString {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -176,7 +176,7 @@ impl Construct for CString {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self::<V, Self>(self)
             .chain(self.as_bytes().iter().flat_map(visit_self))
             .chain({

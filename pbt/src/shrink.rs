@@ -1,6 +1,6 @@
 use {
     crate::{
-        construct::{Construct, Decomposition},
+        pbt::{Decomposition, Pbt},
         reflection::{AlgebraicTypeFormer, Erased, PrecomputedTypeFormer, info},
     },
     core::mem,
@@ -12,7 +12,7 @@ use {
 /// on the first go, then to cut only about a quarter, then only an eighth, etc.,
 /// until they almost reach (but do not equal) the original term.
 #[inline]
-pub fn shrink<T: Construct>(t: T) -> Box<dyn Iterator<Item = T>> {
+pub fn shrink<T: Pbt>(t: T) -> Box<dyn Iterator<Item = T>> {
     let info = info::<T>();
     let AlgebraicTypeFormer {
         all_constructors: ref ctors,

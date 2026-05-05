@@ -19,7 +19,7 @@ keywords = ["property", "proptest", "arbitrary", "fuzz", "test"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/wrsturgeon/pbt"
-version = "0.4.14"
+version = "0.4.15"
 
 
 [workspace.lints.clippy]
@@ -40,6 +40,7 @@ field_scoped_visibility_modifiers = "allow"
 from_iter_instead_of_collect = "allow"
 implicit_return = "allow"
 inline_always = "allow"
+inline_modules = "allow"
 iter_over_hash_type = "allow"
 map_err_ignore = "allow"
 min_ident_chars = "allow"

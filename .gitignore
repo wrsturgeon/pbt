@@ -1,4 +1,9 @@
+**/.codex
 **/.direnv
+**/.gitignore
+**/.pbt
+**/AGENTS.md
+**/PLAN.md
 **/result
 **/rustc-ice-*
 **/target

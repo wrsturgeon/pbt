@@ -21,7 +21,7 @@ mod malachite {
         },
     };
 
-    impl Construct for Natural {
+    impl Pbt for Natural {
         #[inline]
         #[expect(
             clippy::needless_return,
@@ -79,7 +79,7 @@ mod malachite {
         }
 
         #[inline]
-        fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+        fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
             visit_self(self)
         }
     }
@@ -97,7 +97,7 @@ mod num_bigint {
 
     use {super::*, crate::reflection::type_of, ::num_bigint::BigUint};
 
-    impl Construct for BigUint {
+    impl Pbt for BigUint {
         #[inline]
         #[expect(
             clippy::needless_return,
@@ -158,7 +158,7 @@ mod num_bigint {
         }
 
         #[inline]
-        fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+        fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
             visit_self(self)
         }
     }
@@ -167,7 +167,7 @@ mod num_bigint {
 use {
     crate::{
         arbitrary_nonzero_unsigned,
-        construct::{Construct, Literal, TypeFormer, visit_self},
+        pbt::{Literal, Pbt, TypeFormer, visit_self},
         reflection::{Type, type_of},
         scc::StronglyConnectedComponents,
     },
@@ -222,7 +222,7 @@ macro_rules! shrink_int {
     };
 }
 
-impl Construct for bool {
+impl Pbt for bool {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -251,12 +251,12 @@ impl Construct for bool {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for u8 {
+impl Pbt for u8 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -283,12 +283,12 @@ impl Construct for u8 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for u16 {
+impl Pbt for u16 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -315,12 +315,12 @@ impl Construct for u16 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for u32 {
+impl Pbt for u32 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -347,12 +347,12 @@ impl Construct for u32 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for u64 {
+impl Pbt for u64 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -379,12 +379,12 @@ impl Construct for u64 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for u128 {
+impl Pbt for u128 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -411,12 +411,12 @@ impl Construct for u128 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for usize {
+impl Pbt for usize {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -443,12 +443,12 @@ impl Construct for usize {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for i8 {
+impl Pbt for i8 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -475,12 +475,12 @@ impl Construct for i8 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for i16 {
+impl Pbt for i16 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -507,12 +507,12 @@ impl Construct for i16 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for i32 {
+impl Pbt for i32 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -539,12 +539,12 @@ impl Construct for i32 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for i64 {
+impl Pbt for i64 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -571,12 +571,12 @@ impl Construct for i64 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for i128 {
+impl Pbt for i128 {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -603,12 +603,12 @@ impl Construct for i128 {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }
 
-impl Construct for isize {
+impl Pbt for isize {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -635,7 +635,7 @@ impl Construct for isize {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self)
     }
 }

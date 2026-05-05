@@ -5,8 +5,8 @@
 
 use {
     crate::{
-        construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+        pbt::{
+            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
             push_arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -152,7 +152,7 @@ impl<T: fmt::Display, P: Predicate<T>> fmt::Display for Sigma<T, P> {
 // TODO: how should this behave when e.g.
 // we're asking for a non-empty `Vec` of size `0`
 // (since that's impossible and will loop forever)?
-impl<T: Construct, P: Predicate<T>> Construct for Sigma<T, P> {
+impl<T: Pbt, P: Predicate<T>> Pbt for Sigma<T, P> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -190,7 +190,7 @@ impl<T: Construct, P: Predicate<T>> Construct for Sigma<T, P> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(T::visit_deep(&self.value))
     }
 }

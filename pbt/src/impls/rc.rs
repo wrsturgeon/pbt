@@ -2,8 +2,8 @@
 
 use {
     crate::{
-        construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+        pbt::{
+            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
             push_arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -13,7 +13,7 @@ use {
     std::{collections::BTreeSet, rc::Rc, sync::Arc},
 };
 
-impl<T: Construct> Construct for Rc<T> {
+impl<T: Pbt> Pbt for Rc<T> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -50,12 +50,12 @@ impl<T: Construct> Construct for Rc<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(self.as_ref().visit_deep())
     }
 }
 
-impl<T: Construct> Construct for Arc<T> {
+impl<T: Pbt> Pbt for Arc<T> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -92,7 +92,7 @@ impl<T: Construct> Construct for Arc<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(self.as_ref().visit_deep())
     }
 }

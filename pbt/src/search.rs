@@ -1,7 +1,7 @@
 use {
     crate::{
         SEED, cache,
-        construct::{Construct, arbitrary},
+        pbt::{Pbt, arbitrary},
         shrink::shrink,
         size::Size,
     },
@@ -29,7 +29,7 @@ impl<T: PartialEq> PartialEq for Named<T> {
 }
 
 #[inline]
-pub fn witness<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> Option<T> {
+pub fn witness<T: Pbt, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> Option<T> {
     let mut prng = WyRand::new(
         env::var("PBT_SEED")
             .ok()
@@ -67,7 +67,7 @@ pub fn witness<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> 
 /// for which the property returns `false`.
 #[inline]
 #[expect(clippy::panic, reason = "failing assertions ought to panic")]
-pub fn assert<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) {
+pub fn assert<T: Pbt, P: Fn(&T) -> bool>(n_cases: usize, property: P) {
     if let Some(t) = witness(n_cases, |t| !property(t)) {
         assert!(
             property(&t),
@@ -88,10 +88,7 @@ pub fn assert<T: Construct, P: Fn(&T) -> bool>(n_cases: usize, property: P) {
 /// for which the two terms differ.
 #[inline]
 #[expect(clippy::panic, reason = "failing assertions ought to panic")]
-pub fn assert_eq<X: Construct, Y: fmt::Debug + Eq, P: Fn(&X) -> (Y, Y)>(
-    n_cases: usize,
-    property: P,
-) {
+pub fn assert_eq<X: Pbt, Y: fmt::Debug + Eq, P: Fn(&X) -> (Y, Y)>(n_cases: usize, property: P) {
     if let Some(x) = witness(n_cases, |x| {
         let (lhs, rhs) = property(x);
         lhs != rhs

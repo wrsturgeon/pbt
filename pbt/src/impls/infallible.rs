@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        construct::{Algebraic, Construct, ElimFn, TypeFormer},
+        pbt::{Algebraic, ElimFn, Pbt, TypeFormer},
         reflection::{Type, type_of},
         scc::StronglyConnectedComponents,
     },
@@ -10,7 +10,7 @@ use {
     std::collections::BTreeSet,
 };
 
-impl Construct for Infallible {
+impl Pbt for Infallible {
     #[inline]
     #[expect(
         clippy::needless_return,
@@ -35,7 +35,7 @@ impl Construct for Infallible {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         iter::empty()
     }
 }

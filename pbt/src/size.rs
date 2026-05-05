@@ -1,6 +1,6 @@
 use {
     crate::{
-        construct::{Construct, MaybeUninstantiable, arbitrary, try_arbitrary},
+        pbt::{MaybeUninstantiable, Pbt, arbitrary, try_arbitrary},
         reflection::{AlgebraicTypeFormer, PrecomputedTypeFormer, Type, info_by_id, type_of},
     },
     core::{any::type_name, cmp, fmt, iter, num::NonZero},
@@ -119,7 +119,7 @@ impl Size {
     }
 
     #[inline]
-    pub fn partition<T: Construct>(self, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes {
+    pub fn partition<T: Pbt>(self, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes {
         self.partition_by_id(type_of::<T>(), ctor_idx, prng)
     }
 
@@ -218,7 +218,7 @@ impl Sizes {
     /// # Panics
     /// If `T` is uninstantiable.
     #[inline]
-    pub fn arbitrary<T: Construct>(&mut self, prng: &mut WyRand) -> T {
+    pub fn arbitrary<T: Pbt>(&mut self, prng: &mut WyRand) -> T {
         let ty = type_of::<T>();
         let info = info_by_id(ty);
         let size = if info.is_big() {
@@ -244,10 +244,7 @@ impl Sizes {
     /// decide at this size, or [`MaybeUninstantiable::Uninstantiable`] when `T`
     /// has no structurally available constructor.
     #[inline]
-    pub fn try_arbitrary<T: Construct>(
-        &mut self,
-        prng: &mut WyRand,
-    ) -> Result<T, MaybeUninstantiable> {
+    pub fn try_arbitrary<T: Pbt>(&mut self, prng: &mut WyRand) -> Result<T, MaybeUninstantiable> {
         let ty = type_of::<T>();
         let info = info_by_id(ty);
         let size = if info.is_big() {

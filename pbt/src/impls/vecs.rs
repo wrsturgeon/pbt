@@ -2,11 +2,11 @@
 
 use {
     crate::{
-        construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+        multiset::Multiset,
+        pbt::{
+            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
             push_arbitrary_field, visit_self, visit_self_opt,
         },
-        multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
     },
@@ -14,7 +14,7 @@ use {
     std::collections::BTreeSet,
 };
 
-impl<T: Construct> Construct for Vec<T> {
+impl<T: Pbt> Pbt for Vec<T> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -71,7 +71,7 @@ impl<T: Construct> Construct for Vec<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self::<V, Self>(self)
             .chain(self.iter().flat_map(T::visit_deep))
             .chain({

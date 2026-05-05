@@ -2,11 +2,11 @@ use {
     crate::{
         SEED,
         cache::{self, CachedTerm},
-        construct::{
-            Algebraic, Construct, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
-            MaybeUninstantiable, TypeFormer, deserialize_cached_term_into_buckets,
-        },
         multiset::Multiset,
+        pbt::{
+            Algebraic, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
+            MaybeUninstantiable, Pbt, TypeFormer, deserialize_cached_term_into_buckets,
+        },
         scc::{self, StronglyConnectedComponents},
         shrink::shrink,
         size::Sizes,
@@ -19,7 +19,7 @@ use {
         ptr,
     },
     std::{
-        collections::{BTreeMap, BTreeSet},
+        collections::{BTreeMap, BTreeSet, btree_map},
         sync::{Arc, LazyLock, OnceLock, PoisonError, RwLock},
     },
     wyrand::WyRand,
@@ -167,7 +167,7 @@ pub struct CtorInfo {
 #[derive(Debug)]
 pub struct AlgebraicTypeFormer {
     /// The exhaustive disjoint set of methods
-    /// to construct a term of this type,
+    /// to pbt a term of this type,
     /// each tagged with information about its type-level properties.
     pub all_constructors: Vec<(CtorFn<Erased>, CtorVertex)>,
     /// All constructors for which `Self` is *unreachable*.
@@ -451,18 +451,18 @@ impl TypeInfo {
     clippy::panic,
     reason = "internal invariant that ought to panic before causing damage"
 )]
-impl Construct for Erased {
+impl Pbt for Erased {
     #[inline]
     fn register_all_immediate_dependencies(
         _visited: &mut BTreeSet<Type>,
         _sccs: &mut StronglyConnectedComponents,
     ) {
-        panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
+        panic!("internal `pbt` error: do not call `Pbt` methods on `Erased`")
     }
 
     #[inline]
     fn type_former() -> TypeFormer<Self> {
-        panic!("internal `pbt` error: do not call `Construct` methods on `Erased`")
+        panic!("internal `pbt` error: do not call `Pbt` methods on `Erased`")
     }
 
     #[inline]
@@ -471,9 +471,9 @@ impl Construct for Erased {
         unused_variables,
         reason = "to constrain the anonymous return type"
     )]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         let panic: iter::Empty<_> =
-            panic!("internal `pbt` error: do not call `Construct` methods on `Erased`");
+            panic!("internal `pbt` error: do not call `Pbt` methods on `Erased`");
         panic
     }
 }
@@ -581,7 +581,7 @@ impl TermsOfVariousTypes {
     #[inline]
     #[must_use]
     /// Borrow the bucket for one concrete type without exposing the erased storage.
-    pub fn get<T: Construct>(&self) -> Option<&[T]> {
+    pub fn get<T: Pbt>(&self) -> Option<&[T]> {
         let id = type_of::<T>();
         let v = self.map.get(&id)?;
         let v: *const Vec<Erased> = ptr::from_ref(&v.terms);
@@ -595,7 +595,7 @@ impl TermsOfVariousTypes {
     /// Mutably borrow the list of terms of a given type.
     #[inline]
     #[must_use]
-    fn get_mut<T: Construct>(&mut self) -> Option<&mut Vec<T>> {
+    fn get_mut<T: Pbt>(&mut self) -> Option<&mut Vec<T>> {
         let id = type_of::<T>();
         let v = self.map.get_mut(&id)?;
         let v: *mut Vec<Erased> = ptr::from_mut(&mut v.terms);
@@ -624,7 +624,7 @@ impl TermsOfVariousTypes {
     /// # Panics
     /// If no terms of that type remain.
     #[inline]
-    pub fn must_pop<T: Construct>(&mut self) -> T {
+    pub fn must_pop<T: Pbt>(&mut self) -> T {
         match self.pop::<T>() {
             Some(t) => t,
             #[expect(clippy::panic, reason = "internal invariants")]
@@ -650,7 +650,7 @@ impl TermsOfVariousTypes {
         clippy::missing_panics_doc,
         reason = "won't panic b/c internal invariants"
     )]
-    pub fn pop<T: Construct>(&mut self) -> Option<T> {
+    pub fn pop<T: Pbt>(&mut self) -> Option<T> {
         let v: &mut Vec<T> = self.get_mut()?;
         let opt: Option<T> = v.pop();
         if opt.is_none() || v.is_empty() {
@@ -682,15 +682,20 @@ impl TermsOfVariousTypes {
 
     #[inline]
     /// Push one typed term into the bucket keyed by its concrete `TypeId`.
-    pub fn push<T: Construct>(&mut self, t: T) {
-        drop(info::<T>());
+    pub fn push<T: Pbt>(&mut self, t: T) {
         let id = type_of::<T>();
-        let terms = self.map.entry(id).or_insert_with(|| Terms {
-            // SAFETY: Never used in its erased form, and
-            // `Vec<_>`s all have the same size+alignment.
-            terms: unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(vec![]) },
-            ty: id,
-        });
+        let terms = match self.map.entry(id) {
+            btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            btree_map::Entry::Vacant(entry) => {
+                let _info = info::<T>();
+                entry.insert(Terms {
+                    // SAFETY: Never used in its erased form, and
+                    // `Vec<_>`s all have the same size+alignment.
+                    terms: unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(vec![]) },
+                    ty: id,
+                })
+            }
+        };
         let v: *mut Vec<Erased> = ptr::from_mut(&mut terms.terms);
         let v: *mut Vec<T> = v.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
@@ -928,7 +933,7 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
 
 /// Build the erased bucket operations for one concrete term type.
 #[inline]
-fn erased_bucket_ops<T: Construct>() -> ErasedBucketOps {
+fn erased_bucket_ops<T: Pbt>() -> ErasedBucketOps {
     ErasedBucketOps {
         clone: |v| {
             // SAFETY: Undoing an earlier pointer cast; the bucket is keyed by `T`.
@@ -980,7 +985,7 @@ fn erased_bucket_ops<T: Construct>() -> ErasedBucketOps {
 /// once the caller has confirmed that the type is still absent.
 #[inline]
 #[expect(clippy::too_many_lines, reason = "TODO: refactor")]
-fn compute_type_registration<T: Construct>(
+fn compute_type_registration<T: Pbt>(
     mut visited: BTreeSet<Type>,
     sccs: &mut StronglyConnectedComponents,
 ) -> ComputedTypeRegistration {
@@ -1122,7 +1127,7 @@ fn compute_type_registration<T: Construct>(
 
 /// Register a single type inside an already-serialized registration traversal.
 #[inline]
-fn register_inner<T: Construct>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents) {
+fn register_inner<T: Pbt>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents) {
     let id = type_of::<T>();
     if visited.contains(&id) || try_info_by_id(id).is_some() {
         return;
@@ -1140,7 +1145,7 @@ fn register_inner<T: Construct>(visited: BTreeSet<Type>, sccs: &mut StronglyConn
 
 /// Register a type with the global registry of type dependency information.
 #[inline]
-pub fn register<T: Construct>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents) {
+pub fn register<T: Pbt>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents) {
     let id = type_of::<T>();
     if visited.contains(&id) {
         return;
@@ -1175,7 +1180,7 @@ pub fn _sccs() -> &'static RwLock<StronglyConnectedComponents> {
 /// If registration completes but the just-registered type cannot be found in the registry.
 #[inline]
 #[must_use]
-pub fn info<T: Construct>() -> Arc<TypeInfo> {
+pub fn info<T: Pbt>() -> Arc<TypeInfo> {
     let mut sccs = _sccs().write().unwrap_or_else(PoisonError::into_inner);
     let () = register_inner::<T>(BTreeSet::new(), &mut sccs);
     match try_info_by_id(type_of::<T>()) {
@@ -1218,6 +1223,6 @@ pub fn try_info_by_id(id: Type) -> Option<Arc<TypeInfo>> {
 
 #[inline]
 #[must_use]
-pub fn type_of<T: Construct>() -> Type {
+pub fn type_of<T: Pbt>() -> Type {
     Type(TypeId::of::<T>())
 }

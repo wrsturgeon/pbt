@@ -7,7 +7,7 @@
 
 use {
     crate::{
-        construct::{Construct as _, check_eta_expansion},
+        pbt::{Pbt as _, check_eta_expansion},
         reflection::{
             PrecomputedTypeFormer, TermsOfVariousTypes, TypeInfo, breadth_first_transpose, info,
             type_of,

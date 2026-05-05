@@ -1,8 +1,8 @@
 use {
     crate::{
         StronglyConnectedComponents,
-        construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+        pbt::{
+            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
             push_arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -157,7 +157,7 @@ impl<T: Eq + Hash> Multiset<T> {
     }
 }
 
-impl<T: Construct + Hash> Construct for Multiset<T> {
+impl<T: Pbt + Hash> Pbt for Multiset<T> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -202,7 +202,7 @@ impl<T: Construct + Hash> Construct for Multiset<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self(self).chain(self.count.visit_deep())
     }
 }

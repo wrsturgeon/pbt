@@ -2,11 +2,11 @@
 
 use {
     crate::{
-        construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+        multiset::Multiset,
+        pbt::{
+            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
             push_arbitrary_field, visit_self, visit_self_opt,
         },
-        multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
     },
@@ -18,7 +18,7 @@ use {
     std::collections::{BTreeSet, HashMap, HashSet},
 };
 
-impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct for HashSet<T, S> {
+impl<T: Pbt + Hash, S: 'static + BuildHasher + Clone + Default> Pbt for HashSet<T, S> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -77,7 +77,7 @@ impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct 
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self::<V, Self>(self)
             .chain(self.iter().flat_map(T::visit_deep))
             .chain({
@@ -91,9 +91,7 @@ impl<T: Construct + Hash, S: 'static + BuildHasher + Clone + Default> Construct 
     }
 }
 
-impl<K: Construct + Hash, V: Construct, S: 'static + BuildHasher + Clone + Default> Construct
-    for HashMap<K, V, S>
-{
+impl<K: Pbt + Hash, V: Pbt, S: 'static + BuildHasher + Clone + Default> Pbt for HashMap<K, V, S> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -161,7 +159,7 @@ impl<K: Construct + Hash, V: Construct, S: 'static + BuildHasher + Clone + Defau
     }
 
     #[inline]
-    fn visit_deep<T: Construct>(&self) -> impl Iterator<Item = T> {
+    fn visit_deep<T: Pbt>(&self) -> impl Iterator<Item = T> {
         visit_self::<T, Self>(self)
             .chain(
                 self.iter()

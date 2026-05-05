@@ -2,8 +2,8 @@
 
 use {
     crate::{
-        construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+        pbt::{
+            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
             push_arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
@@ -13,7 +13,7 @@ use {
     std::collections::BTreeSet,
 };
 
-impl<Lhs: Construct, Rhs: Construct> Construct for (Lhs, Rhs) {
+impl<Lhs: Pbt, Rhs: Pbt> Pbt for (Lhs, Rhs) {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -56,7 +56,7 @@ impl<Lhs: Construct, Rhs: Construct> Construct for (Lhs, Rhs) {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         let (ref lhs, ref rhs) = *self;
         visit_self(self)
             .chain(lhs.visit_deep())

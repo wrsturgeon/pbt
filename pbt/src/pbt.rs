@@ -18,7 +18,7 @@ use {
 #[non_exhaustive]
 #[derive(Clone, Copy, Hash)]
 pub struct CtorFn<T> {
-    /// Function to construct a term which is an
+    /// Function to pbt a term which is an
     /// application of this constructor to arbitrary fields.
     pub call: for<'terms> fn(&'terms mut ErasedTermBuckets) -> Option<T>,
 }
@@ -104,7 +104,7 @@ pub struct IntroductionRule<T> {
     pub immediate_dependencies: Multiset<Type>,
 }
 
-pub trait Construct: 'static + Clone + fmt::Debug + Eq {
+pub trait Pbt: 'static + Clone + fmt::Debug + Eq {
     /// Register the immediate dependencies of `Self` within the current
     /// type-registration traversal.
     ///
@@ -122,13 +122,13 @@ pub trait Construct: 'static + Clone + fmt::Debug + Eq {
     );
 
     /// The exhaustive disjoint set of methods
-    /// to construct a term of this type.
+    /// to pbt a term of this type.
     fn type_former() -> TypeFormer<Self>;
 
     /// Visit all terms of type `V` in this abstract syntax tree.
     /// Your implementation should always follow this formula:
-    /// `pbt::construct::visit_self(self).chain(... recurse into fields ...)`.
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V>;
+    /// `pbt::pbt::visit_self(self).chain(... recurse into fields ...)`.
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V>;
 }
 
 impl<T> CtorFn<T> {
@@ -227,7 +227,7 @@ impl<T> Deref for ElimFn<T> {
 }
 
 #[inline]
-pub fn arbitrary<T: Construct>(prng: &mut WyRand, mut size: Size) -> Option<T> {
+pub fn arbitrary<T: Pbt>(prng: &mut WyRand, mut size: Size) -> Option<T> {
     loop {
         match try_arbitrary::<T>(prng, size._copy()) {
             Ok(t) => return Some(t),
@@ -243,7 +243,7 @@ pub fn arbitrary<T: Construct>(prng: &mut WyRand, mut size: Size) -> Option<T> {
 /// Returns [`MaybeUninstantiable::Retry`] or
 /// [`MaybeUninstantiable::Uninstantiable`] from field generation after
 /// draining unused field-size partitions for the abandoned constructor attempt.
-pub fn push_arbitrary_field<T: Construct>(
+pub fn push_arbitrary_field<T: Pbt>(
     fields: &mut ErasedTermBuckets,
     sizes: &mut Sizes,
     prng: &mut WyRand,
@@ -270,10 +270,7 @@ pub fn push_arbitrary_field<T: Construct>(
 /// Returns [`MaybeUninstantiable::Retry`] when rejection sampling could not
 /// decide at this size, or [`MaybeUninstantiable::Uninstantiable`] when `T`
 /// has no structurally available constructor.
-pub fn try_arbitrary<T: Construct>(
-    prng: &mut WyRand,
-    size: Size,
-) -> Result<T, MaybeUninstantiable> {
+pub fn try_arbitrary<T: Pbt>(prng: &mut WyRand, size: Size) -> Result<T, MaybeUninstantiable> {
     let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Algebraic(ref adt) => {
@@ -347,7 +344,7 @@ pub fn try_arbitrary<T: Construct>(
 /// # Panics
 /// If that's not the case.
 #[inline]
-pub fn check_eta_expansion<T: Construct>() {
+pub fn check_eta_expansion<T: Pbt>() {
     let info = info::<T>();
     let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
         ref all_constructors,
@@ -383,12 +380,12 @@ pub fn check_eta_expansion<T: Construct>() {
 }
 
 #[inline]
-pub fn visit_self<V: Construct, S: Construct>(s: &S) -> impl Iterator<Item = V> {
+pub fn visit_self<V: Pbt, S: Pbt>(s: &S) -> impl Iterator<Item = V> {
     visit_self_opt::<V, S>(s).cloned().into_iter()
 }
 
 #[inline]
-pub fn visit_self_opt<V: Construct, S: Construct>(s: &S) -> Option<&V> {
+pub fn visit_self_opt<V: Pbt, S: Pbt>(s: &S) -> Option<&V> {
     (type_of::<V>() == type_of::<S>()).then(|| {
         let s: *const S = ptr::from_ref(s);
         let s: *const V = s.cast();
@@ -398,7 +395,7 @@ pub fn visit_self_opt<V: Construct, S: Construct>(s: &S) -> Option<&V> {
 }
 
 #[inline]
-pub fn visit_self_owned<V: Construct, S: Construct>(s: S) -> Option<V> {
+pub fn visit_self_owned<V: Pbt, S: Pbt>(s: S) -> Option<V> {
     (type_of::<V>() == type_of::<S>()).then(|| {
         let ptr: *const S = ptr::from_ref(&s);
         let ptr: *const V = ptr.cast();
@@ -412,7 +409,7 @@ pub fn visit_self_owned<V: Construct, S: Construct>(s: S) -> Option<V> {
 
 /// Deserialize a cached witness term of type `T` and push it into a typed term bucket.
 #[inline]
-pub(crate) fn deserialize_cached_term_into_buckets<T: Construct>(
+pub(crate) fn deserialize_cached_term_into_buckets<T: Pbt>(
     term: &cache::CachedTerm,
     terms: &mut ErasedTermBuckets,
 ) -> bool {

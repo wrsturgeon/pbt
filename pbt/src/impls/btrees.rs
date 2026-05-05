@@ -2,11 +2,11 @@
 
 use {
     crate::{
-        construct::{
-            Algebraic, Construct, CtorFn, Decomposition, ElimFn, IntroductionRule, TypeFormer,
+        multiset::Multiset,
+        pbt::{
+            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
             push_arbitrary_field, visit_self, visit_self_opt,
         },
-        multiset::Multiset,
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
     },
@@ -14,7 +14,7 @@ use {
     std::collections::{BTreeMap, BTreeSet},
 };
 
-impl<T: Construct + Ord> Construct for BTreeSet<T> {
+impl<T: Pbt + Ord> Pbt for BTreeSet<T> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -71,7 +71,7 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Construct>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
         visit_self::<V, Self>(self)
             .chain(self.iter().flat_map(T::visit_deep))
             .chain({
@@ -84,7 +84,7 @@ impl<T: Construct + Ord> Construct for BTreeSet<T> {
     }
 }
 
-impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
+impl<K: Pbt + Ord, V: Pbt> Pbt for BTreeMap<K, V> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -144,7 +144,7 @@ impl<K: Construct + Ord, V: Construct> Construct for BTreeMap<K, V> {
     }
 
     #[inline]
-    fn visit_deep<T: Construct>(&self) -> impl Iterator<Item = T> {
+    fn visit_deep<T: Pbt>(&self) -> impl Iterator<Item = T> {
         visit_self::<T, Self>(self)
             .chain(
                 self.iter()
