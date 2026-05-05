@@ -7,7 +7,6 @@ allow = [
   "Apache-2.0",
   "LGPL-3.0-only", # malachite
   "MIT",
-  "MPL-2.0",
   "Unicode-3.0",   # unicode-ident
   "Zlib",          # foldhash
 ]
