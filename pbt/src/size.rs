@@ -111,6 +111,7 @@ impl Size {
         })
     }
 
+    /// Return the standard monotonically expanding stream of generation sizes.
     #[inline]
     pub fn expanding() -> impl Iterator<Item = Self> {
         (0_usize..).map(|squared_size| Self {
@@ -118,6 +119,7 @@ impl Size {
         })
     }
 
+    /// Partition this size across the inductive fields of constructor `ctor_idx` of `T`.
     #[inline]
     pub fn partition<T: Pbt>(self, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes {
         self.partition_by_id(type_of::<T>(), ctor_idx, prng)

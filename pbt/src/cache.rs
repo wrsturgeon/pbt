@@ -37,14 +37,18 @@ const STORE_DELAY_ENV_VAR: &str = "PBT_TEST_CACHE_STORE_DELAY_MS";
 /// Distinguish temporary rewrite paths created by concurrent writers in one process.
 static TEMP_FILE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// Stable serialized representation of a generated term.
 #[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
 #[expect(clippy::exhaustive_enums, reason = "cache format")]
 pub enum CachedTerm {
+    /// An algebraic value identified by constructor index plus serialized fields.
     Algebraic {
+        /// The 1-indexed constructor or variant index.
         ctor_idx: NonZero<usize>,
         /// Immediate erased term buckets keyed by the pretty-printed concrete type name.
         term_buckets: BTreeMap<String, Vec<CachedTerm>>,
     },
+    /// A literal value serialized by its `Pbt` implementation.
     Literal(String),
 }
 
@@ -197,9 +201,11 @@ pub fn deserialize_terms(
     Some(terms)
 }
 
+/// Check that cache serialization round-trips for generated values of `T`.
+/// # Panics
+/// If a generated value cannot be decoded or decodes to a different value.
 #[inline]
 #[expect(
-    clippy::missing_panics_doc,
     clippy::panic,
     reason = "round-trip test helper should panic on mismatch"
 )]

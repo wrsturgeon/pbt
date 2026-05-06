@@ -40,18 +40,26 @@ pub enum Erased {
 #[derive(Clone, Copy, Debug)]
 #[non_exhaustive]
 pub struct ErasedBucketOps {
+    /// Clone the erased vector after reinterpreting it as its concrete `Vec<T>`.
     pub clone: for<'t> fn(&'t Vec<Erased>) -> Vec<Erased>,
+    /// Format the erased vector after reinterpreting it as its concrete `Vec<T>`.
     pub debug: for<'t, 'm, 'f> fn(&'t Vec<Erased>, &'m mut fmt::Formatter<'f>) -> fmt::Result,
+    /// Drop the erased vector after reinterpreting it as its concrete `Vec<T>`.
     pub drop: fn(Vec<Erased>),
+    /// Compare two erased vectors after reinterpreting them as concrete `Vec<T>` values.
     pub eq: for<'lhs, 'rhs> fn(&'lhs Vec<Erased>, &'rhs Vec<Erased>) -> bool,
+    /// Pop and cache-serialize one concrete value from the erased vector.
     pub pop_serialize: fn(&mut Vec<Erased>) -> Option<CachedTerm>,
+    /// Shrink the concrete vector and erase each candidate again.
     pub shrink: fn(Vec<Erased>) -> Box<dyn Iterator<Item = Vec<Erased>>>,
 }
 
 /// An erased term bucket together with the type key needed to recover its vtable.
 #[non_exhaustive]
 pub struct ErasedTermBucket {
+    /// The erased storage, only to be reinterpreted through the vtable for `ty`.
     pub terms: Vec<Erased>,
+    /// The concrete type key for every value in `terms`.
     pub ty: Type,
 }
 
@@ -75,6 +83,7 @@ pub type Terms = ErasedTermBucket;
 /// Backward-compatible alias for [`ErasedTermBuckets`].
 pub type TermsOfVariousTypes = ErasedTermBuckets;
 
+/// Opaque key for one registered concrete `Pbt` type.
 #[non_exhaustive]
 #[repr(transparent)]
 #[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
@@ -104,6 +113,7 @@ pub struct Vertex {
     pub unavoidable: BTreeSet<Type>,
 }
 
+/// Dependency-graph metadata for one constructor.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct CtorVertex {
@@ -132,6 +142,7 @@ pub struct TypeInfo {
     /// non-inductive or a trivial wrapper around exactly one (other) type.
     /// Note that uninstantiable types *are* interesting, i.e. nontrivial.
     pub trivial: bool,
+    /// Precomputed generation and shrinking description for this type.
     pub type_former: PrecomputedTypeFormer,
     /// The union and intersection of the bag of types that
     /// may be contained in a value of this type.
@@ -147,6 +158,7 @@ struct ComputedTypeRegistration {
     scc_node: scc::Node,
 }
 
+/// Precomputed local metadata for one constructor.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct CtorInfo {
@@ -163,6 +175,7 @@ pub struct CtorInfo {
     pub index: NonZero<usize>,
 }
 
+/// Precomputed algebraic type metadata used by generation and shrinking.
 #[non_exhaustive]
 #[derive(Debug)]
 pub struct AlgebraicTypeFormer {
@@ -194,14 +207,21 @@ pub struct AlgebraicTypeFormer {
     pub eliminator: ElimFn<Erased>,
 }
 
+/// Type-former data after erasing function pointers for registry storage.
 #[non_exhaustive]
 #[derive(Debug)]
 pub enum PrecomputedTypeFormer {
+    /// An algebraic type with constructor metadata.
     Algebraic(AlgebraicTypeFormer),
+    /// A literal type with erased direct operations.
     Literal {
+        /// Parse a cached string payload into an erased value.
         deserialize: fn(&str) -> Option<Erased>,
+        /// Generate an erased literal value directly.
         generate: for<'prng> fn(&'prng mut WyRand) -> Erased,
+        /// Serialize an erased literal value into a cache payload.
         serialize: for<'t> fn(&'t Erased) -> String,
+        /// Shrink one erased literal value.
         shrink: fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
     },
 }
@@ -357,6 +377,7 @@ impl CtorInfo {
 }
 
 impl PrecomputedTypeFormer {
+    /// Erase and precompute an algebraic type-former description.
     #[inline]
     #[must_use]
     pub fn algebraic<T>(
@@ -366,6 +387,7 @@ impl PrecomputedTypeFormer {
         Self::Algebraic(AlgebraicTypeFormer::new::<T>(all_constructors, eliminator))
     }
 
+    /// Erase and precompute a literal type-former description.
     #[inline]
     #[must_use]
     pub fn literal<T>(
@@ -516,6 +538,7 @@ impl PartialEq for Terms {
 }
 
 impl Terms {
+    /// Shrink the concrete values in this erased bucket.
     #[inline]
     pub fn shrink(self) -> impl Iterator<Item = Self> {
         let ty = self.ty;
@@ -1221,6 +1244,7 @@ pub fn try_info_by_id(id: Type) -> Option<Arc<TypeInfo>> {
     pinned.get(&id).map(Arc::clone)
 }
 
+/// Return the opaque registry key for `T`.
 #[inline]
 #[must_use]
 pub fn type_of<T: Pbt>() -> Type {

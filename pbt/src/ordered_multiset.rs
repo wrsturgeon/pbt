@@ -14,6 +14,7 @@ use {
 /// One, as a non-zero integer. Stupid but efficient.
 const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 
+/// A finite bag of ordered values, represented as element counts.
 #[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Multiset<T: Ord> {
     /// How many of each distinct element are in the bag?
@@ -21,12 +22,14 @@ pub struct Multiset<T: Ord> {
 }
 
 impl<T: Ord> Multiset<T> {
+    /// Return the count for `element`, if present.
     #[inline]
     #[must_use]
     pub fn count(&self, element: &T) -> Option<NonZero<usize>> {
         self.count.get(element).copied()
     }
 
+    /// Return the set of elements, discarding their counts.
     #[inline]
     #[must_use]
     pub fn erase_counts(&self) -> BTreeSet<T>
@@ -40,6 +43,7 @@ impl<T: Ord> Multiset<T> {
         acc
     }
 
+    /// Build a multiset from explicit non-zero counts.
     #[inline]
     pub fn from_counts<I: IntoIterator<Item = (T, NonZero<usize>)>>(iter: I) -> Self {
         let mut count = BTreeMap::new();
@@ -76,6 +80,7 @@ impl<T: Ord> Multiset<T> {
         count
     }
 
+    /// Return the multiset intersection, keeping the minimum count for shared elements.
     #[inline]
     #[must_use]
     pub fn intersection(&self, other: &Self) -> Self
@@ -112,11 +117,13 @@ impl<T: Ord> Multiset<T> {
         Some(strict)
     }
 
+    /// Iterate over distinct elements and their counts.
     #[inline]
     pub fn iter(&self) -> impl Iterator<Item = (&T, NonZero<usize>)> {
         self.count.iter().map(|(element, &count)| (element, count))
     }
 
+    /// Create an empty multiset.
     #[inline]
     #[must_use]
     pub fn new() -> Self {
@@ -134,6 +141,7 @@ impl<T: Ord> Multiset<T> {
         self.count.iter().map(|(_, &n)| n.get()).sum()
     }
 
+    /// Return the set of elements that appear in either multiset, discarding counts.
     #[inline]
     #[must_use]
     pub fn union(&self, other: &Self) -> BTreeSet<T>

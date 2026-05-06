@@ -10,10 +10,13 @@ use {
     wyrand::WyRand,
 };
 
+/// A value paired with a human-readable name for diagnostics.
 #[derive(Clone, Copy, Debug)]
 #[expect(clippy::exhaustive_structs, reason = "genuinely exhaustive")]
 pub struct Named<T> {
+    /// The label to display for the value.
     pub name: &'static str,
+    /// The labeled value.
     pub value: T,
 }
 
@@ -28,6 +31,7 @@ impl<T: PartialEq> PartialEq for Named<T> {
     }
 }
 
+/// Search for and shrink a value of `T` satisfying `property`.
 #[inline]
 pub fn witness<T: Pbt, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> Option<T> {
     let mut prng = WyRand::new(

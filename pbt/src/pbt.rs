@@ -15,6 +15,7 @@ use {
     wyrand::WyRand,
 };
 
+/// Wrapper around a constructor function that consumes erased field buckets.
 #[non_exhaustive]
 #[derive(Clone, Copy, Hash)]
 pub struct CtorFn<T> {
@@ -23,6 +24,7 @@ pub struct CtorFn<T> {
     pub call: for<'terms> fn(&'terms mut ErasedTermBuckets) -> Option<T>,
 }
 
+/// A constructor function together with its stable constructor index and metadata.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Hash)]
 pub struct IndexedCtorFn<T> {
@@ -47,36 +49,51 @@ pub struct IndexedCtorFn<T> {
 #[repr(transparent)]
 #[derive(Clone, Copy, Hash)]
 pub struct ElimFn<T> {
+    /// Function that decomposes a value into constructor index and immediate fields.
     pub call: fn(T) -> Decomposition,
 }
 
+/// Algebraic type description: introductions plus one elimination rule.
 #[derive(Clone, Debug)]
 #[expect(clippy::exhaustive_structs, reason = "constructed in macros")]
 pub struct Algebraic<T> {
+    /// The rule that decomposes a value into constructor index and fields.
     pub elimination_rule: ElimFn<T>,
+    /// The rules that construct values from immediate fields.
     pub introduction_rules: Vec<IntroductionRule<T>>,
 }
 
+/// Literal type description, used to bottom out structural recursion.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct Literal<T> {
+    /// Parse a cached string payload.
     pub deserialize: fn(&str) -> Option<T>,
+    /// Generate a literal directly from the PRNG.
     pub generate: for<'prng> fn(&'prng mut WyRand) -> T,
+    /// Convert a literal into a cache payload.
     pub serialize: fn(&T) -> String,
+    /// Produce smaller literal candidates.
     pub shrink: fn(T) -> Box<dyn Iterator<Item = T>>,
 }
 
+/// The complete generation and shrinking description for one type.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum TypeFormer<T> {
+    /// A type built from a finite set of constructors.
     Algebraic(Algebraic<T>),
+    /// A type generated and shrunk directly.
     Literal(Literal<T>),
 }
 
+/// Failure modes for generation attempts.
 #[derive(Clone, Debug)]
 #[expect(clippy::exhaustive_enums, reason = "used internally")]
 pub enum MaybeUninstantiable {
+    /// The current size was insufficient; a larger size might work.
     Retry,
+    /// The type has no available value.
     Uninstantiable,
 }
 
@@ -91,6 +108,7 @@ pub struct Decomposition {
     pub fields: ErasedTermBuckets,
 }
 
+/// One constructor rule for an algebraic type.
 #[derive(Clone, Debug)]
 #[expect(clippy::exhaustive_structs, reason = "constructed in macros")]
 pub struct IntroductionRule<T> {
@@ -104,6 +122,7 @@ pub struct IntroductionRule<T> {
     pub immediate_dependencies: Multiset<Type>,
 }
 
+/// Types that can be generated, reflected, traversed, and shrunk by `pbt`.
 pub trait Pbt: 'static + Clone + fmt::Debug + Eq {
     /// Register the immediate dependencies of `Self` within the current
     /// type-registration traversal.
@@ -132,6 +151,7 @@ pub trait Pbt: 'static + Clone + fmt::Debug + Eq {
 }
 
 impl<T> CtorFn<T> {
+    /// Erase this constructor function for storage in the global registry.
     #[inline]
     #[must_use]
     pub const fn erase(self) -> CtorFn<Erased> {
@@ -139,6 +159,7 @@ impl<T> CtorFn<T> {
         unsafe { mem::transmute::<CtorFn<T>, CtorFn<Erased>>(self) }
     }
 
+    /// Wrap a constructor function.
     #[inline]
     pub const fn new(call: for<'terms> fn(&'terms mut ErasedTermBuckets) -> Option<T>) -> Self {
         Self { call }
@@ -185,6 +206,7 @@ impl<T> Deref for IndexedCtorFn<T> {
 }
 
 impl<T> ElimFn<T> {
+    /// Erase this eliminator for storage in the global registry.
     #[inline]
     #[must_use]
     pub const fn erase(self) -> ElimFn<Erased> {
@@ -192,6 +214,7 @@ impl<T> ElimFn<T> {
         unsafe { mem::transmute::<ElimFn<T>, ElimFn<Erased>>(self) }
     }
 
+    /// Wrap an eliminator function.
     #[inline]
     pub const fn new(call: fn(T) -> Decomposition) -> Self {
         Self { call }
@@ -226,6 +249,7 @@ impl<T> Deref for ElimFn<T> {
     }
 }
 
+/// Generate an arbitrary value of `T`, increasing size on retryable failures.
 #[inline]
 pub fn arbitrary<T: Pbt>(prng: &mut WyRand, mut size: Size) -> Option<T> {
     loop {
@@ -379,11 +403,13 @@ pub fn check_eta_expansion<T: Pbt>() {
     });
 }
 
+/// Yield `s` as a `V` if `S` and `V` are the same registered type.
 #[inline]
 pub fn visit_self<V: Pbt, S: Pbt>(s: &S) -> impl Iterator<Item = V> {
     visit_self_opt::<V, S>(s).cloned().into_iter()
 }
 
+/// Borrow `s` as a `V` if `S` and `V` are the same registered type.
 #[inline]
 pub fn visit_self_opt<V: Pbt, S: Pbt>(s: &S) -> Option<&V> {
     (type_of::<V>() == type_of::<S>()).then(|| {
@@ -394,6 +420,7 @@ pub fn visit_self_opt<V: Pbt, S: Pbt>(s: &S) -> Option<&V> {
     })
 }
 
+/// Move `s` out as a `V` if `S` and `V` are the same registered type.
 #[inline]
 pub fn visit_self_owned<V: Pbt, S: Pbt>(s: S) -> Option<V> {
     (type_of::<V>() == type_of::<S>()).then(|| {

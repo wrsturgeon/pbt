@@ -1,13 +1,4 @@
-#![allow(
-    clippy::missing_inline_in_public_items,
-    reason = "macros are the only public items"
-)]
-#![allow(
-    clippy::missing_docs_in_private_items,
-    clippy::single_call_fn,
-    clippy::too_many_lines,
-    reason = "writing macros is already hell"
-)]
+//! Derive macros for `pbt`.
 
 use {
     core::{iter, num::NonZero},

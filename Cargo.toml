@@ -22,9 +22,22 @@ repository = "https://github.com/wrsturgeon/pbt"
 version = "0.4.17"
 
 
+# Deny all lints first (see <https://doc.rust-lang.org/stable/clippy/lints.html>):
+
+[workspace.lints.rust]
+
+broken_intra_doc_links = "deny"
+missing_crate_level_docs = "deny"
+missing_doc_code_examples = "deny"
+missing_docs = "deny"
+private_doc_tests = "deny"
+private_intra_doc_links = "deny"
+invalid_codeblock_attributes = "deny"
+invalid_html_tags = "deny"
+
 [workspace.lints.clippy]
 
-# Deny all lints first (see <https://doc.rust-lang.org/stable/clippy/lints.html>):
+all = { level = "deny", priority = -1 }
 cargo = { level = "deny", priority = -1 }
 complexity = { level = "deny", priority = -1 }
 correctness = { level = "deny", priority = -1 }
@@ -44,6 +57,8 @@ inline_modules = "allow"
 iter_over_hash_type = "allow"
 map_err_ignore = "allow"
 min_ident_chars = "allow"
+missing_docs_in_private_items = "allow"
+missing_inline_in_public_items = "allow"
 mod_module_files = "allow"
 needless_borrowed_reference = "allow"
 pointer_format = "allow"
@@ -60,6 +75,7 @@ shadow_unrelated = "allow"
 single_call_fn = "allow"
 single_char_lifetime_names = "allow"
 std_instead_of_alloc = "allow"              # `std` is necessary anyway
+too_many_lines = "allow"
 type_complexity = "allow"
 used_underscore_items = "allow"             # macro accessibility while discouraging end-users
 wildcard-enum-match-arm = "allow"
