@@ -14,7 +14,7 @@ use {
 /// One, as a non-zero integer. Stupid but efficient.
 const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 
-#[derive(Clone, Default, Eq, Hash, PartialEq)]
+#[derive(Clone, Default, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub struct Multiset<T: Ord> {
     /// How many of each distinct element are in the bag?
     count: BTreeMap<T, NonZero<usize>>,
