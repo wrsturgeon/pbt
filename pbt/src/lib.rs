@@ -1,6 +1,7 @@
 pub mod cache;
 mod impls;
 pub mod multiset;
+pub mod ordered_multiset;
 pub mod pbt;
 pub mod reflection;
 mod scc;

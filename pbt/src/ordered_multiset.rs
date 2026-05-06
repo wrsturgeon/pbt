@@ -7,26 +7,20 @@ use {
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
     },
-    ahash::{AHasher, HashMap, HashSet, RandomState},
-    core::{
-        cmp, fmt,
-        hash::{Hash, Hasher},
-        iter,
-        num::NonZero,
-    },
-    std::collections::{BTreeSet, hash_map},
+    core::{cmp, fmt, iter, num::NonZero},
+    std::collections::{BTreeMap, BTreeSet, btree_map},
 };
 
 /// One, as a non-zero integer. Stupid but efficient.
 const ONE: NonZero<usize> = NonZero::new(1).unwrap();
 
-#[derive(Clone, Default, Eq, PartialEq)]
-pub struct Multiset<T: Eq + Hash> {
+#[derive(Clone, Default, Eq, Hash, PartialEq)]
+pub struct Multiset<T: Ord> {
     /// How many of each distinct element are in the bag?
-    count: HashMap<T, NonZero<usize>>,
+    count: BTreeMap<T, NonZero<usize>>,
 }
 
-impl<T: Eq + Hash> Multiset<T> {
+impl<T: Ord> Multiset<T> {
     #[inline]
     #[must_use]
     pub fn count(&self, element: &T) -> Option<NonZero<usize>> {
@@ -35,11 +29,11 @@ impl<T: Eq + Hash> Multiset<T> {
 
     #[inline]
     #[must_use]
-    pub fn erase_counts(&self) -> HashSet<T>
+    pub fn erase_counts(&self) -> BTreeSet<T>
     where
         T: Clone,
     {
-        let mut acc = HashSet::with_hasher(RandomState::new());
+        let mut acc = BTreeSet::new();
         for element in self.count.keys() {
             let _: bool = acc.insert(element.clone());
         }
@@ -48,7 +42,7 @@ impl<T: Eq + Hash> Multiset<T> {
 
     #[inline]
     pub fn from_counts<I: IntoIterator<Item = (T, NonZero<usize>)>>(iter: I) -> Self {
-        let mut count = HashMap::with_hasher(RandomState::new());
+        let mut count = BTreeMap::new();
         for (element, n) in iter {
             let _: Option<NonZero<usize>> = count.insert(element, n);
         }
@@ -127,7 +121,7 @@ impl<T: Eq + Hash> Multiset<T> {
     #[must_use]
     pub fn new() -> Self {
         Self {
-            count: HashMap::with_hasher(RandomState::new()),
+            count: BTreeMap::new(),
         }
     }
 
@@ -142,11 +136,11 @@ impl<T: Eq + Hash> Multiset<T> {
 
     #[inline]
     #[must_use]
-    pub fn union(&self, other: &Self) -> HashSet<T>
+    pub fn union(&self, other: &Self) -> BTreeSet<T>
     where
         T: Clone,
     {
-        let mut acc = HashSet::with_hasher(RandomState::new());
+        let mut acc = BTreeSet::new();
         for element in self.count.keys() {
             let _: bool = acc.insert(element.clone());
         }
@@ -157,7 +151,7 @@ impl<T: Eq + Hash> Multiset<T> {
     }
 }
 
-impl<T: Pbt + Hash> Pbt for Multiset<T> {
+impl<T: Ord + Pbt> Pbt for Multiset<T> {
     #[inline]
     fn register_all_immediate_dependencies(
         visited: &mut BTreeSet<Type>,
@@ -207,29 +201,15 @@ impl<T: Pbt + Hash> Pbt for Multiset<T> {
     }
 }
 
-impl<T: fmt::Debug + Eq + Hash> fmt::Debug for Multiset<T> {
+impl<T: fmt::Debug + Ord> fmt::Debug for Multiset<T> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         fmt::Debug::fmt(&self.count, f)
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
-impl<T: Eq + Hash> Hash for Multiset<T> {
-    #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
-        let mut xor = 0;
-        for kv in &self.count {
-            let mut hasher = AHasher::default();
-            let () = kv.hash(&mut hasher);
-            xor ^= hasher.finish();
-        }
-        xor.hash(state)
-    }
-}
-
-impl<T: Eq + Hash> IntoIterator for Multiset<T> {
-    type IntoIter = hash_map::IntoIter<T, NonZero<usize>>;
+impl<T: Ord> IntoIterator for Multiset<T> {
+    type IntoIter = btree_map::IntoIter<T, NonZero<usize>>;
     type Item = (T, NonZero<usize>);
 
     #[inline]
@@ -238,7 +218,7 @@ impl<T: Eq + Hash> IntoIterator for Multiset<T> {
     }
 }
 
-impl<T: Eq + Hash> FromIterator<T> for Multiset<T> {
+impl<T: Ord> FromIterator<T> for Multiset<T> {
     #[inline]
     fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
         let mut acc = Self::new();
