@@ -26,7 +26,7 @@ use {
 pub fn derive_pbt(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match parse_macro_input!(ts as Item) {
         Item::Enum(item) => derive_pbt_for_ctors(
-            item.ident,
+            &item.ident,
             &item.generics,
             &item
                 .variants
@@ -45,7 +45,7 @@ pub fn derive_pbt(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
                 .collect::<Vec<_>>(),
         ),
         Item::Struct(item) => derive_pbt_for_ctors(
-            item.ident,
+            &item.ident,
             &item.generics,
             &[(path_of_str("Self"), &item.fields)],
         ),
@@ -57,10 +57,10 @@ pub fn derive_pbt(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
-/// Generate the `Pbt` implementation and regression tests for the given constructors.
+/// Generate the `Pbt` implementation for the given constructors.
 #[inline]
 fn derive_pbt_for_ctors(
-    ident: Ident,
+    ident: &Ident,
     generics: &Generics,
     ctors: &[(Path, &Fields)],
 ) -> TokenStream {
@@ -81,7 +81,7 @@ fn derive_pbt_for_ctors(
         tokens: introduction_rules(ctors).into_token_stream(),
     };
     let visit_deep = visit(ctors, &id("visit_deep"));
-    let test_mod_id = id(&format!("pbt_{ident}"));
+    let generated_tests = generated_tests(ident, &bounded_generics);
 
     let impl_path = Path {
         leading_colon: None,
@@ -92,32 +92,6 @@ fn derive_pbt_for_ctors(
         .collect(),
     };
     if ctors.is_empty() {
-        let test_path = Path {
-            leading_colon: None,
-            segments: [
-                seg(id("super")),
-                PathSegment {
-                    ident,
-                    arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-                        colon2_token: None,
-                        lt_token: <Token![<]>::default(),
-                        args: bounded_generics
-                            .params
-                            .iter()
-                            .map(|_| {
-                                GenericArgument::Type(Type::Path(TypePath {
-                                    qself: None,
-                                    path: path_of_str("usize"),
-                                }))
-                            })
-                            .collect(),
-                        gt_token: <Token![>]>::default(),
-                    }),
-                },
-            ]
-            .into_iter()
-            .collect(),
-        };
         return quote! {
             impl #bounded_generics #construct_trait_path for #impl_path {
                 #[inline]
@@ -145,46 +119,9 @@ fn derive_pbt_for_ctors(
                 }
             }
 
-            #[cfg(test)]
-            mod #test_mod_id {
-                #[test]
-                fn eta_expansion() {
-                    let () = ::pbt::pbt::check_eta_expansion::<#test_path>();
-                }
-
-                #[test]
-                fn serialization_roundtrip() {
-                    let () = ::pbt::cache::check_roundtrip::<#test_path>();
-                }
-            }
+            #generated_tests
         };
     }
-    let test_path = Path {
-        leading_colon: None,
-        segments: [
-            seg(id("super")),
-            PathSegment {
-                ident,
-                arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
-                    colon2_token: None,
-                    lt_token: <Token![<]>::default(),
-                    args: bounded_generics
-                        .params
-                        .iter()
-                        .map(|_| {
-                            GenericArgument::Type(Type::Path(TypePath {
-                                qself: None,
-                                path: path_of_str("usize"),
-                            }))
-                        })
-                        .collect(),
-                    gt_token: <Token![>]>::default(),
-                }),
-            },
-        ]
-        .into_iter()
-        .collect(),
-    };
 
     quote! {
         impl #bounded_generics #construct_trait_path for #impl_path {
@@ -227,6 +164,43 @@ fn derive_pbt_for_ctors(
             }
         }
 
+        #generated_tests
+    }
+}
+
+#[cfg(feature = "generated-tests")]
+/// Generate the opt-in regression test module emitted by `#[derive(Pbt)]`.
+#[inline]
+fn generated_tests(ident: &Ident, bounded_generics: &Generics) -> TokenStream {
+    let test_mod_id = id(&format!("pbt_{ident}"));
+    let test_path = Path {
+        leading_colon: None,
+        segments: [
+            seg(id("super")),
+            PathSegment {
+                ident: ident.clone(),
+                arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
+                    colon2_token: None,
+                    lt_token: <Token![<]>::default(),
+                    args: bounded_generics
+                        .params
+                        .iter()
+                        .map(|_| {
+                            GenericArgument::Type(Type::Path(TypePath {
+                                qself: None,
+                                path: path_of_str("usize"),
+                            }))
+                        })
+                        .collect(),
+                    gt_token: <Token![>]>::default(),
+                }),
+            },
+        ]
+        .into_iter()
+        .collect(),
+    };
+
+    quote! {
         #[cfg(test)]
         mod #test_mod_id {
             #[test]
@@ -240,6 +214,13 @@ fn derive_pbt_for_ctors(
             }
         }
     }
+}
+
+#[cfg(not(feature = "generated-tests"))]
+/// Disable generated regression tests unless the macro crate's feature is enabled.
+#[inline]
+fn generated_tests(_ident: &Ident, _bounded_generics: &Generics) -> TokenStream {
+    TokenStream::new()
 }
 
 /// Add a `Pbt` bound to each type parameter while preserving other parameters.

@@ -26,6 +26,7 @@ wyrand = "~0.4"
 
 
 [features]
+generated-tests = ["pbt-macros/generated-tests"]
 malachite = ["dep:malachite"]
 num-bigint = ["dep:num-bigint"]
 
