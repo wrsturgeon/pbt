@@ -20,10 +20,8 @@ pub struct Named<T> {
     pub value: T,
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl<T: Eq> Eq for Named<T> {}
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl<T: PartialEq> PartialEq for Named<T> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -33,7 +31,11 @@ impl<T: PartialEq> PartialEq for Named<T> {
 
 /// Search for and shrink a value of `T` satisfying `property`.
 #[inline]
-pub fn witness<T: Pbt, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> Option<T> {
+pub fn witness<T, P>(n_cases: usize, property: P) -> Option<T>
+where
+    T: Pbt,
+    P: Fn(&T) -> bool,
+{
     let mut prng = WyRand::new(
         env::var("PBT_SEED")
             .ok()
@@ -71,7 +73,11 @@ pub fn witness<T: Pbt, P: Fn(&T) -> bool>(n_cases: usize, property: P) -> Option
 /// for which the property returns `false`.
 #[inline]
 #[expect(clippy::panic, reason = "failing assertions ought to panic")]
-pub fn assert<T: Pbt, P: Fn(&T) -> bool>(n_cases: usize, property: P) {
+pub fn assert<T, P>(n_cases: usize, property: P)
+where
+    T: Pbt,
+    P: Fn(&T) -> bool,
+{
     if let Some(t) = witness(n_cases, |t| !property(t)) {
         assert!(
             property(&t),
@@ -92,7 +98,12 @@ pub fn assert<T: Pbt, P: Fn(&T) -> bool>(n_cases: usize, property: P) {
 /// for which the two terms differ.
 #[inline]
 #[expect(clippy::panic, reason = "failing assertions ought to panic")]
-pub fn assert_eq<X: Pbt, Y: fmt::Debug + Eq, P: Fn(&X) -> (Y, Y)>(n_cases: usize, property: P) {
+pub fn assert_eq<X, Y, P>(n_cases: usize, property: P)
+where
+    X: Pbt,
+    Y: fmt::Debug + Eq,
+    P: Fn(&X) -> (Y, Y),
+{
     if let Some(x) = witness(n_cases, |x| {
         let (lhs, rhs) = property(x);
         lhs != rhs

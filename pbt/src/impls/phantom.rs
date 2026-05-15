@@ -9,8 +9,8 @@ use {
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
     },
+    alloc::collections::BTreeSet,
     core::{marker::PhantomData, num::NonZero},
-    std::collections::BTreeSet,
 };
 
 impl<T: Pbt> Pbt for PhantomData<T> {
@@ -41,7 +41,10 @@ impl<T: Pbt> Pbt for PhantomData<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }

@@ -15,20 +15,24 @@ use {
         search::witness,
         shrink::shrink,
     },
+    alloc::{
+        collections::{BTreeMap, BTreeSet},
+        rc::Rc,
+        sync::Arc,
+    },
     core::{
         any::{TypeId, type_name},
         convert::Infallible,
         iter,
     },
     pretty_assertions::assert_eq,
-    std::{
-        collections::{BTreeMap, BTreeSet},
-        rc::Rc,
-        sync::Arc,
-    },
 };
 
 #[test]
+#[expect(
+    clippy::pointer_format,
+    reason = "diagnostic debug output may include function pointers"
+)]
 fn info_bool() {
     type T = bool;
     let info = info::<T>();
@@ -58,6 +62,10 @@ fn info_bool() {
 }
 
 #[test]
+#[expect(
+    clippy::pointer_format,
+    reason = "diagnostic debug output may include function pointers"
+)]
 fn info_box_bool() {
     type T = Box<bool>;
     let info = info::<T>();
@@ -92,6 +100,10 @@ fn info_box_bool() {
 }
 
 #[test]
+#[expect(
+    clippy::pointer_format,
+    reason = "diagnostic debug output may include function pointers"
+)]
 fn info_option_u64() {
     type T = Option<u64>;
     let info = info::<T>();
@@ -126,6 +138,10 @@ fn info_option_u64() {
 }
 
 #[test]
+#[expect(
+    clippy::pointer_format,
+    reason = "diagnostic debug output may include function pointers"
+)]
 fn info_vec_u64() {
     type T = Vec<u64>;
     let info = info::<T>();
@@ -170,6 +186,10 @@ fn info_vec_u64() {
 }
 
 #[test]
+#[expect(
+    clippy::pointer_format,
+    reason = "diagnostic debug output may include function pointers"
+)]
 fn info_btree_set_u64() {
     type T = BTreeSet<u64>;
     let info = info::<T>();
@@ -214,6 +234,10 @@ fn info_btree_set_u64() {
 }
 
 #[test]
+#[expect(
+    clippy::pointer_format,
+    reason = "diagnostic debug output may include function pointers"
+)]
 fn info_infallible() {
     type T = Infallible;
     let info = info::<T>();

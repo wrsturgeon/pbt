@@ -7,8 +7,8 @@ use {
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
     },
+    alloc::collections::{BTreeMap, BTreeSet, btree_map},
     core::{cmp, fmt, iter, num::NonZero},
-    std::collections::{BTreeMap, BTreeSet, btree_map},
 };
 
 /// One, as a non-zero integer. Stupid but efficient.
@@ -45,7 +45,10 @@ impl<T: Ord> Multiset<T> {
 
     /// Build a multiset from explicit non-zero counts.
     #[inline]
-    pub fn from_counts<I: IntoIterator<Item = (T, NonZero<usize>)>>(iter: I) -> Self {
+    pub fn from_counts<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (T, NonZero<usize>)>,
+    {
         let mut count = BTreeMap::new();
         for (element, n) in iter {
             let _: Option<NonZero<usize>> = count.insert(element, n);
@@ -204,7 +207,10 @@ impl<T: Ord + Pbt> Pbt for Multiset<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self).chain(self.count.visit_deep())
     }
 }
@@ -228,7 +234,10 @@ impl<T: Ord> IntoIterator for Multiset<T> {
 
 impl<T: Ord> FromIterator<T> for Multiset<T> {
     #[inline]
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
         let mut acc = Self::new();
         for element in iter {
             let _: NonZero<usize> = acc.insert(element);

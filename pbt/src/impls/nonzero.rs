@@ -7,8 +7,8 @@ use {
         scc::StronglyConnectedComponents,
         shrink::shrink,
     },
+    alloc::collections::BTreeSet,
     core::num::NonZero,
-    std::collections::BTreeSet,
 };
 
 /// Generate an arbitrary nonzero value for an
@@ -67,7 +67,10 @@ macro_rules! impl_for {
             }
 
             #[inline]
-            fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+            fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+            where
+                V: Pbt,
+            {
                 visit_self(self).chain(visit_self_owned(self.get()))
             }
         }
@@ -116,7 +119,10 @@ impl Pbt for NonZero<char> {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self).chain(visit_self_owned(self.get()))
     }
 }

@@ -4,12 +4,12 @@
 use {
     crate::{SEED, reflection::Type},
     ahash::{HashMap, RandomState},
+    alloc::collections::{BTreeMap, BTreeSet},
     core::{
         mem,
         num::NonZero,
         ops::{Deref, DerefMut},
     },
-    std::collections::{BTreeMap, BTreeSet},
 };
 
 /// Metadata stored in the root of a set.

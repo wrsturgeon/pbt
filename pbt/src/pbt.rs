@@ -10,8 +10,8 @@ use {
         search,
         size::{Size, Sizes},
     },
+    alloc::collections::BTreeSet,
     core::{fmt, mem, num::NonZero, ops::Deref, ptr},
-    std::collections::BTreeSet,
     wyrand::WyRand,
 };
 
@@ -147,7 +147,9 @@ pub trait Pbt: 'static + Clone + fmt::Debug + Eq {
     /// Visit all terms of type `V` in this abstract syntax tree.
     /// Your implementation should always follow this formula:
     /// `pbt::pbt::visit_self(self).chain(... recurse into fields ...)`.
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V>;
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt;
 }
 
 impl<T> CtorFn<T> {
@@ -251,11 +253,14 @@ impl<T> Deref for ElimFn<T> {
 
 /// Generate an arbitrary value of `T`, increasing size on retryable failures.
 #[inline]
-pub fn arbitrary<T: Pbt>(prng: &mut WyRand, mut size: Size) -> Option<T> {
+pub fn arbitrary<T>(prng: &mut WyRand, mut size: Size) -> Option<T>
+where
+    T: Pbt,
+{
     loop {
-        match try_arbitrary::<T>(prng, size._copy()) {
+        match try_arbitrary::<T>(prng, size.copy_for_retry()) {
             Ok(t) => return Some(t),
-            Err(MaybeUninstantiable::Retry) => size._increment(),
+            Err(MaybeUninstantiable::Retry) => size.increment(),
             Err(MaybeUninstantiable::Uninstantiable) => return None,
         }
     }
@@ -267,18 +272,21 @@ pub fn arbitrary<T: Pbt>(prng: &mut WyRand, mut size: Size) -> Option<T> {
 /// Returns [`MaybeUninstantiable::Retry`] or
 /// [`MaybeUninstantiable::Uninstantiable`] from field generation after
 /// draining unused field-size partitions for the abandoned constructor attempt.
-pub fn push_arbitrary_field<T: Pbt>(
+pub fn push_arbitrary_field<T>(
     fields: &mut ErasedTermBuckets,
     sizes: &mut Sizes,
     prng: &mut WyRand,
-) -> Result<(), MaybeUninstantiable> {
+) -> Result<(), MaybeUninstantiable>
+where
+    T: Pbt,
+{
     match sizes.try_arbitrary::<T>(prng) {
         Ok(t) => {
             fields.push(t);
             Ok(())
         }
         Err(error) => {
-            sizes._discard_remaining();
+            sizes.discard_remaining();
             Err(error)
         }
     }
@@ -294,7 +302,10 @@ pub fn push_arbitrary_field<T: Pbt>(
 /// Returns [`MaybeUninstantiable::Retry`] when rejection sampling could not
 /// decide at this size, or [`MaybeUninstantiable::Uninstantiable`] when `T`
 /// has no structurally available constructor.
-pub fn try_arbitrary<T: Pbt>(prng: &mut WyRand, size: Size) -> Result<T, MaybeUninstantiable> {
+pub fn try_arbitrary<T>(prng: &mut WyRand, size: Size) -> Result<T, MaybeUninstantiable>
+where
+    T: Pbt,
+{
     let info = info::<T>();
     match info.type_former {
         PrecomputedTypeFormer::Algebraic(ref adt) => {
@@ -326,7 +337,7 @@ pub fn try_arbitrary<T: Pbt>(prng: &mut WyRand, size: Size) -> Result<T, MaybeUn
                     // SAFETY: Bounded by length above (see `% n`).
                     (unsafe { potential_leaves.get_unchecked(i) }, false)
                 };
-                let sizes = size._partition_into(ctor.n_big, prng, minus_one);
+                let sizes = size.partition_into(ctor.n_big, prng, minus_one);
                 let mut fields = (ctor.arbitrary_fields)(prng, sizes)?;
                 // SAFETY: By the soundness of the type-`TypeId` relation,
                 // which holds as long as no lifetime subtyping takes place,
@@ -371,7 +382,10 @@ pub fn try_arbitrary<T: Pbt>(prng: &mut WyRand, size: Size) -> Result<T, MaybeUn
 /// # Panics
 /// If that's not the case.
 #[inline]
-pub fn check_eta_expansion<T: Pbt>() {
+pub fn check_eta_expansion<T>()
+where
+    T: Pbt,
+{
     let info = info::<T>();
     let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
         ref all_constructors,
@@ -408,13 +422,21 @@ pub fn check_eta_expansion<T: Pbt>() {
 
 /// Yield `s` as a `V` if `S` and `V` are the same registered type.
 #[inline]
-pub fn visit_self<V: Pbt, S: Pbt>(s: &S) -> impl Iterator<Item = V> {
+pub fn visit_self<V, S>(s: &S) -> impl Iterator<Item = V>
+where
+    V: Pbt,
+    S: Pbt,
+{
     visit_self_opt::<V, S>(s).cloned().into_iter()
 }
 
 /// Borrow `s` as a `V` if `S` and `V` are the same registered type.
 #[inline]
-pub fn visit_self_opt<V: Pbt, S: Pbt>(s: &S) -> Option<&V> {
+pub fn visit_self_opt<V, S>(s: &S) -> Option<&V>
+where
+    V: Pbt,
+    S: Pbt,
+{
     (type_of::<V>() == type_of::<S>()).then(|| {
         let source_ptr: *const S = ptr::from_ref(s);
         let target_ptr: *const V = source_ptr.cast();
@@ -425,7 +447,11 @@ pub fn visit_self_opt<V: Pbt, S: Pbt>(s: &S) -> Option<&V> {
 
 /// Move `s` out as a `V` if `S` and `V` are the same registered type.
 #[inline]
-pub fn visit_self_owned<V: Pbt, S: Pbt>(s: S) -> Option<V> {
+pub fn visit_self_owned<V, S>(s: S) -> Option<V>
+where
+    V: Pbt,
+    S: Pbt,
+{
     (type_of::<V>() == type_of::<S>()).then(|| {
         let source_ptr: *const S = ptr::from_ref(&s);
         let target_ptr: *const V = source_ptr.cast();
@@ -439,10 +465,13 @@ pub fn visit_self_owned<V: Pbt, S: Pbt>(s: S) -> Option<V> {
 
 /// Deserialize a cached witness term of type `T` and push it into a typed term bucket.
 #[inline]
-pub(crate) fn deserialize_cached_term_into_buckets<T: Pbt>(
+pub(crate) fn deserialize_cached_term_into_buckets<T>(
     term: &cache::CachedTerm,
     terms: &mut ErasedTermBuckets,
-) -> bool {
+) -> bool
+where
+    T: Pbt,
+{
     let Some(value) = cache::deserialize_term::<T>(term) else {
         return false;
     };

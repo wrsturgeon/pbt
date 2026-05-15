@@ -9,8 +9,8 @@ use {
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
     },
+    alloc::collections::BTreeSet,
     core::num::NonZero,
-    std::collections::BTreeSet,
 };
 
 impl<Lhs: Pbt, Rhs: Pbt> Pbt for (Lhs, Rhs) {
@@ -56,7 +56,10 @@ impl<Lhs: Pbt, Rhs: Pbt> Pbt for (Lhs, Rhs) {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         let (ref lhs, ref rhs) = *self;
         visit_self(self)
             .chain(lhs.visit_deep())

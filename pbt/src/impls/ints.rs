@@ -5,7 +5,6 @@
 #[cfg(feature = "malachite")]
 mod malachite {
     #![allow(
-        clippy::allow_attributes,
         clippy::wildcard_imports,
         reason = "the purpose of this effectively transparent module is only feature-gating"
     )]
@@ -79,7 +78,10 @@ mod malachite {
         }
 
         #[inline]
-        fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+        fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+        where
+            V: Pbt,
+        {
             visit_self(self)
         }
     }
@@ -88,7 +90,6 @@ mod malachite {
 #[cfg(feature = "num-bigint")]
 mod num_bigint {
     #![allow(
-        clippy::allow_attributes,
         clippy::wildcard_imports,
         reason = "the purpose of this effectively transparent module is only feature-gating"
     )]
@@ -158,7 +159,10 @@ mod num_bigint {
         }
 
         #[inline]
-        fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+        fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+        where
+            V: Pbt,
+        {
             visit_self(self)
         }
     }
@@ -171,7 +175,7 @@ use {
         reflection::{Type, type_of},
         scc::StronglyConnectedComponents,
     },
-    std::collections::BTreeSet,
+    alloc::collections::BTreeSet,
 };
 
 /// Generate an arbitrary value for an
@@ -251,7 +255,10 @@ impl Pbt for bool {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -283,7 +290,10 @@ impl Pbt for u8 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -315,7 +325,10 @@ impl Pbt for u16 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -347,7 +360,10 @@ impl Pbt for u32 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -379,7 +395,10 @@ impl Pbt for u64 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -411,7 +430,10 @@ impl Pbt for u128 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -443,7 +465,10 @@ impl Pbt for usize {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -475,7 +500,10 @@ impl Pbt for i8 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -507,7 +535,10 @@ impl Pbt for i16 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -539,7 +570,10 @@ impl Pbt for i32 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -571,7 +605,10 @@ impl Pbt for i64 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -603,7 +640,10 @@ impl Pbt for i128 {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -635,7 +675,10 @@ impl Pbt for isize {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }

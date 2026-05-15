@@ -11,8 +11,8 @@ use {
         scc::StronglyConnectedComponents,
         shrink::shrink,
     },
+    alloc::{collections::BTreeSet, ffi::CString, vec},
     core::{iter, mem, num::NonZero},
-    std::{collections::BTreeSet, ffi::CString, vec},
 };
 
 impl Pbt for char {
@@ -52,7 +52,10 @@ impl Pbt for char {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self)
     }
 }
@@ -114,7 +117,10 @@ impl Pbt for String {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self::<V, Self>(self)
             .chain(
                 self.chars()
@@ -176,7 +182,10 @@ impl Pbt for CString {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self::<V, Self>(self)
             .chain(self.as_bytes().iter().flat_map(visit_self))
             .chain({

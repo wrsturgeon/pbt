@@ -6,8 +6,8 @@ use {
         reflection::{Type, type_of},
         scc::StronglyConnectedComponents,
     },
+    alloc::collections::BTreeSet,
     core::{convert::Infallible, iter},
-    std::collections::BTreeSet,
 };
 
 impl Pbt for Infallible {
@@ -35,7 +35,10 @@ impl Pbt for Infallible {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         iter::empty()
     }
 }

@@ -3,8 +3,8 @@ use {
         pbt::{MaybeUninstantiable, Pbt, arbitrary, try_arbitrary},
         reflection::{AlgebraicTypeFormer, PrecomputedTypeFormer, Type, info_by_id, type_of},
     },
+    alloc::collections::BinaryHeap,
     core::{any::type_name, cmp, fmt, iter, num::NonZero},
-    std::collections::BinaryHeap,
     wyrand::WyRand,
 };
 
@@ -37,13 +37,21 @@ pub struct Sizes {
 impl Size {
     /// Copy this size for retrying a failed generation attempt.
     #[inline]
-    pub(crate) fn _copy(&self) -> Self {
+    pub(crate) fn copy_for_retry(&self) -> Self {
         Self { size: self.size }
+    }
+
+    /// Return the standard monotonically expanding stream of generation sizes.
+    #[inline]
+    pub fn expanding() -> impl Iterator<Item = Self> {
+        (0_usize..).map(|squared_size| Self {
+            size: squared_size.isqrt(),
+        })
     }
 
     /// Increase this size by one.
     #[inline]
-    pub(crate) fn _increment(&mut self) {
+    pub(crate) fn increment(&mut self) {
         #![expect(
             clippy::arithmetic_side_effects,
             reason = "Extremely rare: should panic."
@@ -51,15 +59,49 @@ impl Size {
         self.size += 1;
     }
 
-    /// Partition this total size into `n` sizes
-    /// which add up to the original size,
-    /// optionally minus one iff `minus_one`.
-    /// # Panics
-    /// If `size` is `usize::MAX` and `!minus_one`.
+    /// Partition this size across the inductive fields of constructor `ctor_idx` of `T`.
     #[inline]
-    pub(crate) fn _partition_into(&self, n: usize, prng: &mut WyRand, minus_one: bool) -> Sizes {
-        self._partition_into_opt(n, prng, minus_one)
-            .unwrap_or_default()
+    pub fn partition<T>(self, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes
+    where
+        T: Pbt,
+    {
+        self.partition_by_id(type_of::<T>(), ctor_idx, prng)
+    }
+
+    /// Use a stars-and-bars-like method to partition a total size
+    /// into sizes for each inductive type in its multiset of fields,
+    /// minus one for this node itself iff not a trivial wrapper.
+    #[inline]
+    fn partition_by_id(self, id: Type, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes {
+        let info = info_by_id(id);
+        let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
+            ref all_constructors,
+            ..
+        }) = info.type_former
+        else {
+            return Sizes::default();
+        };
+        // SAFETY: By the correct implementation of `eliminator`
+        // (i.e., by macro logic plus the few implementations in this crate).
+        #[expect(clippy::multiple_unsafe_ops_per_block, reason = "logically grouped")]
+        let (_ctor_fn, ref deps) =
+            *unsafe { all_constructors.get_unchecked(ctor_idx.get().unchecked_sub(1)) };
+
+        // Count the number of inductive fields,
+        // regardless of whether they're trivial wrappers
+        // (e.g. `Box` is a trivial wrapper but `Box<...>` is still inductive):
+        let mut n_ind = 0;
+        for (&ty, count) in deps.constructor.immediate.iter() {
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "fields bounded by system hardware, defined to match the capacity of `usize`"
+            )]
+            if info_by_id(ty).vertex.is_inductive() {
+                n_ind += count.get();
+            }
+        }
+
+        self.partition_into(n_ind, prng, !info.trivial)
     }
 
     /// Partition this total size into `n` sizes
@@ -68,7 +110,31 @@ impl Size {
     /// # Panics
     /// If `size` is `usize::MAX` and `!minus_one`.
     #[inline]
-    pub(crate) fn _partition_into_opt(
+    pub(crate) fn partition_into(&self, n: usize, prng: &mut WyRand, minus_one: bool) -> Sizes {
+        self.try_partition_into(n, prng, minus_one)
+            .unwrap_or_default()
+    }
+
+    /// Whether to choose a potential leaf or loop constructor.
+    #[must_use]
+    #[inline]
+    pub fn should_recurse(&self, prng: &mut WyRand) -> bool {
+        #[expect(
+            clippy::as_conversions,
+            clippy::cast_possible_truncation,
+            reason = "fine: definitely not > `u64::MAX` constructors"
+        )]
+        NonZero::new(self.size.isqrt())
+            .is_some_and(|denominator| prng.rand() as usize % denominator != 0)
+    }
+
+    /// Partition this total size into `n` sizes
+    /// which add up to the original size,
+    /// optionally minus one iff `minus_one`.
+    /// # Panics
+    /// If `size` is `usize::MAX` and `!minus_one`.
+    #[inline]
+    pub(crate) fn try_partition_into(
         &self,
         n: usize,
         prng: &mut WyRand,
@@ -110,69 +176,6 @@ impl Size {
             end: Some(end),
         })
     }
-
-    /// Return the standard monotonically expanding stream of generation sizes.
-    #[inline]
-    pub fn expanding() -> impl Iterator<Item = Self> {
-        (0_usize..).map(|squared_size| Self {
-            size: squared_size.isqrt(),
-        })
-    }
-
-    /// Partition this size across the inductive fields of constructor `ctor_idx` of `T`.
-    #[inline]
-    pub fn partition<T: Pbt>(self, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes {
-        self.partition_by_id(type_of::<T>(), ctor_idx, prng)
-    }
-
-    /// Use a stars-and-bars-like method to partition a total size
-    /// into sizes for each inductive type in its multiset of fields,
-    /// minus one for this node itself iff not a trivial wrapper.
-    #[inline]
-    fn partition_by_id(self, id: Type, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes {
-        let info = info_by_id(id);
-        let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
-            ref all_constructors,
-            ..
-        }) = info.type_former
-        else {
-            return Sizes::default();
-        };
-        #[expect(
-            clippy::indexing_slicing,
-            reason = "internal invariants; violation should panic"
-        )]
-        let (_ctor_fn, ref deps) = all_constructors[ctor_idx.get() - 1];
-
-        // Count the number of inductive fields,
-        // regardless of whether they're trivial wrappers
-        // (e.g. `Box` is a trivial wrapper but `Box<...>` is still inductive):
-        let mut n_ind = 0;
-        for (&ty, count) in deps.constructor.immediate.iter() {
-            #[expect(
-                clippy::arithmetic_side_effects,
-                reason = "fields bounded by system hardware, defined to match the capacity of `usize`"
-            )]
-            if info_by_id(ty).vertex.is_inductive() {
-                n_ind += count.get();
-            }
-        }
-
-        self._partition_into(n_ind, prng, !info.trivial)
-    }
-
-    /// Whether to choose a potential leaf or loop constructor.
-    #[must_use]
-    #[inline]
-    pub fn should_recurse(&self, prng: &mut WyRand) -> bool {
-        #[expect(
-            clippy::as_conversions,
-            clippy::cast_possible_truncation,
-            reason = "fine: definitely not > `u64::MAX` constructors"
-        )]
-        NonZero::new(self.size.isqrt())
-            .is_some_and(|denominator| prng.rand() as usize % denominator != 0)
-    }
 }
 
 impl fmt::Debug for Size {
@@ -189,7 +192,6 @@ impl fmt::Display for Size {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl Iterator for Sizes {
     type Item = Size;
 
@@ -209,18 +211,15 @@ impl Iterator for Sizes {
 }
 
 impl Sizes {
-    /// Discard all unused field sizes after abandoning constructor generation.
-    #[inline]
-    pub(crate) fn _discard_remaining(&mut self) {
-        while self.next().is_some() {}
-    }
-
     /// Generate an arbitrary term of type `T` using the
     /// size partitioned for it via `Size::partition`.
     /// # Panics
     /// If `T` is uninstantiable.
     #[inline]
-    pub fn arbitrary<T: Pbt>(&mut self, prng: &mut WyRand) -> T {
+    pub fn arbitrary<T>(&mut self, prng: &mut WyRand) -> T
+    where
+        T: Pbt,
+    {
         let ty = type_of::<T>();
         let info = info_by_id(ty);
         let size = if info.is_big() {
@@ -239,6 +238,12 @@ impl Sizes {
         t
     }
 
+    /// Discard all unused field sizes after abandoning constructor generation.
+    #[inline]
+    pub(crate) fn discard_remaining(&mut self) {
+        while self.next().is_some() {}
+    }
+
     /// Try to generate an arbitrary term of type `T` using the
     /// size partitioned for it via `Size::partition`.
     /// # Errors
@@ -246,7 +251,10 @@ impl Sizes {
     /// decide at this size, or [`MaybeUninstantiable::Uninstantiable`] when `T`
     /// has no structurally available constructor.
     #[inline]
-    pub fn try_arbitrary<T: Pbt>(&mut self, prng: &mut WyRand) -> Result<T, MaybeUninstantiable> {
+    pub fn try_arbitrary<T>(&mut self, prng: &mut WyRand) -> Result<T, MaybeUninstantiable>
+    where
+        T: Pbt,
+    {
         let ty = type_of::<T>();
         let info = info_by_id(ty);
         let size = if info.is_big() {

@@ -8,13 +8,14 @@ use {
         reflection::{TermsOfVariousTypes, Type, register, type_of},
     },
     ahash::{AHasher, HashMap, HashSet, RandomState},
+    alloc::collections::BTreeSet,
     core::{
         cmp, fmt,
         hash::{Hash, Hasher},
         iter,
         num::NonZero,
     },
-    std::collections::{BTreeSet, hash_map},
+    std::collections::hash_map,
 };
 
 /// One, as a non-zero integer. Stupid but efficient.
@@ -38,6 +39,10 @@ impl<T: Eq + Hash> Multiset<T> {
     /// Return the set of elements, discarding their counts.
     #[inline]
     #[must_use]
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "order is irrelevant when cloning keys into another hash set"
+    )]
     pub fn erase_counts(&self) -> HashSet<T>
     where
         T: Clone,
@@ -51,7 +56,10 @@ impl<T: Eq + Hash> Multiset<T> {
 
     /// Build a multiset from explicit non-zero counts.
     #[inline]
-    pub fn from_counts<I: IntoIterator<Item = (T, NonZero<usize>)>>(iter: I) -> Self {
+    pub fn from_counts<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (T, NonZero<usize>)>,
+    {
         let mut count = HashMap::with_hasher(RandomState::new());
         for (element, n) in iter {
             let _: Option<NonZero<usize>> = count.insert(element, n);
@@ -89,6 +97,10 @@ impl<T: Eq + Hash> Multiset<T> {
     /// Return the multiset intersection, keeping the minimum count for shared elements.
     #[inline]
     #[must_use]
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "multiset intersection is order-independent and `T` need not be `Ord`"
+    )]
     pub fn intersection(&self, other: &Self) -> Self
     where
         T: Clone,
@@ -150,6 +162,10 @@ impl<T: Eq + Hash> Multiset<T> {
     /// Return the set of elements that appear in either multiset, discarding counts.
     #[inline]
     #[must_use]
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "multiset union is order-independent and `T` need not be `Ord`"
+    )]
     pub fn union(&self, other: &Self) -> HashSet<T>
     where
         T: Clone,
@@ -195,6 +211,10 @@ impl<T: Pbt + Hash> Pbt for Multiset<T> {
             elimination_rule: ElimFn::new(|Multiset { count }| {
                 let mut fields = TermsOfVariousTypes::new();
                 let mut arbitrarily_ordered: Vec<T> = vec![];
+                #[expect(
+                    clippy::iter_over_hash_type,
+                    reason = "constructor field order is explicitly arbitrary for hash multisets"
+                )]
                 for (t, n) in count {
                     for _ in 0..n.get() {
                         let () = arbitrarily_ordered.push(t.clone());
@@ -210,7 +230,10 @@ impl<T: Pbt + Hash> Pbt for Multiset<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self).chain(self.count.visit_deep())
     }
 }
@@ -222,10 +245,16 @@ impl<T: fmt::Debug + Eq + Hash> fmt::Debug for Multiset<T> {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl<T: Eq + Hash> Hash for Multiset<T> {
     #[inline]
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    #[expect(
+        clippy::iter_over_hash_type,
+        reason = "hashing combines element hashes commutatively, so iteration order is irrelevant"
+    )]
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         let mut xor = 0;
         for kv in &self.count {
             let mut hasher = AHasher::default();
@@ -248,7 +277,10 @@ impl<T: Eq + Hash> IntoIterator for Multiset<T> {
 
 impl<T: Eq + Hash> FromIterator<T> for Multiset<T> {
     #[inline]
-    fn from_iter<I: IntoIterator<Item = T>>(iter: I) -> Self {
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = T>,
+    {
         let mut acc = Self::new();
         for element in iter {
             let _: NonZero<usize> = acc.insert(element);

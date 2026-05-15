@@ -10,12 +10,13 @@ use {
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
     },
+    alloc::collections::BTreeSet,
     core::{
         hash::{BuildHasher, Hash},
         iter,
         num::NonZero,
     },
-    std::collections::{BTreeSet, HashMap, HashSet},
+    std::collections::{HashMap, HashSet},
 };
 
 impl<T: Pbt + Hash, S: 'static + BuildHasher + Clone + Default> Pbt for HashSet<T, S> {
@@ -77,7 +78,10 @@ impl<T: Pbt + Hash, S: 'static + BuildHasher + Clone + Default> Pbt for HashSet<
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self::<V, Self>(self)
             .chain(self.iter().flat_map(T::visit_deep))
             .chain({
@@ -159,7 +163,10 @@ impl<K: Pbt + Hash, V: Pbt, S: 'static + BuildHasher + Clone + Default> Pbt for 
     }
 
     #[inline]
-    fn visit_deep<T: Pbt>(&self) -> impl Iterator<Item = T> {
+    fn visit_deep<T>(&self) -> impl Iterator<Item = T>
+    where
+        T: Pbt,
+    {
         visit_self::<T, Self>(self)
             .chain(
                 self.iter()

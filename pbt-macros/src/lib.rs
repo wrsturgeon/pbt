@@ -137,7 +137,10 @@ fn derive_pbt_for_ctors(
                 }
 
                 #[inline]
-                fn visit_deep<V: ::pbt::pbt::Pbt>(&self) -> impl ::core::iter::Iterator<Item = V> {
+                fn visit_deep<V>(&self) -> impl ::core::iter::Iterator<Item = V>
+                where
+                    V: ::pbt::pbt::Pbt,
+                {
                     ::core::iter::empty()
                 }
             }
@@ -213,7 +216,10 @@ fn derive_pbt_for_ctors(
             }
 
             #[inline]
-            fn visit_deep<V: ::pbt::pbt::Pbt>(&self) -> impl ::core::iter::Iterator<Item = V> {
+            fn visit_deep<V>(&self) -> impl ::core::iter::Iterator<Item = V>
+                where
+                    V: ::pbt::pbt::Pbt,
+                {
                 ::pbt::pbt::visit_self(self).chain({
                     let iter: Box<dyn Iterator<Item = _>> = #visit_deep;
                     iter

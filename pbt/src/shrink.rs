@@ -12,7 +12,10 @@ use {
 /// on the first go, then to cut only about a quarter, then only an eighth, etc.,
 /// until they almost reach (but do not equal) the original term.
 #[inline]
-pub fn shrink<T: Pbt>(t: T) -> Box<dyn Iterator<Item = T>> {
+pub fn shrink<T>(t: T) -> Box<dyn Iterator<Item = T>>
+where
+    T: Pbt,
+{
     let info = info::<T>();
     let AlgebraicTypeFormer {
         all_constructors: ref erased_ctors,
@@ -42,11 +45,11 @@ pub fn shrink<T: Pbt>(t: T) -> Box<dyn Iterator<Item = T>> {
         ctor_idx,
         fields: orig_fields,
     } = eliminator(t.clone());
-    #[expect(
-        clippy::indexing_slicing,
-        reason = "internal invariants; violation should panic"
-    )]
-    let (erased_orig_ctor_fn, orig_ctor_deps) = ctors[ctor_idx.get() - 1].clone();
+    // SAFETY: By the correct implementation of `eliminator`
+    // (i.e., by macro logic plus the few implementations in this crate).
+    #[expect(clippy::multiple_unsafe_ops_per_block, reason = "logically grouped")]
+    let (erased_orig_ctor_fn, orig_ctor_deps) =
+        unsafe { ctors.get_unchecked(ctor_idx.get().unchecked_sub(1)) }.clone();
     // SAFETY: Undoing an earlier `erase`.
     let orig_ctor_fn = unsafe { erased_orig_ctor_fn.unerase::<T>() };
     // Visit all terms of type `Self` (deeply) and try them all as toplevel solutions:

@@ -12,16 +12,17 @@ use {
         size::Sizes,
     },
     ahash::RandomState,
+    alloc::{
+        collections::{BTreeMap, BTreeSet, btree_map},
+        sync::Arc,
+    },
     core::{
         any::{TypeId, type_name},
         fmt, iter, mem,
         num::NonZero,
         ptr,
     },
-    std::{
-        collections::{BTreeMap, BTreeSet, btree_map},
-        sync::{Arc, LazyLock, OnceLock, PoisonError, RwLock},
-    },
+    std::sync::{LazyLock, OnceLock, PoisonError, RwLock},
     wyrand::WyRand,
 };
 
@@ -493,14 +494,16 @@ impl Pbt for Erased {
         unused_variables,
         reason = "to constrain the anonymous return type"
     )]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         let panic: iter::Empty<_> =
             panic!("internal `pbt` error: do not call `Pbt` methods on `Erased`");
         panic
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl Clone for Terms {
     #[inline]
     fn clone(&self) -> Self {
@@ -526,10 +529,8 @@ impl Drop for Terms {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl Eq for Terms {}
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl PartialEq for Terms {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -557,7 +558,6 @@ impl Terms {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl Clone for TermsOfVariousTypes {
     #[inline]
     fn clone(&self) -> Self {
@@ -592,10 +592,8 @@ impl Drop for TermsOfVariousTypes {
     }
 }
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl Eq for TermsOfVariousTypes {}
 
-#[expect(clippy::missing_trait_methods, reason = "intentionally left default")]
 impl PartialEq for TermsOfVariousTypes {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
@@ -607,7 +605,10 @@ impl TermsOfVariousTypes {
     #[inline]
     #[must_use]
     /// Borrow the bucket for one concrete type without exposing the erased storage.
-    pub fn get<T: Pbt>(&self) -> Option<&[T]> {
+    pub fn get<T>(&self) -> Option<&[T]>
+    where
+        T: Pbt,
+    {
         let id = type_of::<T>();
         let terms = self.map.get(&id)?;
         let erased_ptr: *const Vec<Erased> = ptr::from_ref(&terms.terms);
@@ -621,7 +622,10 @@ impl TermsOfVariousTypes {
     /// Mutably borrow the list of terms of a given type.
     #[inline]
     #[must_use]
-    fn get_mut<T: Pbt>(&mut self) -> Option<&mut Vec<T>> {
+    fn get_mut<T>(&mut self) -> Option<&mut Vec<T>>
+    where
+        T: Pbt,
+    {
         let id = type_of::<T>();
         let terms = self.map.get_mut(&id)?;
         let erased_ptr: *mut Vec<Erased> = ptr::from_mut(&mut terms.terms);
@@ -650,7 +654,10 @@ impl TermsOfVariousTypes {
     /// # Panics
     /// If no terms of that type remain.
     #[inline]
-    pub fn must_pop<T: Pbt>(&mut self) -> T {
+    pub fn must_pop<T>(&mut self) -> T
+    where
+        T: Pbt,
+    {
         match self.pop::<T>() {
             Some(t) => t,
             #[expect(clippy::panic, reason = "internal invariants")]
@@ -676,7 +683,10 @@ impl TermsOfVariousTypes {
         clippy::missing_panics_doc,
         reason = "won't panic b/c internal invariants"
     )]
-    pub fn pop<T: Pbt>(&mut self) -> Option<T> {
+    pub fn pop<T>(&mut self) -> Option<T>
+    where
+        T: Pbt,
+    {
         let v: &mut Vec<T> = self.get_mut()?;
         let opt: Option<T> = v.pop();
         if opt.is_none() || v.is_empty() {
@@ -708,7 +718,10 @@ impl TermsOfVariousTypes {
 
     #[inline]
     /// Push one typed term into the bucket keyed by its concrete `TypeId`.
-    pub fn push<T: Pbt>(&mut self, t: T) {
+    pub fn push<T>(&mut self, t: T)
+    where
+        T: Pbt,
+    {
         let id = type_of::<T>();
         let terms = match self.map.entry(id) {
             btree_map::Entry::Occupied(entry) => entry.into_mut(),
@@ -812,7 +825,7 @@ impl Vertex {
     )]
     pub fn is_inductive(&self) -> bool {
         *self.cached_inductivity.get_or_init(|| {
-            let mut sccs = _sccs()
+            let mut sccs = sccs()
                 .write()
                 .expect("internal `pbt` error: SCC lock poisoned");
             let () = sccs.tarjan_dfs(self.ty, &mut BTreeMap::new(), &mut vec![], &mut 0);
@@ -857,7 +870,7 @@ impl CtorVertex {
     )]
     pub fn is_inductive(&self) -> bool {
         *self.vertex.cached_inductivity.get_or_init(|| {
-            let mut sccs = _sccs()
+            let mut sccs = sccs()
                 .write()
                 .expect("internal `pbt` error: SCC lock poisoned");
             let () = sccs.tarjan_dfs(self.vertex.ty, &mut BTreeMap::new(), &mut vec![], &mut 0);
@@ -909,9 +922,13 @@ impl fmt::Debug for Type {
 /// before closing the loop and iterating once more,
 /// until all iterators have been exhausted.
 #[inline]
-pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
+pub(crate) fn breadth_first_transpose<I>(
     initial_values_and_iterators: Vec<(I::Item, I)>,
-) -> impl Iterator<Item = Vec<I::Item>> {
+) -> impl Iterator<Item = Vec<I::Item>>
+where
+    I: Iterator,
+    I::Item: Clone,
+{
     let (initial_values, mut iterators): (Vec<I::Item>, Vec<I>) =
         initial_values_and_iterators.into_iter().unzip();
     // Q about the above: Why not just take two vectors?
@@ -959,7 +976,10 @@ pub(crate) fn breadth_first_transpose<I: Iterator<Item: Clone>>(
 
 /// Build the erased bucket operations for one concrete term type.
 #[inline]
-fn erased_bucket_ops<T: Pbt>() -> ErasedBucketOps {
+fn erased_bucket_ops<T>() -> ErasedBucketOps
+where
+    T: Pbt,
+{
     ErasedBucketOps {
         clone: |v| {
             // SAFETY: Undoing an earlier pointer cast; the bucket is keyed by `T`.
@@ -1014,10 +1034,13 @@ fn erased_bucket_ops<T: Pbt>() -> ErasedBucketOps {
 /// once the caller has confirmed that the type is still absent.
 #[inline]
 #[expect(clippy::too_many_lines, reason = "TODO: refactor")]
-fn compute_type_registration<T: Pbt>(
+fn compute_type_registration<T>(
     mut visited: BTreeSet<Type>,
     sccs: &mut StronglyConnectedComponents,
-) -> ComputedTypeRegistration {
+) -> ComputedTypeRegistration
+where
+    T: Pbt,
+{
     let () = T::register_all_immediate_dependencies(&mut visited, sccs);
     let self_ty = type_of::<T>();
     let type_former = T::type_former();
@@ -1156,14 +1179,17 @@ fn compute_type_registration<T: Pbt>(
 
 /// Register a single type inside an already-serialized registration traversal.
 #[inline]
-fn register_inner<T: Pbt>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents) {
+fn register_inner<T>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents)
+where
+    T: Pbt,
+{
     let id = type_of::<T>();
     if visited.contains(&id) || try_info_by_id(id).is_some() {
         return;
     }
 
     let ComputedTypeRegistration { info, scc_node } = compute_type_registration::<T>(visited, sccs);
-    let pinned = _registry().pin();
+    let pinned = registry().pin();
     let _: &Arc<TypeInfo> = pinned.get_or_insert_with(id, || Arc::new(info));
     let overwritten = sccs.insert(id, scc_node);
     debug_assert!(
@@ -1174,7 +1200,10 @@ fn register_inner<T: Pbt>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedC
 
 /// Register a type with the global registry of type dependency information.
 #[inline]
-pub fn register<T: Pbt>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents) {
+pub fn register<T>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedComponents)
+where
+    T: Pbt,
+{
     let id = type_of::<T>();
     if visited.contains(&id) {
         return;
@@ -1186,20 +1215,36 @@ pub fn register<T: Pbt>(visited: BTreeSet<Type>, sccs: &mut StronglyConnectedCom
 /// **Do not use this unless you are a `pbt` maintainer.**
 #[inline]
 #[must_use]
-pub fn _registry() -> &'static papaya::HashMap<Type, Arc<TypeInfo>, RandomState> {
+pub fn registry() -> &'static papaya::HashMap<Type, Arc<TypeInfo>, RandomState> {
     static REGISTRY: LazyLock<papaya::HashMap<Type, Arc<TypeInfo>, RandomState>> =
         LazyLock::new(|| papaya::HashMap::with_hasher(RandomState::with_seed(usize::from(SEED))));
     LazyLock::force(&REGISTRY)
+}
+
+/// Compatibility alias for [`registry`].
+/// **Do not use this unless you are a `pbt` maintainer.**
+#[inline]
+#[must_use]
+pub fn _registry() -> &'static papaya::HashMap<Type, Arc<TypeInfo>, RandomState> {
+    registry()
 }
 
 /// Get a handle to the global strongly connected component graph without trying to lock it.
 /// **Do not use this unless you are a `pbt` maintainer.**
 #[inline]
 #[must_use]
-pub fn _sccs() -> &'static RwLock<StronglyConnectedComponents> {
+pub fn sccs() -> &'static RwLock<StronglyConnectedComponents> {
     static SCCS: LazyLock<RwLock<StronglyConnectedComponents>> =
         LazyLock::new(|| RwLock::new(StronglyConnectedComponents::new()));
     LazyLock::force(&SCCS)
+}
+
+/// Compatibility alias for [`sccs`].
+/// **Do not use this unless you are a `pbt` maintainer.**
+#[inline]
+#[must_use]
+pub fn _sccs() -> &'static RwLock<StronglyConnectedComponents> {
+    sccs()
 }
 
 /// Get type-level characteristics of a type,
@@ -1209,8 +1254,11 @@ pub fn _sccs() -> &'static RwLock<StronglyConnectedComponents> {
 /// If registration completes but the just-registered type cannot be found in the registry.
 #[inline]
 #[must_use]
-pub fn info<T: Pbt>() -> Arc<TypeInfo> {
-    let mut sccs = _sccs().write().unwrap_or_else(PoisonError::into_inner);
+pub fn info<T>() -> Arc<TypeInfo>
+where
+    T: Pbt,
+{
+    let mut sccs = sccs().write().unwrap_or_else(PoisonError::into_inner);
     let () = register_inner::<T>(BTreeSet::new(), &mut sccs);
     match try_info_by_id(type_of::<T>()) {
         Some(info) => info,
@@ -1233,7 +1281,7 @@ pub fn info_by_id(ty: Type) -> Arc<TypeInfo> {
         panic!(
             "internal `pbt` error: unregistered type with ID `{:?}` (registered so far: {:#?})",
             ty.id(),
-            _registry()
+            registry()
                 .pin()
                 .iter()
                 .map(|(&id, info)| (id, info.vertex.ty.id()))
@@ -1246,13 +1294,16 @@ pub fn info_by_id(ty: Type) -> Arc<TypeInfo> {
 /// Returns `None` if the type has not yet been registered with `pbt`.
 #[inline]
 pub fn try_info_by_id(id: Type) -> Option<Arc<TypeInfo>> {
-    let pinned = _registry().pin();
+    let pinned = registry().pin();
     pinned.get(&id).map(Arc::clone)
 }
 
 /// Return the opaque registry key for `T`.
 #[inline]
 #[must_use]
-pub fn type_of<T: Pbt>() -> Type {
+pub fn type_of<T>() -> Type
+where
+    T: Pbt,
+{
     Type(TypeId::of::<T>())
 }

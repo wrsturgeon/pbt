@@ -10,8 +10,8 @@ use {
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
     },
+    alloc::collections::{BTreeMap, BTreeSet},
     core::{iter, num::NonZero},
-    std::collections::{BTreeMap, BTreeSet},
 };
 
 impl<T: Pbt + Ord> Pbt for BTreeSet<T> {
@@ -71,7 +71,10 @@ impl<T: Pbt + Ord> Pbt for BTreeSet<T> {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self::<V, Self>(self)
             .chain(self.iter().flat_map(T::visit_deep))
             .chain({
@@ -144,7 +147,10 @@ impl<K: Pbt + Ord, V: Pbt> Pbt for BTreeMap<K, V> {
     }
 
     #[inline]
-    fn visit_deep<T: Pbt>(&self) -> impl Iterator<Item = T> {
+    fn visit_deep<T>(&self) -> impl Iterator<Item = T>
+    where
+        T: Pbt,
+    {
         visit_self::<T, Self>(self)
             .chain(
                 self.iter()

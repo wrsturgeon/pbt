@@ -1,8 +1,6 @@
 //! Sigma-types: types whose terms satisfy a predicate
 //! (e.g. floats greater than zero).
 
-#![expect(clippy::missing_trait_methods, reason = "left intentionally default")]
-
 use {
     crate::{
         pbt::{
@@ -12,6 +10,7 @@ use {
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
     },
+    alloc::collections::BTreeSet,
     core::{
         cmp, fmt,
         hash::{Hash, Hasher},
@@ -20,7 +19,6 @@ use {
         num::NonZero,
         ops::Deref,
     },
-    std::collections::BTreeSet,
 };
 
 /// A runtime-decidable predicate on some type.
@@ -109,7 +107,10 @@ impl<T: Eq, P: Predicate<T>> Eq for Sigma<T, P> {}
 
 impl<T: Hash, P: Predicate<T>> Hash for Sigma<T, P> {
     #[inline(always)]
-    fn hash<H: Hasher>(&self, state: &mut H) {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         <T as Hash>::hash(&self.value, state);
     }
 }
@@ -190,7 +191,10 @@ impl<T: Pbt, P: Predicate<T>> Pbt for Sigma<T, P> {
     }
 
     #[inline]
-    fn visit_deep<V: Pbt>(&self) -> impl Iterator<Item = V> {
+    fn visit_deep<V>(&self) -> impl Iterator<Item = V>
+    where
+        V: Pbt,
+    {
         visit_self(self).chain(T::visit_deep(&self.value))
     }
 }

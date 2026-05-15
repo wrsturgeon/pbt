@@ -5,6 +5,8 @@
 //! reflection data to generate values, detect uninstantiable recursive shapes,
 //! and shrink counterexamples structurally.
 
+extern crate alloc;
+
 /// Persistent witness cache support.
 pub mod cache;
 mod impls;
