@@ -62,7 +62,7 @@ impl StronglyConnectedComponents {
     /// Merge two disjoint sets to form their union.
     #[inline]
     pub fn merge(&mut self, lhs: Type, rhs: Type) {
-        merge(&mut self.nodes, lhs, rhs)
+        merge(&mut self.nodes, lhs, rhs);
     }
 
     /// Empty set of disjoint sets.
@@ -133,8 +133,8 @@ impl StronglyConnectedComponents {
         let Node::Root(Metadata { ref edges, .. }) = *node else {
             return;
         };
-        let edges: Vec<Type> = edges.iter().copied().collect();
-        for successor in edges {
+        let outgoing_edges: Vec<Type> = edges.iter().copied().collect();
+        for successor in outgoing_edges {
             if let Some(&TarjanMetadata {
                 index: successor_index,
                 ..
@@ -166,10 +166,10 @@ impl StronglyConnectedComponents {
         }
 
         // Check if this is the root of an SCC:
-        let metadata = metadata
+        let vertex_metadata = metadata
             .get(&vertex)
             .expect("internal `pbt` error: schrodinger's metadata");
-        if metadata.index == metadata.lowlink {
+        if vertex_metadata.index == vertex_metadata.lowlink {
             'pop: loop {
                 let popped = stack
                     .pop()
@@ -210,21 +210,23 @@ impl DerefMut for StronglyConnectedComponents {
 #[inline]
 #[expect(clippy::expect_used, clippy::panic, reason = "internal invariants")]
 fn merge(nodes: &mut HashMap<Type, Node>, lhs: Type, rhs: Type) {
-    let mut lhs = root(nodes, lhs).expect("internal `pbt` error: merging unregistered SCC element");
-    let mut rhs = root(nodes, rhs).expect("internal `pbt` error: merging unregistered SCC element");
+    let mut lhs_root =
+        root(nodes, lhs).expect("internal `pbt` error: merging unregistered SCC element");
+    let mut rhs_root =
+        root(nodes, rhs).expect("internal `pbt` error: merging unregistered SCC element");
 
-    if lhs == rhs {
+    if lhs_root == rhs_root {
         return;
     }
 
-    let Some(&Node::Root(ref lhs_meta)) = nodes.get(&lhs) else {
+    let Some(&Node::Root(ref lhs_meta)) = nodes.get(&lhs_root) else {
         panic!("internal `pbt` error: `scc::root` is not idempotent")
     };
-    let Some(&Node::Root(ref rhs_meta)) = nodes.get(&rhs) else {
+    let Some(&Node::Root(ref rhs_meta)) = nodes.get(&rhs_root) else {
         panic!("internal `pbt` error: `scc::root` is not idempotent")
     };
     if rhs_meta.cardinality > lhs_meta.cardinality {
-        let () = mem::swap(&mut lhs, &mut rhs);
+        let () = mem::swap(&mut lhs_root, &mut rhs_root);
     }
 
     let edges: Vec<_> = lhs_meta
@@ -244,13 +246,13 @@ fn merge(nodes: &mut HashMap<Type, Node>, lhs: Type, rhs: Type) {
             .map(|edge| {
                 root(nodes, edge).expect("internal `pbt` error: invalid (transitive) parent in SCC")
             })
-            .filter(|&root| root != lhs)
+            .filter(|&root| root != lhs_root)
             .collect(),
-        ty: lhs,
+        ty: lhs_root,
     };
 
-    let _: Option<Node> = nodes.insert(rhs, Node::Parent(lhs));
-    let _: Option<Node> = nodes.insert(lhs, Node::Root(meta));
+    let _: Option<Node> = nodes.insert(rhs_root, Node::Parent(lhs_root));
+    let _: Option<Node> = nodes.insert(lhs_root, Node::Root(meta));
 }
 
 /// Find the (arbitrary) root node of a set

@@ -94,9 +94,9 @@ impl<T: Eq + Hash> Multiset<T> {
         T: Clone,
     {
         let mut acc = Self::new();
-        for (element, &count) in &self.count {
+        for (element, &lhs_count) in &self.count {
             if let Some(other_count) = other.count(element) {
-                let count = count.min(other_count);
+                let count = lhs_count.min(other_count);
                 let _: Option<_> = acc.count.insert(element.clone(), count);
             }
         }
@@ -232,7 +232,7 @@ impl<T: Eq + Hash> Hash for Multiset<T> {
             let () = kv.hash(&mut hasher);
             xor ^= hasher.finish();
         }
-        xor.hash(state)
+        xor.hash(state);
     }
 }
 

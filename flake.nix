@@ -43,6 +43,9 @@
         cargoArtifacts = crane.buildDepsOnly craneDepArgs;
         craneArgs = craneDepArgs // {
           inherit cargoArtifacts;
+          cargoClippyExtraArgs = "--all-features --all-targets --workspace -- --deny warnings";
+          cargoNextestExtraArgs = "--all-features --workspace";
+          env.RUSTDOCFLAGS = "--deny warnings";
         };
         craneArtifacts = crane.buildPackage (craneArgs // { doCheck = false; });
 
@@ -52,14 +55,12 @@
         checks = {
           audit = crane.cargoAudit { inherit src advisory-db; };
           build = craneArtifacts;
-          clippy = crane.cargoClippy (
-            craneArgs // { cargoClippyExtraArgs = "--all-targets -- --deny warnings"; }
-          );
+          clippy = crane.cargoClippy craneArgs;
           deny = crane.cargoDeny craneArgs;
-          doc = crane.cargoDoc (craneArgs // { env.RUSTDOCFLAGS = "--deny warnings"; });
+          doc = crane.cargoDoc craneArgs;
           fmt-rust = crane.cargoFmt craneArgs;
           fmt-toml = crane.taploFmt craneArgs;
-          tests = crane.cargoNextest (craneArgs // { cargoNextestPartitionsExtraArgs = "--no-tests=pass"; });
+          tests = crane.cargoNextest craneArgs;
         };
         devShells.default = crane.devShell {
           checks = self.checks.${system};

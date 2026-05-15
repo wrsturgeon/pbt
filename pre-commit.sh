@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 
-shopt -s nullglob
-set -euxo pipefail
+set -euo pipefail
 
-nix flake check || nix flake check --offline
+host_target="$(rustc -vV | sed -n 's/^host: //p')"
+runner_env="CARGO_TARGET_${host_target^^}_RUNNER"
+runner_env="${runner_env//-/_}"
+valgrind_runner='valgrind --quiet --error-exitcode=1 --leak-check=full --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect'
+env "$runner_env=$valgrind_runner" \
+    cargo test --all-features --all-targets --quiet --workspace
 
-export CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER="valgrind --leak-check=full --show-leak-kinds=all --errors-for-leak-kinds=definite,indirect --error-exitcode=1 --trace-children=yes"
-cargo test --workspace --target x86_64-unknown-linux-gnu
-unset CARGO_TARGET_X86_64_UNKNOWN_LINUX_GNU_RUNNER
+cargo clippy --all-features --all-targets --quiet --workspace
 
-MIRIFLAGS='-Zmiri-disable-isolation' cargo miri test # TODO: seems not to be available via Nix/Crane
+nix flake check --quiet --no-warn-dirty 2> >(
+    grep -v -E \
+        -e '^warning: The check omitted these incompatible systems: ' \
+        -e "^Use '--all-systems' to check all\\.$" >&2
+)
 
-nix flake update || : # not added to git; this is to keep the *next* commit up to date without invalidating the above
-cargo update || :
+MIRIFLAGS='-Zmiri-disable-isolation' cargo miri test --all-features --all-targets --quiet --workspace # TODO: seems not to be available via Nix/Crane

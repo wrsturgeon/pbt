@@ -15,44 +15,50 @@ use {
 pub fn shrink<T: Pbt>(t: T) -> Box<dyn Iterator<Item = T>> {
     let info = info::<T>();
     let AlgebraicTypeFormer {
-        all_constructors: ref ctors,
-        eliminator,
+        all_constructors: ref erased_ctors,
+        eliminator: erased_eliminator,
         ..
     } = *match info.type_former {
         PrecomputedTypeFormer::Algebraic(ref alg) => alg,
-        PrecomputedTypeFormer::Literal { shrink, .. } => {
+        PrecomputedTypeFormer::Literal {
+            shrink: erased_shrink,
+            ..
+        } => {
             // SAFETY: Undoing an earlier `transmute`.
             let shrink = unsafe {
                 mem::transmute::<
                     fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
                     fn(T) -> Box<dyn Iterator<Item = T>>,
-                >(shrink)
+                >(erased_shrink)
             };
             return shrink(t);
         }
     };
-    let ctors = ctors.clone();
+    let ctors = erased_ctors.clone();
 
     // SAFETY: Undoing an earlier `erase`.
-    let eliminator = unsafe { eliminator.unerase::<T>() };
-    let Decomposition { ctor_idx, fields } = eliminator(t.clone());
+    let eliminator = unsafe { erased_eliminator.unerase::<T>() };
+    let Decomposition {
+        ctor_idx,
+        fields: orig_fields,
+    } = eliminator(t.clone());
     #[expect(
         clippy::indexing_slicing,
         reason = "internal invariants; violation should panic"
     )]
-    let (orig_ctor_fn, orig_ctor_deps) = ctors[ctor_idx.get() - 1].clone();
+    let (erased_orig_ctor_fn, orig_ctor_deps) = ctors[ctor_idx.get() - 1].clone();
     // SAFETY: Undoing an earlier `erase`.
-    let orig_ctor_fn = unsafe { orig_ctor_fn.unerase::<T>() };
+    let orig_ctor_fn = unsafe { erased_orig_ctor_fn.unerase::<T>() };
     // Visit all terms of type `Self` (deeply) and try them all as toplevel solutions:
     let nested_selves = t
         .visit_deep::<T>()
         .skip(1) // skip `t` itself
         .collect::<Vec<_>>(); // need to collect b/c `t` is local :(
 
-    let shrink_fields = fields
+    let shrink_fields = orig_fields
         .clone()
         .shrink()
-        .filter_map(move |mut fields| orig_ctor_fn(&mut fields));
+        .filter_map(move |mut shrunk_fields| orig_ctor_fn(&mut shrunk_fields));
 
     // Try all other constructors whose field multisets are subsets of `t`'s fields:
     // (It's fine that constructors are unsorted, since success will effectively restart,
@@ -81,12 +87,12 @@ pub fn shrink<T: Pbt>(t: T) -> Box<dyn Iterator<Item = T>> {
             // TODO: should we do this for *all* (deep) terms
             // or just immediate toplevel fields?
         })
-        .filter_map(move |(f, _)| {
+        .filter_map(move |(erased_ctor_fn, _)| {
             // SAFETY: Undoing an earlier `erase`.
-            let f = unsafe { f.unerase::<T>() };
+            let ctor_fn = unsafe { erased_ctor_fn.unerase::<T>() };
             // TODO: iterate over sections if there would be fields left over;
             // right now, we're effectively only taking the first N and dropping the rest
-            f(&mut fields.clone())
+            ctor_fn(&mut orig_fields.clone())
         });
 
     Box::new(

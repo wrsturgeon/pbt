@@ -68,18 +68,25 @@ struct CacheLine {
 pub fn serialize_term<T: Pbt>(t: &T) -> CachedTerm {
     let info = info::<T>();
     match info.type_former {
-        PrecomputedTypeFormer::Literal { serialize, .. } => {
+        PrecomputedTypeFormer::Literal {
+            serialize: erased_serialize,
+            ..
+        } => {
             // SAFETY: Undoing an earlier `transmute` keyed by the surrounding concrete `T`.
             let serialize = unsafe {
                 mem::transmute::<for<'t> fn(&'t Erased) -> String, for<'t> fn(&'t T) -> String>(
-                    serialize,
+                    erased_serialize,
                 )
             };
             CachedTerm::Literal(serialize(t))
         }
-        PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer { eliminator, .. }) => {
+        PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
+            eliminator: erased_eliminator,
+            ..
+        }) => {
             // SAFETY: Undoing an earlier `transmute` keyed by the surrounding concrete `T`.
-            let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
+            let eliminator =
+                unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(erased_eliminator) };
             serialize_decomposition(eliminator(t.clone()))
         }
     }
@@ -91,10 +98,15 @@ pub fn serialize_term<T: Pbt>(t: &T) -> CachedTerm {
 pub fn deserialize_term<T: Pbt>(term: &CachedTerm) -> Option<T> {
     let info = info::<T>();
     match info.type_former {
-        PrecomputedTypeFormer::Literal { deserialize, .. } => {
+        PrecomputedTypeFormer::Literal {
+            deserialize: erased_deserialize,
+            ..
+        } => {
             // SAFETY: Undoing an earlier `transmute` keyed by the surrounding concrete `T`.
             let deserialize = unsafe {
-                mem::transmute::<fn(&str) -> Option<Erased>, fn(&str) -> Option<T>>(deserialize)
+                mem::transmute::<fn(&str) -> Option<Erased>, fn(&str) -> Option<T>>(
+                    erased_deserialize,
+                )
             };
             let CachedTerm::Literal(ref payload) = *term else {
                 return None;
@@ -275,8 +287,8 @@ fn store_locked<T: Pbt>(path: &Path, term: &CachedTerm) -> io::Result<()> {
     canonicalize_terms(&mut witnesses);
     let encoded = witnesses
         .into_iter()
-        .map(|term| CacheLine {
-            term,
+        .map(|cached_term| CacheLine {
+            term: cached_term,
             ty: type_name::<T>().to_owned(),
         })
         .map(|line| serde_json::to_string(&line))
@@ -364,10 +376,10 @@ fn maybe_test_store_delay() {
     if !cfg!(test) {
         return;
     }
-    let Ok(delay_ms) = env::var(STORE_DELAY_ENV_VAR) else {
+    let Ok(delay_ms_env) = env::var(STORE_DELAY_ENV_VAR) else {
         return;
     };
-    let Ok(delay_ms) = delay_ms.parse::<u64>() else {
+    let Ok(delay_ms) = delay_ms_env.parse::<u64>() else {
         return;
     };
     thread::sleep(Duration::from_millis(delay_ms));

@@ -110,7 +110,7 @@ impl<T: Eq, P: Predicate<T>> Eq for Sigma<T, P> {}
 impl<T: Hash, P: Predicate<T>> Hash for Sigma<T, P> {
     #[inline(always)]
     fn hash<H: Hasher>(&self, state: &mut H) {
-        <T as Hash>::hash(&self.value, state)
+        <T as Hash>::hash(&self.value, state);
     }
 }
 

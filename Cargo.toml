@@ -19,7 +19,7 @@ keywords = ["property", "proptest", "arbitrary", "fuzz", "test"]
 license = "MIT OR Apache-2.0"
 readme = "README.md"
 repository = "https://github.com/wrsturgeon/pbt"
-version = "0.4.18"
+version = "0.4.19"
 
 
 # Deny all lints first (see <https://doc.rust-lang.org/stable/clippy/lints.html>):
@@ -51,33 +51,26 @@ suspicious = { level = "deny", priority = -1 }
 
 # Then selectively ignore false negatives:
 blanket_clippy_restriction_lints = "allow"
-field_scoped_visibility_modifiers = "allow"
-from_iter_instead_of_collect = "allow"
 implicit_return = "allow"
 inline_always = "allow"
+inline_trait_bounds = "allow"
 inline_modules = "allow"
 iter_over_hash_type = "allow"
-map_err_ignore = "allow"
 min_ident_chars = "allow"
-missing_docs_in_private_items = "allow"
-missing_inline_in_public_items = "allow"
+missing_trait_methods = "allow"
 mod_module_files = "allow"
-needless_borrowed_reference = "allow"
 pointer_format = "allow"
+needless_borrowed_reference = "allow"
 pub_use = "allow"
 pub_with_shorthand = "allow"
 question_mark_used = "allow"
 ref_patterns = "allow"
-semicolon_if_nothing_returned = "allow"
 semicolon_outside_block = "allow"
 separated_literal_suffix = "allow"
-shadow_reuse = "allow"
-shadow_same = "allow"
-shadow_unrelated = "allow"
+std_instead_of_alloc = "allow"
 single_call_fn = "allow"
 single_char_lifetime_names = "allow"
-std_instead_of_alloc = "allow"              # `std` is necessary anyway
 too_many_lines = "allow"
 type_complexity = "allow"
-used_underscore_items = "allow"             # macro accessibility while discouraging end-users
+used_underscore_items = "allow"
 wildcard-enum-match-arm = "allow"

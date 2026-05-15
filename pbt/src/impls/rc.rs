@@ -39,8 +39,8 @@ impl<T: Pbt> Pbt for Rc<T> {
             }],
             elimination_rule: ElimFn::new(|rc| {
                 let mut fields = TermsOfVariousTypes::new();
-                let () =
-                    fields.push::<T>(Rc::try_unwrap(rc).unwrap_or_else(|rc| rc.as_ref().clone()));
+                let () = fields
+                    .push::<T>(Rc::try_unwrap(rc).unwrap_or_else(|shared| shared.as_ref().clone()));
                 Decomposition {
                     ctor_idx: const { NonZero::new(1).unwrap() },
                     fields,
@@ -81,8 +81,9 @@ impl<T: Pbt> Pbt for Arc<T> {
             }],
             elimination_rule: ElimFn::new(|arc| {
                 let mut fields = TermsOfVariousTypes::new();
-                let () = fields
-                    .push::<T>(Arc::try_unwrap(arc).unwrap_or_else(|arc| arc.as_ref().clone()));
+                let () = fields.push::<T>(
+                    Arc::try_unwrap(arc).unwrap_or_else(|shared| shared.as_ref().clone()),
+                );
                 Decomposition {
                     ctor_idx: const { NonZero::new(1).unwrap() },
                     fields,

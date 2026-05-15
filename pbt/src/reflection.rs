@@ -275,11 +275,11 @@ impl AlgebraicTypeFormer {
     /// another term of type `Self` (since generation would never halt).
     #[inline]
     #[must_use]
-    pub fn new<T>(all_constructors: Vec<(CtorFn<T>, CtorVertex)>, eliminator: ElimFn<T>) -> Self {
+    pub fn new<T>(typed_constructors: Vec<(CtorFn<T>, CtorVertex)>, eliminator: ElimFn<T>) -> Self {
         // SAFETY: Same size, still a function pointer with the same arguments.
         let all_constructors = unsafe {
             mem::transmute::<Vec<(CtorFn<T>, CtorVertex)>, Vec<(CtorFn<Erased>, CtorVertex)>>(
-                all_constructors,
+                typed_constructors,
             )
         };
         #[cfg(debug_assertions)]
@@ -522,7 +522,7 @@ impl fmt::Debug for Terms {
 impl Drop for Terms {
     #[inline]
     fn drop(&mut self) {
-        (info_by_id(self.ty).erased_bucket_ops.drop)(mem::take(&mut self.terms))
+        (info_by_id(self.ty).erased_bucket_ops.drop)(mem::take(&mut self.terms));
     }
 }
 
@@ -550,7 +550,10 @@ impl Terms {
             reason = "to avoid double-dropping the `Vec<Erased>` moved above"
         )]
         let () = mem::forget(self);
-        shrink(terms).map(move |terms| Self { terms, ty })
+        shrink(terms).map(move |shrunk_terms| Self {
+            terms: shrunk_terms,
+            ty,
+        })
     }
 }
 
@@ -606,13 +609,13 @@ impl TermsOfVariousTypes {
     /// Borrow the bucket for one concrete type without exposing the erased storage.
     pub fn get<T: Pbt>(&self) -> Option<&[T]> {
         let id = type_of::<T>();
-        let v = self.map.get(&id)?;
-        let v: *const Vec<Erased> = ptr::from_ref(&v.terms);
-        let v: *const Vec<T> = v.cast();
+        let terms = self.map.get(&id)?;
+        let erased_ptr: *const Vec<Erased> = ptr::from_ref(&terms.terms);
+        let typed_ptr: *const Vec<T> = erased_ptr.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Erased>` state.
-        let v = unsafe { v.as_ref_unchecked() };
-        Some(v)
+        let typed_terms = unsafe { typed_ptr.as_ref_unchecked() };
+        Some(typed_terms)
     }
 
     /// Mutably borrow the list of terms of a given type.
@@ -620,13 +623,13 @@ impl TermsOfVariousTypes {
     #[must_use]
     fn get_mut<T: Pbt>(&mut self) -> Option<&mut Vec<T>> {
         let id = type_of::<T>();
-        let v = self.map.get_mut(&id)?;
-        let v: *mut Vec<Erased> = ptr::from_mut(&mut v.terms);
-        let v: *mut Vec<T> = v.cast();
+        let terms = self.map.get_mut(&id)?;
+        let erased_ptr: *mut Vec<Erased> = ptr::from_mut(&mut terms.terms);
+        let typed_ptr: *mut Vec<T> = erased_ptr.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Erased>` state.
-        let v = unsafe { v.as_mut_unchecked() };
-        Some(v)
+        let typed_terms = unsafe { typed_ptr.as_mut_unchecked() };
+        Some(typed_terms)
     }
 
     #[inline]
@@ -682,11 +685,11 @@ impl TermsOfVariousTypes {
                 clippy::unwrap_in_result,
                 reason = "won't panic b/c internal invariants"
             )]
-            let v = self
+            let removed_terms = self
                 .map
                 .remove(&type_of::<T>())
                 .expect("internal `pbt` error: failed to remove empty vector of terms");
-            drop(v)
+            drop(removed_terms);
         }
         opt
     }
@@ -698,7 +701,7 @@ impl TermsOfVariousTypes {
         let term = (info_by_id(ty).erased_bucket_ops.pop_serialize)(&mut terms.terms)?;
         if terms.terms.is_empty() {
             let removed = self.map.remove(&ty)?;
-            drop(removed)
+            drop(removed);
         }
         Some(term)
     }
@@ -719,12 +722,12 @@ impl TermsOfVariousTypes {
                 })
             }
         };
-        let v: *mut Vec<Erased> = ptr::from_mut(&mut terms.terms);
-        let v: *mut Vec<T> = v.cast();
+        let erased_ptr: *mut Vec<Erased> = ptr::from_mut(&mut terms.terms);
+        let typed_ptr: *mut Vec<T> = erased_ptr.cast();
         // SAFETY: Undoing the earlier `transmute` in `push` (the only entry point);
         // no operations are ever performed on the erased `Vec<Erased>` state.
-        let v = unsafe { v.as_mut_unchecked() };
-        v.push(t)
+        let typed_terms = unsafe { typed_ptr.as_mut_unchecked() };
+        typed_terms.push(t);
     }
 
     #[inline]
@@ -775,7 +778,7 @@ impl TermsOfVariousTypes {
         let iterator_over_maps = iterator_over_values
             .map(move |values: Vec<Terms>| keys.iter().copied().zip(values).collect());
 
-        iterator_over_maps.map(|map| Self { map })
+        iterator_over_maps.map(|shrunk_map| Self { map: shrunk_map })
     }
 }
 
@@ -984,16 +987,19 @@ fn erased_bucket_ops<T: Pbt>() -> ErasedBucketOps {
             let typed = unsafe { &mut *(ptr::from_mut(v).cast::<Vec<T>>()) };
             typed.pop().map(|t| cache::serialize_term(&t))
         },
-        shrink: |v| {
+        shrink: |erased_vec| {
             // SAFETY: Never used in its erased form, and
             // `Box<_>`es all have the same size+alignment.
-            let v = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(v) };
-            let vec_of_iterators = v.into_iter().map(|t| (t.clone(), shrink(t))).collect();
+            let typed_vec = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_vec) };
+            let vec_of_iterators = typed_vec
+                .into_iter()
+                .map(|t| (t.clone(), shrink(t)))
+                .collect();
             let iterator_of_vecs = breadth_first_transpose(vec_of_iterators);
-            let iterator_of_erased_vecs = iterator_of_vecs.map(|v| {
+            let iterator_of_erased_vecs = iterator_of_vecs.map(|shrunk_vec| {
                 // SAFETY: Never used in its erased form, and
                 // `Vec<_>`s all have the same size+alignment.
-                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) }
+                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(shrunk_vec) }
             });
             Box::new(iterator_of_erased_vecs)
         },
@@ -1100,10 +1106,10 @@ fn compute_type_registration<T: Pbt>(
         let () = immediately_reachable.extend(ctor_unavoidable.iter());
         unavoidable = Some(unavoidable.map_or_else(
             || ctor_unavoidable.clone(),
-            |mut unavoidable| {
+            |mut prior_unavoidable| {
                 // Multiset::intersection(&unavoidable, &ctor_unavoidable)
-                let () = unavoidable.retain(|ty| ctor_unavoidable.contains(ty));
-                unavoidable
+                let () = prior_unavoidable.retain(|ty| ctor_unavoidable.contains(ty));
+                prior_unavoidable
             },
         ));
         let deps = CtorVertex {

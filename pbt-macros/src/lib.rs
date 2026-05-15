@@ -22,6 +22,7 @@ use {
 /// # Panics
 /// If the annotated item is neither an `enum` nor a `struct`.
 #[proc_macro_derive(Pbt)]
+#[inline]
 pub fn derive_pbt(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
     match parse_macro_input!(ts as Item) {
         Item::Enum(item) => derive_pbt_for_ctors(
@@ -56,6 +57,7 @@ pub fn derive_pbt(ts: proc_macro::TokenStream) -> proc_macro::TokenStream {
     .into()
 }
 
+/// Generate the `Pbt` implementation and regression tests for the given constructors.
 #[inline]
 fn derive_pbt_for_ctors(
     ident: Ident,
@@ -69,7 +71,7 @@ fn derive_pbt_for_ctors(
             .collect(),
     };
     let parameters = generics_to_parameters(generics);
-    let generics = add_construct_bound_to_each_generic(generics, &construct_trait_path);
+    let bounded_generics = add_construct_bound_to_each_generic(generics, &construct_trait_path);
     let register_all_immediate_dependencies = register_all_immediate_dependencies(ctors);
     let elim_ctor_idx = elim_ctor_idx(ctors);
     let introduction_rules = Macro {
@@ -99,7 +101,7 @@ fn derive_pbt_for_ctors(
                     arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
                         colon2_token: None,
                         lt_token: <Token![<]>::default(),
-                        args: generics
+                        args: bounded_generics
                             .params
                             .iter()
                             .map(|_| {
@@ -117,7 +119,7 @@ fn derive_pbt_for_ctors(
             .collect(),
         };
         return quote! {
-            impl #generics #construct_trait_path for #impl_path {
+            impl #bounded_generics #construct_trait_path for #impl_path {
                 #[inline]
                 fn register_all_immediate_dependencies(
                     visited: &mut ::std::collections::BTreeSet<::pbt::reflection::Type>,
@@ -163,7 +165,7 @@ fn derive_pbt_for_ctors(
                 arguments: PathArguments::AngleBracketed(AngleBracketedGenericArguments {
                     colon2_token: None,
                     lt_token: <Token![<]>::default(),
-                    args: generics
+                    args: bounded_generics
                         .params
                         .iter()
                         .map(|_| {
@@ -182,7 +184,7 @@ fn derive_pbt_for_ctors(
     };
 
     quote! {
-        impl #generics #construct_trait_path for #impl_path {
+        impl #bounded_generics #construct_trait_path for #impl_path {
             #[inline]
             fn register_all_immediate_dependencies(
                 visited: &mut ::std::collections::BTreeSet<::pbt::reflection::Type>,
@@ -234,6 +236,7 @@ fn derive_pbt_for_ctors(
     }
 }
 
+/// Add a `Pbt` bound to each type parameter while preserving other parameters.
 #[inline]
 fn add_construct_bound_to_each_generic(
     generics: &Generics,
@@ -284,6 +287,7 @@ fn add_construct_bound_to_each_generic(
     }
 }
 
+/// Convert generic parameters into generic arguments for referring to the derived type.
 #[inline]
 fn generics_to_parameters(generics: &Generics) -> AngleBracketedGenericArguments {
     let Generics {
@@ -322,6 +326,7 @@ fn generics_to_parameters(generics: &Generics) -> AngleBracketedGenericArguments
     }
 }
 
+/// Generate statements that register every immediate field dependency.
 #[inline]
 fn register_all_immediate_dependencies(ctors: &[(Path, &Fields)]) -> Block {
     Block {
@@ -353,11 +358,12 @@ fn register_all_immediate_dependencies(ctors: &[(Path, &Fields)]) -> Block {
     }
 }
 
+/// Build the constructor metadata emitted by `type_former`.
 #[inline]
 fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> {
     ctors
         .iter()
-        .map(|&(ref path, fields)| -> Expr {
+        .map(|&(ref path, ctor_fields)| -> Expr {
             Expr::Struct(ExprStruct {
                 attrs: vec![],
                 qself: None,
@@ -446,7 +452,7 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                                         }),
                                         semi_token: <Token![;]>::default(),
                                     }))
-                                    .chain(fields.iter().map(|&Field { ref ty, .. }| {
+                                    .chain(ctor_fields.iter().map(|&Field { ref ty, .. }| {
                                         Stmt::Local(Local {
                                             attrs: vec![],
                                             let_token: <Token![let]>::default(),
@@ -509,21 +515,21 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                                 or2_token: <Token![|]>::default(),
                                 output: ReturnType::Default,
                                 body: {
-                                    let some = match *fields {
+                                    let some = match *ctor_fields {
                                         Fields::Unit => Expr::Path(ExprPath {
                                             attrs: vec![],
                                             qself: None,
                                             path: path.clone(),
                                         }),
-                                        Fields::Unnamed(ref fields) => Expr::Call(ExprCall {
+                                        Fields::Unnamed(ref unnamed_fields) => Expr::Call(ExprCall {
                                             attrs: vec![],
                                             func: Box::new(Expr::Path(ExprPath {
                                                 attrs: vec![],
                                                 qself: None,
                                                 path: path.clone(),
                                             })),
-                                            paren_token: fields.paren_token,
-                                            args: fields
+                                            paren_token: unnamed_fields.paren_token,
+                                            args: unnamed_fields
                                                 .unnamed
                                                 .iter()
                                                 .map(|&Field { ref ty, .. }| {
@@ -533,12 +539,12 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                                                 })
                                                 .collect(),
                                         }),
-                                        Fields::Named(ref fields) => Expr::Struct(ExprStruct {
+                                        Fields::Named(ref named_fields) => Expr::Struct(ExprStruct {
                                             attrs: vec![],
                                             qself: None,
                                             path: path.clone(),
-                                            brace_token: fields.brace_token,
-                                            fields: fields
+                                            brace_token: named_fields.brace_token,
+                                            fields: named_fields
                                                 .named
                                                 .iter()
                                                 .enumerate()
@@ -546,13 +552,15 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                                                     |(
                                                         i,
                                                         &Field {
-                                                            ref ident, ref ty, ..
+                                                            ident: ref field_ident_opt,
+                                                            ref ty,
+                                                            ..
                                                         },
                                                     )| {
-                                                        let ident = force_ident(ident.as_ref(), i);
+                                                        let field_ident = force_ident(field_ident_opt.as_ref(), i);
                                                         FieldValue {
                                                             attrs: vec![],
-                                                            member: Member::Named(ident),
+                                                            member: Member::Named(field_ident),
                                                             colon_token: Some(<Token![:]>::default()),
                                                             expr: Expr::Verbatim(quote! {
                                                                 terms.must_pop::<#ty>()
@@ -588,7 +596,7 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
                             let array = Expr::Array(ExprArray {
                                 attrs: vec![],
                                 bracket_token: Bracket::default(),
-                                elems: fields
+                                elems: ctor_fields
                                     .iter()
                                     .map(|&Field { ref ty, .. }| {
                                         Expr::Verbatim(quote! {
@@ -610,6 +618,7 @@ fn introduction_rules(ctors: &[(Path, &Fields)]) -> Punctuated<Expr, Token![,]> 
         .collect()
 }
 
+/// Build the eliminator match that records constructor indices and fields.
 #[inline]
 fn elim_ctor_idx(ctors: &[(Path, &Fields)]) -> ExprMatch {
     ExprMatch {
@@ -620,30 +629,30 @@ fn elim_ctor_idx(ctors: &[(Path, &Fields)]) -> ExprMatch {
         arms: ctors
             .iter()
             .enumerate()
-            .map(|(index, &(ref path, fields))| {
+            .map(|(zero_based_index, &(ref path, ctor_fields))| {
                 // SAFETY: Adding 1.
-                let index = unsafe {
+                let ctor_index = unsafe {
                     NonZero::new_unchecked(
                         #[expect(clippy::expect_used, reason = "extremely unlikely")]
-                        index
+                        zero_based_index
                             .checked_add(1)
                             .expect("internal `pbt` error: more than `usize::MAX` constructors"),
                     )
                 };
                 Arm {
                     attrs: vec![],
-                    pat: match *fields {
+                    pat: match *ctor_fields {
                         Fields::Unit => Pat::Path(ExprPath {
                             attrs: vec![],
                             qself: None,
                             path: path.clone(),
                         }),
-                        Fields::Named(ref fields) => Pat::Struct(PatStruct {
+                        Fields::Named(ref named_fields) => Pat::Struct(PatStruct {
                             attrs: vec![],
                             qself: None,
                             path: path.clone(),
-                            brace_token: fields.brace_token,
-                            fields: fields
+                            brace_token: named_fields.brace_token,
+                            fields: named_fields
                                 .named
                                 .iter()
                                 .enumerate()
@@ -662,12 +671,12 @@ fn elim_ctor_idx(ctors: &[(Path, &Fields)]) -> ExprMatch {
                                 .collect(),
                             rest: None,
                         }),
-                        Fields::Unnamed(ref fields) => Pat::TupleStruct(PatTupleStruct {
+                        Fields::Unnamed(ref unnamed_fields) => Pat::TupleStruct(PatTupleStruct {
                             attrs: vec![],
                             qself: None,
                             path: path.clone(),
-                            paren_token: fields.paren_token,
-                            elems: fields
+                            paren_token: unnamed_fields.paren_token,
+                            elems: unnamed_fields
                                 .unnamed
                                 .iter()
                                 .enumerate()
@@ -690,7 +699,7 @@ fn elim_ctor_idx(ctors: &[(Path, &Fields)]) -> ExprMatch {
                         label: None,
                         block: Block {
                             brace_token: Brace::default(),
-                            stmts: fields
+                            stmts: ctor_fields
                                 .iter()
                                 .enumerate()
                                 .rev()
@@ -698,10 +707,12 @@ fn elim_ctor_idx(ctors: &[(Path, &Fields)]) -> ExprMatch {
                                     |(
                                         i,
                                         &Field {
-                                            ref ident, ref ty, ..
+                                            ident: ref field_ident_opt,
+                                            ref ty,
+                                            ..
                                         },
                                     )| {
-                                        let ident = force_ident(ident.as_ref(), i);
+                                        let field_ident = force_ident(field_ident_opt.as_ref(), i);
                                         Stmt::Local(Local {
                                             attrs: vec![],
                                             let_token: <Token![let]>::default(),
@@ -713,7 +724,7 @@ fn elim_ctor_idx(ctors: &[(Path, &Fields)]) -> ExprMatch {
                                             init: Some(LocalInit {
                                                 eq_token: <Token![=]>::default(),
                                                 expr: Box::new(Expr::Verbatim(quote! {
-                                                    fields.push::<#ty>(#ident)
+                                                    fields.push::<#ty>(#field_ident)
                                                 })),
                                                 diverge: None,
                                             }),
@@ -725,7 +736,7 @@ fn elim_ctor_idx(ctors: &[(Path, &Fields)]) -> ExprMatch {
                                     Expr::Lit(ExprLit {
                                         attrs: vec![],
                                         lit: Lit::Int(LitInt::new(
-                                            &index.to_string(),
+                                            &ctor_index.to_string(),
                                             Span::call_site(),
                                         )),
                                     }),
@@ -741,6 +752,7 @@ fn elim_ctor_idx(ctors: &[(Path, &Fields)]) -> ExprMatch {
     }
 }
 
+/// Build the `visit_deep` match that chains recursive field visitors.
 #[inline]
 fn visit(ctors: &[(Path, &Fields)], visit_fn: &Ident) -> ExprMatch {
     ExprMatch {
@@ -750,20 +762,20 @@ fn visit(ctors: &[(Path, &Fields)], visit_fn: &Ident) -> ExprMatch {
         brace_token: Brace::default(),
         arms: ctors
             .iter()
-            .map(|&(ref path, fields)| Arm {
+            .map(|&(ref path, ctor_fields)| Arm {
                 attrs: vec![],
-                pat: match *fields {
+                pat: match *ctor_fields {
                     Fields::Unit => Pat::Path(ExprPath {
                         attrs: vec![],
                         qself: None,
                         path: path.clone(),
                     }),
-                    Fields::Named(ref fields) => Pat::Struct(PatStruct {
+                    Fields::Named(ref named_fields) => Pat::Struct(PatStruct {
                         attrs: vec![],
                         qself: None,
                         path: path.clone(),
-                        brace_token: fields.brace_token,
-                        fields: fields
+                        brace_token: named_fields.brace_token,
+                        fields: named_fields
                             .named
                             .iter()
                             .enumerate()
@@ -782,12 +794,12 @@ fn visit(ctors: &[(Path, &Fields)], visit_fn: &Ident) -> ExprMatch {
                             .collect(),
                         rest: None,
                     }),
-                    Fields::Unnamed(ref fields) => Pat::TupleStruct(PatTupleStruct {
+                    Fields::Unnamed(ref unnamed_fields) => Pat::TupleStruct(PatTupleStruct {
                         attrs: vec![],
                         qself: None,
                         path: path.clone(),
-                        paren_token: fields.paren_token,
-                        elems: fields
+                        paren_token: unnamed_fields.paren_token,
+                        elems: unnamed_fields
                             .unnamed
                             .iter()
                             .enumerate()
@@ -806,10 +818,17 @@ fn visit(ctors: &[(Path, &Fields)], visit_fn: &Ident) -> ExprMatch {
                 guard: None,
                 fat_arrow_token: <Token![=>]>::default(),
                 body: {
-                    let iter = fields.iter().enumerate().fold(
+                    let iter = ctor_fields.iter().enumerate().fold(
                         Expr::Verbatim(quote! { ::core::iter::empty() }),
-                        |acc, (i, &Field { ref ident, .. })| {
-                            let ident = force_ident(ident.as_ref(), i);
+                        |acc,
+                         (
+                            i,
+                            &Field {
+                                ident: ref field_ident_opt,
+                                ..
+                            },
+                        )| {
+                            let field_ident = force_ident(field_ident_opt.as_ref(), i);
                             Expr::MethodCall(ExprMethodCall {
                                 attrs: vec![],
                                 receiver: Box::new(Expr::MethodCall(ExprMethodCall {
@@ -819,7 +838,7 @@ fn visit(ctors: &[(Path, &Fields)], visit_fn: &Ident) -> ExprMatch {
                                         qself: None,
                                         path: Path {
                                             leading_colon: None,
-                                            segments: iter::once(seg(ident)).collect(),
+                                            segments: iter::once(seg(field_ident)).collect(),
                                         },
                                     })),
                                     dot_token: <Token![.]>::default(),
@@ -846,6 +865,7 @@ fn visit(ctors: &[(Path, &Fields)], visit_fn: &Ident) -> ExprMatch {
     }
 }
 
+/// Wrap an identifier as a single-segment path.
 #[inline]
 fn path_of_id(ident: Ident) -> Path {
     Path {
@@ -854,16 +874,19 @@ fn path_of_id(ident: Ident) -> Path {
     }
 }
 
+/// Build a single-segment path from a string.
 #[inline]
 fn path_of_str(str: &str) -> Path {
     path_of_id(id(str))
 }
 
+/// Build an identifier at the call site.
 #[inline]
 fn id(str: &str) -> Ident {
     Ident::new(str, Span::call_site())
 }
 
+/// Build a path segment without generic arguments.
 #[inline]
 fn seg(ident: Ident) -> PathSegment {
     PathSegment {
@@ -872,6 +895,7 @@ fn seg(ident: Ident) -> PathSegment {
     }
 }
 
+/// Return a field identifier or synthesize one for tuple fields.
 #[inline]
 fn force_ident(maybe_id: Option<&Ident>, index: usize) -> Ident {
     maybe_id.map_or_else(|| id(&format!("_{index}")), Clone::clone)

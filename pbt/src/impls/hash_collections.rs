@@ -58,8 +58,8 @@ impl<T: Pbt + Hash, S: 'static + BuildHasher + Clone + Default> Pbt for HashSet<
             ],
             elimination_rule: ElimFn::new(|mut b| {
                 let mut fields = TermsOfVariousTypes::new();
-                let ctor_idx = if let Some(t) = b.iter().next() {
-                    let t = t.clone();
+                let ctor_idx = if let Some(element) = b.iter().next() {
+                    let t = element.clone();
                     let _: bool = b.remove(&t);
                     let () = fields.push::<T>(t);
                     let () = fields.push::<Self>(b);
@@ -133,8 +133,8 @@ impl<K: Pbt + Hash, V: Pbt, S: 'static + BuildHasher + Clone + Default> Pbt for 
             ],
             elimination_rule: ElimFn::new(|mut b| {
                 let mut fields = TermsOfVariousTypes::new();
-                let ctor_idx = if let Some(k) = b.keys().next() {
-                    let k = k.clone();
+                let ctor_idx = if let Some(key) = b.keys().next() {
+                    let k = key.clone();
                     #[expect(
                         clippy::expect_used,
                         reason = "logically impossible with a mutable reference"

@@ -152,10 +152,10 @@ impl Pbt for CString {
                     Ok(fields)
                 },
                 call: CtorFn::new(|terms| {
-                    let bytes: Vec<NonZero<u8>> = terms.must_pop();
+                    let nonzero_bytes: Vec<NonZero<u8>> = terms.must_pop();
                     // SAFETY: `NonZero<_>` is `repr(transparent)`.
                     let bytes: Vec<u8> =
-                        unsafe { mem::transmute::<Vec<NonZero<u8>>, Vec<u8>>(bytes) };
+                        unsafe { mem::transmute::<Vec<NonZero<u8>>, Vec<u8>>(nonzero_bytes) };
                     #[expect(clippy::expect_used, reason = "logically impossible")]
                     Some(CString::new(bytes).expect("internal `pbt` error: C-string error"))
                 }),
@@ -165,8 +165,8 @@ impl Pbt for CString {
                 let mut fields = TermsOfVariousTypes::new();
                 let bytes = s.into_bytes();
                 // SAFETY: `CString::into_bytes` never returns interior zero bytes.
-                let bytes = unsafe { mem::transmute::<Vec<u8>, Vec<NonZero<u8>>>(bytes) };
-                let () = fields.push(bytes);
+                let nonzero_bytes = unsafe { mem::transmute::<Vec<u8>, Vec<NonZero<u8>>>(bytes) };
+                let () = fields.push(nonzero_bytes);
                 Decomposition {
                     ctor_idx: const { NonZero::new(1).unwrap() },
                     fields,

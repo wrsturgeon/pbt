@@ -332,12 +332,12 @@ pub fn try_arbitrary<T: Pbt>(prng: &mut WyRand, size: Size) -> Result<T, MaybeUn
                 // which holds as long as no lifetime subtyping takes place,
                 // and since only `'static` types have IDs and we can't generate functions,
                 // it holds here.
-                let result = unsafe { ctor.unerase::<T>() }(&mut fields);
+                let maybe_result = unsafe { ctor.unerase::<T>() }(&mut fields);
                 debug_assert!(
                     fields.is_empty(),
                     "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
                 );
-                if let Some(result) = result {
+                if let Some(result) = maybe_result {
                     return Ok(result);
                 }
 
@@ -351,10 +351,13 @@ pub fn try_arbitrary<T: Pbt>(prng: &mut WyRand, size: Size) -> Result<T, MaybeUn
                 canary = next_canary;
             }
         }
-        PrecomputedTypeFormer::Literal { generate, .. } => {
+        PrecomputedTypeFormer::Literal {
+            generate: erased_generate,
+            ..
+        } => {
             // SAFETY: Undoing an earlier transmute.
             let generate = unsafe {
-                mem::transmute::<fn(&mut WyRand) -> Erased, fn(&mut WyRand) -> T>(generate)
+                mem::transmute::<fn(&mut WyRand) -> Erased, fn(&mut WyRand) -> T>(erased_generate)
             };
             // All literals are instantiable.
             Ok(generate(prng))
@@ -372,14 +375,14 @@ pub fn check_eta_expansion<T: Pbt>() {
     let info = info::<T>();
     let PrecomputedTypeFormer::Algebraic(AlgebraicTypeFormer {
         ref all_constructors,
-        eliminator,
+        eliminator: erased_eliminator,
         ..
     }) = info.type_former
     else {
         return;
     };
     // SAFETY: Undoing an earlier transmute.
-    let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(eliminator) };
+    let eliminator = unsafe { mem::transmute::<ElimFn<Erased>, ElimFn<T>>(erased_eliminator) };
     let () = search::assert_eq(32, |orig: &T| {
         let Decomposition {
             ctor_idx,
@@ -413,10 +416,10 @@ pub fn visit_self<V: Pbt, S: Pbt>(s: &S) -> impl Iterator<Item = V> {
 #[inline]
 pub fn visit_self_opt<V: Pbt, S: Pbt>(s: &S) -> Option<&V> {
     (type_of::<V>() == type_of::<S>()).then(|| {
-        let s: *const S = ptr::from_ref(s);
-        let s: *const V = s.cast();
+        let source_ptr: *const S = ptr::from_ref(s);
+        let target_ptr: *const V = source_ptr.cast();
         // SAFETY: `S` and `V` are the same type.
-        unsafe { &*s }
+        unsafe { &*target_ptr }
     })
 }
 
@@ -424,10 +427,10 @@ pub fn visit_self_opt<V: Pbt, S: Pbt>(s: &S) -> Option<&V> {
 #[inline]
 pub fn visit_self_owned<V: Pbt, S: Pbt>(s: S) -> Option<V> {
     (type_of::<V>() == type_of::<S>()).then(|| {
-        let ptr: *const S = ptr::from_ref(&s);
-        let ptr: *const V = ptr.cast();
+        let source_ptr: *const S = ptr::from_ref(&s);
+        let target_ptr: *const V = source_ptr.cast();
         // SAFETY: `S` and `V` are the same type.
-        let v: V = unsafe { ptr::read(ptr) };
+        let v: V = unsafe { ptr::read(target_ptr) };
         #[expect(clippy::mem_forget, reason = "intentional")]
         let () = mem::forget(s);
         v
