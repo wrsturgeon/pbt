@@ -4,8 +4,8 @@
 use {
     crate::{
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
-            push_arbitrary_field, visit_self,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt,
+            TypeFormer, arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -177,11 +177,9 @@ impl<T: Pbt, P: Predicate<T>> Pbt for Sigma<T, P> {
                 }
             }),
             introduction_rules: vec![IntroductionRule {
-                arbitrary_fields: |prng, mut sizes| {
-                    let mut fields = TermsOfVariousTypes::new();
-                    push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
-                    Ok(fields)
-                },
+                arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                    Ok(Self::new(arbitrary_field::<T>(&mut sizes, prng)?).ok())
+                }),
                 call: CtorFn {
                     call: |terms| Self::new(terms.must_pop()).ok(),
                 },

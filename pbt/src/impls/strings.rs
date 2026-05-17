@@ -4,8 +4,8 @@ use {
     crate::{
         multiset::Multiset,
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Literal, Pbt, TypeFormer,
-            push_arbitrary_field, visit_self, visit_self_opt,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Literal, Pbt,
+            TypeFormer, arbitrary_field, visit_self, visit_self_opt,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -77,17 +77,17 @@ impl Pbt for String {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
+                    arbitrary: ArbitraryFn::new(|_, _| Ok(Some(String::new()))),
                     call: CtorFn::new(|_| Some(String::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
-                    arbitrary_fields: |prng, mut sizes| {
-                        let mut fields = TermsOfVariousTypes::new();
-                        push_arbitrary_field::<char>(&mut fields, &mut sizes, prng)?;
-                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
-                        Ok(fields)
-                    },
+                    arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                        let head = arbitrary_field::<char>(&mut sizes, prng)?;
+                        let mut acc = arbitrary_field::<Self>(&mut sizes, prng)?;
+                        acc.push(head);
+                        Ok(Some(acc))
+                    }),
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.push(terms.must_pop::<char>()); // head
@@ -152,11 +152,16 @@ impl Pbt for CString {
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
-                arbitrary_fields: |prng, mut sizes| {
-                    let mut fields = TermsOfVariousTypes::new();
-                    push_arbitrary_field::<Vec<NonZero<u8>>>(&mut fields, &mut sizes, prng)?;
-                    Ok(fields)
-                },
+                arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                    let nonzero_bytes = arbitrary_field::<Vec<NonZero<u8>>>(&mut sizes, prng)?;
+                    // SAFETY: `NonZero<_>` is `repr(transparent)`.
+                    let bytes: Vec<u8> =
+                        unsafe { mem::transmute::<Vec<NonZero<u8>>, Vec<u8>>(nonzero_bytes) };
+                    #[expect(clippy::expect_used, reason = "logically impossible")]
+                    Ok(Some(
+                        CString::new(bytes).expect("internal `pbt` error: C-string error"),
+                    ))
+                }),
                 call: CtorFn::new(|terms| {
                     let nonzero_bytes: Vec<NonZero<u8>> = terms.must_pop();
                     // SAFETY: `NonZero<_>` is `repr(transparent)`.

@@ -3,8 +3,8 @@
 use {
     crate::{
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
-            push_arbitrary_field, visit_self,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt,
+            TypeFormer, arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -39,12 +39,11 @@ impl<Lhs: Pbt, Rhs: Pbt> Pbt for (Lhs, Rhs) {
                 }
             }),
             introduction_rules: vec![IntroductionRule {
-                arbitrary_fields: |prng, mut sizes| {
-                    let mut fields = TermsOfVariousTypes::new();
-                    push_arbitrary_field::<Lhs>(&mut fields, &mut sizes, prng)?;
-                    push_arbitrary_field::<Rhs>(&mut fields, &mut sizes, prng)?;
-                    Ok(fields)
-                },
+                arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                    let lhs = arbitrary_field::<Lhs>(&mut sizes, prng)?;
+                    let rhs = arbitrary_field::<Rhs>(&mut sizes, prng)?;
+                    Ok(Some((lhs, rhs)))
+                }),
                 call: CtorFn::new(|fields| {
                     let rhs: Rhs = fields.must_pop();
                     let lhs: Lhs = fields.must_pop();

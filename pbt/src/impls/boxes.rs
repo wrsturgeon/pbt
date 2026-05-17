@@ -3,8 +3,8 @@
 use {
     crate::{
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
-            push_arbitrary_field, visit_self,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt,
+            TypeFormer, arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -29,11 +29,9 @@ impl<T: Pbt> Pbt for Box<T> {
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
-                arbitrary_fields: |prng, mut sizes| {
-                    let mut fields = TermsOfVariousTypes::new();
-                    push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
-                    Ok(fields)
-                },
+                arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                    Ok(Some(Box::new(arbitrary_field::<T>(&mut sizes, prng)?)))
+                }),
                 call: CtorFn::new(|terms| Some(Box::new(terms.must_pop()))),
                 immediate_dependencies: iter::once(type_of::<T>()).collect(),
             }],

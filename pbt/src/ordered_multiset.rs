@@ -2,8 +2,8 @@ use {
     crate::{
         StronglyConnectedComponents,
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
-            push_arbitrary_field, visit_self,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt,
+            TypeFormer, arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
     },
@@ -178,11 +178,10 @@ impl<T: Ord + Pbt> Pbt for Multiset<T> {
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
-                arbitrary_fields: |prng, mut sizes| {
-                    let mut fields = TermsOfVariousTypes::new();
-                    push_arbitrary_field::<Vec<T>>(&mut fields, &mut sizes, prng)?;
-                    Ok(fields)
-                },
+                arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                    let arbitrarily_ordered = arbitrary_field::<Vec<T>>(&mut sizes, prng)?;
+                    Ok(Some(arbitrarily_ordered.into_iter().collect()))
+                }),
                 call: CtorFn::new(|terms| {
                     let arbitrarily_ordered: Vec<T> = terms.must_pop();
                     Some(arbitrarily_ordered.into_iter().collect())

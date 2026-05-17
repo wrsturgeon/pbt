@@ -58,6 +58,26 @@ mod test {
 
     const N_CASES: usize = 1_000;
 
+    #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+    enum ShapedNever {}
+
+    #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+    enum ShapedPayload<T> {
+        Empty,
+        Bits(Vec<T>),
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+    enum ShapedTree {
+        Leaf,
+        Branch {
+            left: Box<Self>,
+            value: usize,
+            flags: Vec<bool>,
+            right: Box<Self>,
+        },
+    }
+
     #[test]
     fn instantiability_logic() {
         search::assert_eq(N_CASES, |pi: &PartiallyInstantiable| {
@@ -88,5 +108,54 @@ mod test {
     fn empty_enum_is_supported() {
         let maybe_witness: Option<Uninhabited> = search::witness(N_CASES, |_| true);
         assert_eq!(maybe_witness, None);
+    }
+
+    #[test]
+    fn shaped_empty_enums_have_vacuous_eliminators() {
+        let absurd: fn(&ShapedNever) -> usize = |never| never.elim(());
+        let _ = absurd;
+    }
+
+    #[test]
+    fn shaped_generic_fields_do_not_need_recursion() {
+        let empty = <ShapedPayload<bool> as ShapedPayloadShaped>::empty(ShapedPayloadEmpty);
+        let empty_len = empty.elim(
+            (),
+            |(), ShapedPayloadEmpty| 0_usize,
+            |(), ShapedPayloadBits(bits)| bits.len(),
+        );
+        let payload =
+            <ShapedPayload<bool> as ShapedPayloadShaped>::bits(ShapedPayloadBits(vec![true]));
+        let len = payload.elim(
+            (),
+            |(), ShapedPayloadEmpty| 0_usize,
+            |(), ShapedPayloadBits(bits)| bits.len(),
+        );
+
+        assert_eq!(empty_len, 0);
+        assert_eq!(len, 1);
+    }
+
+    #[test]
+    fn shaped_macro_generates_field_wise_eliminator() {
+        let tree = <ShapedTree as ShapedTreeShaped>::branch(ShapedTreeBranch {
+            left: Box::new(ShapedTree::Leaf),
+            value: 7,
+            flags: vec![true, false],
+            right: Box::new(ShapedTree::Leaf),
+        });
+
+        let selected = tree.elim(
+            5,
+            |_, ShapedTreeLeaf| 0,
+            |state, branch| {
+                assert!(matches!(**branch.left, ShapedTree::Leaf));
+                assert!(matches!(**branch.right, ShapedTree::Leaf));
+                assert_eq!(branch.flags.as_slice(), &[true, false]);
+                state + *branch.value
+            },
+        );
+
+        assert_eq!(selected, 12);
     }
 }

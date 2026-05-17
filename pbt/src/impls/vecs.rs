@@ -4,8 +4,8 @@ use {
     crate::{
         multiset::Multiset,
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
-            push_arbitrary_field, visit_self, visit_self_opt,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt,
+            TypeFormer, arbitrary_field, visit_self, visit_self_opt,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -31,17 +31,17 @@ impl<T: Pbt> Pbt for Vec<T> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
+                    arbitrary: ArbitraryFn::new(|_, _| Ok(Some(vec![]))),
                     call: CtorFn::new(|_| Some(vec![])),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
-                    arbitrary_fields: |prng, mut sizes| {
-                        let mut fields = TermsOfVariousTypes::new();
-                        push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
-                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
-                        Ok(fields)
-                    },
+                    arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                        let head = arbitrary_field::<T>(&mut sizes, prng)?;
+                        let mut acc = arbitrary_field::<Self>(&mut sizes, prng)?;
+                        acc.push(head);
+                        Ok(Some(acc))
+                    }),
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.push(terms.must_pop::<T>()); // head

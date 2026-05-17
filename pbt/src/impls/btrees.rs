@@ -4,8 +4,8 @@ use {
     crate::{
         multiset::Multiset,
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
-            push_arbitrary_field, visit_self, visit_self_opt,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt,
+            TypeFormer, arbitrary_field, visit_self, visit_self_opt,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -31,17 +31,17 @@ impl<T: Pbt + Ord> Pbt for BTreeSet<T> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
+                    arbitrary: ArbitraryFn::new(|_, _| Ok(Some(BTreeSet::new()))),
                     call: CtorFn::new(|_| Some(BTreeSet::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
-                    arbitrary_fields: |prng, mut sizes| {
-                        let mut fields = TermsOfVariousTypes::new();
-                        push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
-                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
-                        Ok(fields)
-                    },
+                    arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                        let head = arbitrary_field::<T>(&mut sizes, prng)?;
+                        let mut acc = arbitrary_field::<Self>(&mut sizes, prng)?;
+                        let _: bool = acc.insert(head);
+                        Ok(Some(acc))
+                    }),
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>(); // tail
                         acc.insert(terms.must_pop::<T>()); // head
@@ -105,18 +105,18 @@ impl<K: Pbt + Ord, V: Pbt> Pbt for BTreeMap<K, V> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
+                    arbitrary: ArbitraryFn::new(|_, _| Ok(Some(BTreeMap::new()))),
                     call: CtorFn::new(|_| Some(BTreeMap::new())),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
-                    arbitrary_fields: |prng, mut sizes| {
-                        let mut fields = TermsOfVariousTypes::new();
-                        push_arbitrary_field::<K>(&mut fields, &mut sizes, prng)?;
-                        push_arbitrary_field::<V>(&mut fields, &mut sizes, prng)?;
-                        push_arbitrary_field::<Self>(&mut fields, &mut sizes, prng)?;
-                        Ok(fields)
-                    },
+                    arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                        let key = arbitrary_field::<K>(&mut sizes, prng)?;
+                        let value = arbitrary_field::<V>(&mut sizes, prng)?;
+                        let mut acc = arbitrary_field::<Self>(&mut sizes, prng)?;
+                        let _: Option<V> = acc.insert(key, value);
+                        Ok(Some(acc))
+                    }),
                     call: CtorFn::new(|terms| {
                         let mut acc = terms.must_pop::<Self>();
                         acc.insert(terms.must_pop::<K>(), terms.must_pop::<V>());

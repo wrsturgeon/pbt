@@ -4,7 +4,8 @@ use {
     crate::{
         multiset::Multiset,
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer, visit_self,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt,
+            TypeFormer, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -29,7 +30,7 @@ impl<T: Pbt> Pbt for PhantomData<T> {
     fn type_former() -> TypeFormer<Self> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![IntroductionRule {
-                arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
+                arbitrary: ArbitraryFn::new(|_, _| Ok(Some(PhantomData))),
                 call: CtorFn::new(|_terms| Some(PhantomData)),
                 immediate_dependencies: Multiset::new(),
             }],

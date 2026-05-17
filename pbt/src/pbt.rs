@@ -15,6 +15,14 @@ use {
     wyrand::WyRand,
 };
 
+/// Wrapper around a constructor function that generates a value directly.
+#[non_exhaustive]
+#[derive(Clone, Copy, Hash)]
+pub struct ArbitraryFn<T> {
+    /// Generate one application of this constructor directly.
+    pub call: for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<Option<T>, MaybeUninstantiable>,
+}
+
 /// Wrapper around a constructor function that consumes erased field buckets.
 #[non_exhaustive]
 #[derive(Clone, Copy, Hash)]
@@ -28,10 +36,8 @@ pub struct CtorFn<T> {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Hash)]
 pub struct IndexedCtorFn<T> {
-    /// Generate precisely enough arbitrary fields
-    /// to immediately invoke this constructor.
-    pub arbitrary_fields:
-        for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<ErasedTermBuckets, MaybeUninstantiable>,
+    /// Generate this constructor directly, without erased field buckets.
+    pub arbitrary: ArbitraryFn<T>,
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
     /// 1-indexed constructor/variant index.
@@ -112,10 +118,8 @@ pub struct Decomposition {
 #[derive(Clone, Debug)]
 #[expect(clippy::exhaustive_structs, reason = "constructed in macros")]
 pub struct IntroductionRule<T> {
-    /// Generate precisely enough arbitrary fields
-    /// to immediately invoke this constructor.
-    pub arbitrary_fields:
-        for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<ErasedTermBuckets, MaybeUninstantiable>,
+    /// Generate this constructor directly, without erased field buckets.
+    pub arbitrary: ArbitraryFn<T>,
     /// Function to invoke this constructor on a collection of fields.
     pub call: CtorFn<T>,
     /// The multiset of types necessary to call this constructor.
@@ -152,6 +156,24 @@ pub trait Pbt: 'static + Clone + fmt::Debug + Eq {
         V: Pbt;
 }
 
+impl<T> ArbitraryFn<T> {
+    /// Erase this direct constructor generator for storage in the global registry.
+    #[inline]
+    #[must_use]
+    pub const fn erase(self) -> ArbitraryFn<Erased> {
+        // SAFETY: Same size, still a function pointer with the same arguments.
+        unsafe { mem::transmute::<ArbitraryFn<T>, ArbitraryFn<Erased>>(self) }
+    }
+
+    /// Wrap a direct constructor generator.
+    #[inline]
+    pub const fn new(
+        call: for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<Option<T>, MaybeUninstantiable>,
+    ) -> Self {
+        Self { call }
+    }
+}
+
 impl<T> CtorFn<T> {
     /// Erase this constructor function for storage in the global registry.
     #[inline]
@@ -165,6 +187,20 @@ impl<T> CtorFn<T> {
     #[inline]
     pub const fn new(call: for<'terms> fn(&'terms mut ErasedTermBuckets) -> Option<T>) -> Self {
         Self { call }
+    }
+}
+
+impl ArbitraryFn<Erased> {
+    /// Interpret this type-erased generator as a generator for a specific type.
+    /// # Safety
+    /// You'd better be damn well sure that you're specifying the right type.
+    #[inline]
+    #[must_use]
+    pub const unsafe fn unerase<T>(
+        self,
+    ) -> for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<Option<T>, MaybeUninstantiable> {
+        // SAFETY: Same size, still a function pointer with the same arguments.
+        unsafe { mem::transmute::<ArbitraryFn<Erased>, ArbitraryFn<T>>(self) }.call
     }
 }
 
@@ -182,10 +218,26 @@ impl CtorFn<Erased> {
     }
 }
 
+impl<T> fmt::Debug for ArbitraryFn<T> {
+    #[inline]
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str("(|prng, sizes| ...)")
+    }
+}
+
 impl<T> fmt::Debug for CtorFn<T> {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str("(|terms| ...)")
+    }
+}
+
+impl<T> Deref for ArbitraryFn<T> {
+    type Target = for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<Option<T>, MaybeUninstantiable>;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.call
     }
 }
 
@@ -267,29 +319,18 @@ where
 }
 
 #[inline]
-/// Generate and push one constructor field.
+/// Generate one constructor field.
 /// # Errors
 /// Returns [`MaybeUninstantiable::Retry`] or
 /// [`MaybeUninstantiable::Uninstantiable`] from field generation after
 /// draining unused field-size partitions for the abandoned constructor attempt.
-pub fn push_arbitrary_field<T>(
-    fields: &mut ErasedTermBuckets,
-    sizes: &mut Sizes,
-    prng: &mut WyRand,
-) -> Result<(), MaybeUninstantiable>
+pub fn arbitrary_field<T>(sizes: &mut Sizes, prng: &mut WyRand) -> Result<T, MaybeUninstantiable>
 where
     T: Pbt,
 {
-    match sizes.try_arbitrary::<T>(prng) {
-        Ok(t) => {
-            fields.push(t);
-            Ok(())
-        }
-        Err(error) => {
-            sizes.discard_remaining();
-            Err(error)
-        }
-    }
+    sizes
+        .try_arbitrary::<T>(prng)
+        .inspect_err(|_| sizes.discard_remaining())
 }
 
 #[inline]
@@ -338,17 +379,11 @@ where
                     (unsafe { potential_leaves.get_unchecked(i) }, false)
                 };
                 let sizes = size.partition_into(ctor.n_big, prng, minus_one);
-                let mut fields = (ctor.arbitrary_fields)(prng, sizes)?;
                 // SAFETY: By the soundness of the type-`TypeId` relation,
                 // which holds as long as no lifetime subtyping takes place,
                 // and since only `'static` types have IDs and we can't generate functions,
                 // it holds here.
-                let maybe_result = unsafe { ctor.unerase::<T>() }(&mut fields);
-                debug_assert!(
-                    fields.is_empty(),
-                    "internal `pbt` error: leftover terms after applying a constructor: {fields:#?}",
-                );
-                if let Some(result) = maybe_result {
+                if let Some(result) = unsafe { ctor.arbitrary.unerase::<T>() }(prng, sizes)? {
                     return Ok(result);
                 }
 
@@ -435,7 +470,7 @@ where
 pub fn visit_self_opt<V, S>(s: &S) -> Option<&V>
 where
     V: Pbt,
-    S: Pbt,
+    S: 'static,
 {
     (type_of::<V>() == type_of::<S>()).then(|| {
         let source_ptr: *const S = ptr::from_ref(s);

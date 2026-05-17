@@ -4,8 +4,8 @@ use {
     crate::{
         multiset::Multiset,
         pbt::{
-            Algebraic, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt, TypeFormer,
-            push_arbitrary_field, visit_self,
+            Algebraic, ArbitraryFn, CtorFn, Decomposition, ElimFn, IntroductionRule, Pbt,
+            TypeFormer, arbitrary_field, visit_self,
         },
         reflection::{TermsOfVariousTypes, Type, register, type_of},
         scc::StronglyConnectedComponents,
@@ -31,16 +31,14 @@ impl<T: Pbt> Pbt for Option<T> {
         TypeFormer::Algebraic(Algebraic {
             introduction_rules: vec![
                 IntroductionRule {
-                    arbitrary_fields: |_, _| Ok(TermsOfVariousTypes::new()),
+                    arbitrary: ArbitraryFn::new(|_, _| Ok(Some(None))),
                     call: CtorFn::new(|_| Some(None)),
                     immediate_dependencies: Multiset::new(),
                 },
                 IntroductionRule {
-                    arbitrary_fields: |prng, mut sizes| {
-                        let mut fields = TermsOfVariousTypes::new();
-                        push_arbitrary_field::<T>(&mut fields, &mut sizes, prng)?;
-                        Ok(fields)
-                    },
+                    arbitrary: ArbitraryFn::new(|prng, mut sizes| {
+                        Ok(Some(Some(arbitrary_field::<T>(&mut sizes, prng)?)))
+                    }),
                     call: CtorFn::new(|terms| Some(Some(terms.must_pop()))),
                     immediate_dependencies: iter::once(type_of::<T>()).collect(),
                 },

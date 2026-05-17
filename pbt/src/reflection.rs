@@ -4,12 +4,11 @@ use {
         cache::{self, CachedTerm},
         multiset::Multiset,
         pbt::{
-            Algebraic, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal,
-            MaybeUninstantiable, Pbt, TypeFormer, deserialize_cached_term_into_buckets,
+            Algebraic, ArbitraryFn, CtorFn, ElimFn, IndexedCtorFn, IntroductionRule, Literal, Pbt,
+            TypeFormer, deserialize_cached_term_into_buckets,
         },
         scc::{self, StronglyConnectedComponents},
         shrink::shrink,
-        size::Sizes,
     },
     ahash::RandomState,
     alloc::{
@@ -163,10 +162,8 @@ struct ComputedTypeRegistration {
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub struct CtorInfo {
-    /// Generate precisely enough arbitrary fields
-    /// to immediately invoke this constructor.
-    pub arbitrary_fields:
-        for<'prng> fn(&'prng mut WyRand, Sizes) -> Result<TermsOfVariousTypes, MaybeUninstantiable>,
+    /// Generate this constructor directly, without erased field buckets.
+    pub arbitrary: ArbitraryFn<Erased>,
     /// The number of "big" types: types that either
     /// are inductive themselves or contain a big type.
     pub cached_n_big: OnceLock<usize>,
@@ -239,7 +236,7 @@ impl AlgebraicTypeFormer {
                 .iter()
                 .filter(|&&(_, ref c)| c.is_guaranteed_leaf())
                 .map(|&(call, ref c)| IndexedCtorFn {
-                    arbitrary_fields: c.constructor.arbitrary_fields,
+                    arbitrary: c.constructor.arbitrary,
                     call,
                     index: c.constructor.index,
                     n_big: c.constructor.n_big(),
@@ -259,7 +256,7 @@ impl AlgebraicTypeFormer {
                 .iter()
                 .filter(|&&(_, ref c)| c.is_guaranteed_loop())
                 .map(|&(call, ref c)| IndexedCtorFn {
-                    arbitrary_fields: c.constructor.arbitrary_fields,
+                    arbitrary: c.constructor.arbitrary,
                     call,
                     index: c.constructor.index,
                     n_big: c.constructor.n_big(),
@@ -321,7 +318,7 @@ impl AlgebraicTypeFormer {
                 .iter()
                 .filter(|&&(_, ref c)| c.is_potential_leaf())
                 .map(|&(call, ref c)| IndexedCtorFn {
-                    arbitrary_fields: c.constructor.arbitrary_fields,
+                    arbitrary: c.constructor.arbitrary,
                     call,
                     index: c.constructor.index,
                     n_big: c.constructor.n_big(),
@@ -341,7 +338,7 @@ impl AlgebraicTypeFormer {
                 .iter()
                 .filter(|&&(_, ref c)| c.is_potential_loop())
                 .map(|&(call, ref c)| IndexedCtorFn {
-                    arbitrary_fields: c.constructor.arbitrary_fields,
+                    arbitrary: c.constructor.arbitrary,
                     call,
                     index: c.constructor.index,
                     n_big: c.constructor.n_big(),
@@ -1105,7 +1102,7 @@ where
     for (
         i,
         IntroductionRule {
-            arbitrary_fields,
+            arbitrary,
             call,
             immediate_dependencies,
         },
@@ -1137,7 +1134,7 @@ where
         ));
         let deps = CtorVertex {
             constructor: CtorInfo {
-                arbitrary_fields,
+                arbitrary: arbitrary.erase(),
                 cached_n_big: OnceLock::new(),
                 immediate: immediate_dependencies,
                 #[expect(clippy::expect_used, reason = "extremely unlikely")]
@@ -1303,7 +1300,7 @@ pub fn try_info_by_id(id: Type) -> Option<Arc<TypeInfo>> {
 #[must_use]
 pub fn type_of<T>() -> Type
 where
-    T: Pbt,
+    T: 'static,
 {
     Type(TypeId::of::<T>())
 }
