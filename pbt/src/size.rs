@@ -59,6 +59,13 @@ impl Size {
         self.size += 1;
     }
 
+    /// Construct an exact generation size.
+    #[inline]
+    #[must_use]
+    pub const fn new(size: usize) -> Self {
+        Self { size }
+    }
+
     /// Partition this size across the inductive fields of constructor `ctor_idx` of `T`.
     #[inline]
     pub fn partition<T>(self, ctor_idx: NonZero<usize>, prng: &mut WyRand) -> Sizes

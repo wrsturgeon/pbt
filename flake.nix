@@ -41,6 +41,23 @@
 
         craneDepArgs = { inherit src; };
         cargoArtifacts = crane.buildDepsOnly craneDepArgs;
+        gungraunRunnerSrc = pkgs.fetchCrate {
+          pname = "gungraun-runner";
+          version = "0.19.0";
+          hash = "sha256-OmfxB0jw95jURgwwSBgMnOBPQ9pPmFX0XC2/4KbJ5vQ=";
+        };
+        gungraunRunnerArtifacts = crane.buildDepsOnly {
+          pname = "gungraun-runner";
+          version = "0.19.0";
+          src = gungraunRunnerSrc;
+        };
+        gungraunRunner = crane.buildPackage {
+          pname = "gungraun-runner";
+          version = "0.19.0";
+          cargoArtifacts = gungraunRunnerArtifacts;
+          doCheck = false;
+          src = gungraunRunnerSrc;
+        };
         craneArgs = craneDepArgs // {
           inherit cargoArtifacts;
           cargoClippyExtraArgs = "--all-features --all-targets --workspace -- --deny warnings";
@@ -65,15 +82,21 @@
         devShells.default = crane.devShell {
           checks = self.checks.${system};
           inputsFrom = builtins.attrValues self.packages.${system};
-          packages = with pkgs; [
-            cargo-expand
-            cargo-outdated
-            valgrind
-          ];
+          packages =
+            with pkgs;
+            [
+              cargo-expand
+              cargo-outdated
+              valgrind
+            ]
+            ++ [ gungraunRunner ];
           MIRIFLAGS = "-Zmiri-disable-isolation";
         };
         formatter = treefmt.config.build.wrapper;
-        packages.default = craneArtifacts;
+        packages = {
+          default = craneArtifacts;
+          gungraun-runner = gungraunRunner;
+        };
       }
     );
 }

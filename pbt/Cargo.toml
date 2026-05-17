@@ -25,6 +25,15 @@ serde_json = "~1.0"
 wyrand = "~0.4"
 
 
+[dev-dependencies]
+gungraun = "~0.19"
+
+
+[[bench]]
+name = "generation"
+harness = false
+
+
 [features]
 generated-tests = ["pbt-macros/generated-tests"]
 malachite = ["dep:malachite"]
