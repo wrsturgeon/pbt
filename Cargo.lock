@@ -290,7 +290,7 @@ dependencies = [
 
 [[package]]
 name = "pbt"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "ahash",
  "getrandom",
@@ -308,7 +308,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-macros"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "heck",
  "proc-macro2",
@@ -318,7 +318,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-tests"
-version = "0.4.21"
+version = "0.4.22"
 dependencies = [
  "pbt",
  "pretty_assertions",

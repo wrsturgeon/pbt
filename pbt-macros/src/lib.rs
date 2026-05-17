@@ -969,6 +969,22 @@ fn well_known_shape_trait_bound(ident: &Ident) -> Option<TokenStream> {
     }
 }
 
+/// Shape type for a field whose internal shape is not known to `pbt`.
+fn opaque_shape_type(ty: &Type, slots: &mut Vec<ShapeSlot>) -> syn::Result<ShapeType> {
+    let slot = ShapeSlot {
+        concrete_ty: ty.clone(),
+        ident: shape_opaque_slot_ident(ty),
+        trait_bound: None,
+    };
+    let slot_ident = insert_shape_slot(slots, slot)?;
+    Ok(ShapeType { slot_ident })
+}
+
+/// Associated type slot name for an opaque field type.
+fn shape_opaque_slot_ident(ty: &Type) -> Ident {
+    format_ident_from_str(&type_fragment(ty))
+}
+
 /// Associated type slot name for a field type.
 fn shape_type_slot_ident(ident: &Ident, arg_slots: &[Ident]) -> Ident {
     let mut fragment = ident_fragment(ident).to_upper_camel_case();
@@ -1015,10 +1031,7 @@ fn shape_type_for_type(
     };
 
     if path_type.qself.is_some() {
-        return Err(syn::Error::new_spanned(
-            ty,
-            "shape generation does not support qualified self types in field paths yet",
-        ));
+        return opaque_shape_type(ty, slots);
     }
 
     let Some((last, rest)) = path_type.path.segments.iter().next_back().map(|last| {
@@ -1039,6 +1052,12 @@ fn shape_type_for_type(
         ));
     }
 
+    let is_generic = generic_names.contains(&last.ident.to_string());
+    let well_known_trait = well_known_shape_trait_bound(&last.ident);
+    if !is_generic && well_known_trait.is_none() {
+        return opaque_shape_type(ty, slots);
+    }
+
     for segment in rest {
         if !matches!(segment.arguments, PathArguments::None) {
             return Err(syn::Error::new_spanned(
@@ -1054,20 +1073,14 @@ fn shape_type_for_type(
         .map(|shape| shape.slot_ident.clone())
         .collect::<Vec<_>>();
     let ident = shape_type_slot_ident(&last.ident, &arg_slots);
-    let trait_bound = if generic_names.contains(&last.ident.to_string()) {
-        None
-    } else {
-        let trait_base = well_known_shape_trait_bound(&last.ident).unwrap_or_else(|| {
-            let trait_ident = shape_trait_ident(&last.ident);
-            quote!(#trait_ident)
-        });
-        Some(if arg_slots.is_empty() {
+    let trait_bound = well_known_trait.map(|trait_base| {
+        if arg_slots.is_empty() {
             quote!(#trait_base)
         } else {
             let trait_args = arg_slots.iter().map(|slot| quote!(Self::#slot));
             quote!(#trait_base<#(#trait_args),*>)
-        })
-    };
+        }
+    });
     let slot = ShapeSlot {
         concrete_ty: ty.clone(),
         ident,
@@ -1124,6 +1137,39 @@ fn is_direct_self(ty: &Type) -> bool {
 /// Stable string fragment for an identifier.
 fn ident_fragment(ident: &Ident) -> String {
     ident.to_string().trim_start_matches("r#").to_owned()
+}
+
+/// Stable string fragment for an arbitrary type.
+fn type_fragment(ty: &Type) -> String {
+    token_fragment(&ty.to_token_stream())
+}
+
+/// Stable string fragment for arbitrary Rust tokens.
+fn token_fragment(tokens: &TokenStream) -> String {
+    let mut fragment = String::new();
+    let mut upper_next = true;
+
+    for character in tokens.to_string().chars() {
+        if !character.is_ascii_alphanumeric() {
+            upper_next = true;
+            continue;
+        }
+        if fragment.is_empty() && character.is_ascii_digit() {
+            fragment.push_str("Type");
+        }
+        if upper_next {
+            fragment.push(character.to_ascii_uppercase());
+            upper_next = false;
+        } else {
+            fragment.push(character);
+        }
+    }
+
+    if fragment.is_empty() {
+        String::from("Type")
+    } else {
+        fragment
+    }
 }
 
 /// Create an identifier from a string.

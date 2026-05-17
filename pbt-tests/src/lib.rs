@@ -68,6 +68,33 @@ mod test {
     }
 
     #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+    struct ShapedGenericWrapper<T> {
+        item: T,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+    struct ShapedUsesGenericWrapper {
+        wrapper: ShapedGenericWrapper<bool>,
+    }
+
+    type ShapedPayloadAlias = ShapedPayload<bool>;
+
+    #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+    struct ShapedAliasField {
+        payload: ShapedPayloadAlias,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+    struct ShapedOpaqueForeignPath {
+        set: std::collections::BTreeSet<u8>,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+    struct ShapedProjection<T> {
+        item: <Vec<T> as IntoIterator>::Item,
+    }
+
+    #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
     enum ShapedTree {
         Leaf,
         Branch {
@@ -134,6 +161,45 @@ mod test {
 
         assert_eq!(empty_len, 0);
         assert_eq!(len, 1);
+    }
+
+    #[test]
+    fn shaped_custom_generic_field_paths_are_opaque_slots() {
+        let value = ShapedUsesGenericWrapper {
+            wrapper: ShapedGenericWrapper { item: true },
+        };
+        let selected = value.elim((), |(), ShapedUsesGenericWrapperShape { wrapper }| {
+            wrapper.item
+        });
+
+        assert!(selected);
+    }
+
+    #[test]
+    fn shaped_qualified_projection_fields_are_opaque_slots() {
+        let value = ShapedProjection::<u8> { item: 9 };
+        let selected = value.elim((), |(), ShapedProjectionShape { item }| *item);
+
+        assert_eq!(selected, 9);
+    }
+
+    #[test]
+    fn shaped_unknown_paths_are_opaque_slots() {
+        let alias = ShapedAliasField {
+            payload: ShapedPayload::Empty,
+        };
+        let is_empty = alias.elim((), |(), ShapedAliasFieldShape { payload }| {
+            matches!(*payload, ShapedPayload::Empty)
+        });
+        let foreign = ShapedOpaqueForeignPath {
+            set: [7_u8].into_iter().collect(),
+        };
+        let contains = foreign.elim((), |(), ShapedOpaqueForeignPathShape { set }| {
+            set.contains(&7)
+        });
+
+        assert!(is_empty);
+        assert!(contains);
     }
 
     #[test]
