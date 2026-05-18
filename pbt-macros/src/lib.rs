@@ -342,6 +342,10 @@ impl ShapeVariant {
         if matches!(self.fields.style, FieldStyle::Unit) {
             return quote! {
                 #[doc = #doc]
+                #[allow(
+                    clippy::exhaustive_structs,
+                    reason = "generated shape structs are public field-wise constructors"
+                )]
                 #vis struct #struct_ident;
             };
         }
@@ -349,12 +353,20 @@ impl ShapeVariant {
         if slots.is_empty() {
             return quote! {
                 #[doc = #doc]
+                #[allow(
+                    clippy::exhaustive_structs,
+                    reason = "generated shape structs are public field-wise constructors"
+                )]
                 #vis struct #struct_ident #fields
             };
         }
 
         quote! {
             #[doc = #doc]
+            #[allow(
+                clippy::exhaustive_structs,
+                reason = "generated shape structs are public field-wise constructors"
+            )]
             #vis struct #struct_ident<#(#slots),*> #fields
         }
     }
@@ -751,6 +763,8 @@ fn shaped_support(
     let support = analyze_shape(ident, generics, data)?;
     let trait_ident = shape_trait_ident(ident);
     let trait_doc = format!("Field-wise shape interface for `{ident}` values.");
+    let elim_doc =
+        format!("Eliminate a `{ident}` by dispatching to the callback for its current case.");
     let struct_defs = support
         .variants
         .iter()
@@ -808,6 +822,7 @@ fn shaped_support(
     let trait_items = if support.variants.is_empty() {
         quote! {
             #(#assoc_decls)*
+            #[doc = #elim_doc]
             fn elim<Output, State>(&self, state: State) -> Output;
         }
     } else {
@@ -815,6 +830,7 @@ fn shaped_support(
             #(#assoc_decls)*
             #(#constructor_decls)*
 
+            #[doc = #elim_doc]
             fn elim<Output, State #(, #callback_idents)*>(
                 &self,
                 state: State #(, #callback_params)*,
@@ -957,7 +973,6 @@ fn well_known_shape_trait_bound(ident: &Ident) -> Option<TokenStream> {
         "Option" => Some(quote!(::pbt::shape::OptionShaped)),
         "PhantomData" => Some(quote!(::pbt::shape::PhantomDataShaped)),
         "Rc" => Some(quote!(::pbt::shape::RcShaped)),
-        "String" => Some(quote!(::pbt::shape::StringShaped)),
         "u8" => Some(quote!(::pbt::shape::U8Shaped)),
         "u16" => Some(quote!(::pbt::shape::U16Shaped)),
         "u32" => Some(quote!(::pbt::shape::U32Shaped)),
