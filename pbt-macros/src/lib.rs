@@ -147,23 +147,20 @@ impl ShapeFields {
             .collect()
     }
 
-    /// Pattern match a borrowed source value.
-    fn source_ref_pattern(&self, path: TokenStream) -> TokenStream {
+    /// Pattern match an owned source value.
+    fn source_owned_pattern(&self, path: TokenStream) -> TokenStream {
         match self.style {
             FieldStyle::Unit => path,
             FieldStyle::Named => {
                 let fields = self.fields.iter().map(|field| {
                     let ident = field.ident.as_ref();
                     let binding = &field.binding;
-                    quote!(#ident: ref #binding)
+                    quote!(#ident: #binding)
                 });
                 quote!(#path { #(#fields),* })
             }
             FieldStyle::Unnamed => {
-                let bindings = self.fields.iter().map(|field| {
-                    let binding = &field.binding;
-                    quote!(ref #binding)
-                });
+                let bindings = self.fields.iter().map(|field| &field.binding);
                 quote!(#path( #(#bindings),* ))
             }
         }
@@ -230,17 +227,6 @@ impl ShapeVariant {
         self.applied_type(&args)
     }
 
-    /// The generated layer type with borrowed associated type fields.
-    fn borrowed_type(&self) -> TokenStream {
-        let args = self
-            .fields
-            .unique_slots()
-            .into_iter()
-            .map(|slot| quote!(&Self::#slot))
-            .collect::<Vec<_>>();
-        self.applied_type(&args)
-    }
-
     /// Constructor method declaration.
     fn constructor_decl(&self) -> TokenStream {
         let method_ident = &self.method_ident;
@@ -290,8 +276,8 @@ impl ShapeVariant {
     /// Eliminator callback bound.
     fn elim_callback_predicate(&self) -> TokenStream {
         let callback_ident = &self.callback_ident;
-        let borrowed_ty = self.borrowed_type();
-        quote!(#callback_ident: FnOnce(State, #borrowed_ty) -> Output)
+        let associated_ty = self.associated_type();
+        quote!(#callback_ident: FnOnce(State, #associated_ty) -> Output)
     }
 
     /// Match arm for an enum eliminator.
@@ -299,7 +285,7 @@ impl ShapeVariant {
         let method_ident = &self.method_ident;
         let source_ident = &self.source_ident;
         let source_path = quote!(#original_ident::#source_ident);
-        let pattern = self.fields.source_ref_pattern(source_path);
+        let pattern = self.fields.source_owned_pattern(source_path);
         let values = self.fields.fields.iter().map(|field| {
             let binding = &field.binding;
             quote!(#binding)
@@ -315,7 +301,7 @@ impl ShapeVariant {
     /// Body for a struct eliminator.
     fn elim_struct_body(&self, original_ident: &Ident) -> TokenStream {
         let method_ident = &self.method_ident;
-        let pattern = self.fields.source_ref_pattern(quote!(#original_ident));
+        let pattern = self.fields.source_owned_pattern(quote!(#original_ident));
         let values = self.fields.fields.iter().map(|field| {
             let binding = &field.binding;
             quote!(#binding)
@@ -326,7 +312,7 @@ impl ShapeVariant {
             .construct(quote!(#struct_ident), values.collect());
 
         quote! {
-            let #pattern = *self;
+            let #pattern = self;
             #method_ident(state, #layer)
         }
     }
@@ -584,7 +570,7 @@ fn shape_introduction_rules(support: &ShapeSupport) -> TokenStream {
     quote!(vec![#(#rules),*])
 }
 
-/// Pattern match a borrowed shaped layer and push owned clones into erased buckets.
+/// Pattern match an owned shaped layer and push its fields into erased buckets.
 fn shape_elim_callback_body(
     variant: &ShapeVariant,
     nonzero_ctor_index: NonZero<usize>,
@@ -595,7 +581,7 @@ fn shape_elim_callback_body(
     let pushes = variant.fields.fields.iter().rev().map(|field| {
         let binding = field.ident.as_ref().unwrap_or(&field.binding);
         let slot = &field.slot_ident;
-        quote!(let () = fields.push::<Self::#slot>((*#binding).clone());)
+        quote!(let () = fields.push::<Self::#slot>(#binding);)
     });
     quote! {
         |(), #pattern| {
@@ -681,7 +667,7 @@ fn shape_visit_callback(variant: &ShapeVariant) -> TokenStream {
         .iter()
         .fold(quote!(::core::iter::empty()), |acc, field| {
             let binding = field.ident.as_ref().unwrap_or(&field.binding);
-            quote!(::pbt::pbt::Pbt::visit_deep(#binding).chain(#acc))
+            quote!(::pbt::pbt::Pbt::visit_deep(&#binding).chain(#acc))
         });
     quote! {
         |(), #pattern| {
@@ -704,7 +690,7 @@ fn shape_visit_body(support: &ShapeSupport) -> TokenStream {
     let callbacks = support.variants.iter().map(shape_visit_callback);
     quote! {
         ::pbt::pbt::visit_self_opt::<V, Self>(self).cloned().into_iter().chain({
-            self.elim((), #(#callbacks),*).into_iter()
+            self.clone().elim((), #(#callbacks),*).into_iter()
         })
     }
 }
@@ -805,7 +791,7 @@ fn shaped_support(
     } else if support.variants.is_empty() {
         quote! {
             let _ = state;
-            match *self {}
+            match self {}
         }
     } else {
         let arms = support
@@ -813,7 +799,7 @@ fn shaped_support(
             .iter()
             .map(|variant| variant.elim_enum_arm(ident));
         quote! {
-            match *self {
+            match self {
                 #(#arms),*
             }
         }
@@ -823,7 +809,7 @@ fn shaped_support(
         quote! {
             #(#assoc_decls)*
             #[doc = #elim_doc]
-            fn elim<Output, State>(&self, state: State) -> Output;
+            fn elim<Output, State>(self, state: State) -> Output;
         }
     } else {
         quote! {
@@ -832,7 +818,7 @@ fn shaped_support(
 
             #[doc = #elim_doc]
             fn elim<Output, State #(, #callback_idents)*>(
-                &self,
+                self,
                 state: State #(, #callback_params)*,
             ) -> Output
             where
@@ -847,7 +833,7 @@ fn shaped_support(
             #(#assoc_impls)*
 
             #[inline(always)]
-            fn elim<Output, State>(&self, state: State) -> Output {
+            fn elim<Output, State>(self, state: State) -> Output {
                 #elim_body
             }
         }
@@ -858,7 +844,7 @@ fn shaped_support(
 
             #[inline(always)]
             fn elim<Output, State #(, #callback_idents)*>(
-                &self,
+                self,
                 state: State #(, #callback_params)*,
             ) -> Output
             where

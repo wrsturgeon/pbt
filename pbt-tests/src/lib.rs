@@ -139,7 +139,7 @@ mod test {
 
     #[test]
     fn shaped_empty_enums_have_vacuous_eliminators() {
-        let absurd: fn(&ShapedNever) -> usize = |never| never.elim(());
+        let absurd: fn(&ShapedNever) -> usize = |never| never.clone().elim(());
         let _ = absurd;
     }
 
@@ -178,7 +178,7 @@ mod test {
     #[test]
     fn shaped_qualified_projection_fields_are_opaque_slots() {
         let value = ShapedProjection::<u8> { item: 9 };
-        let selected = value.elim((), |(), ShapedProjectionShape { item }| *item);
+        let selected = value.elim((), |(), ShapedProjectionShape { item }| item);
 
         assert_eq!(selected, 9);
     }
@@ -189,7 +189,7 @@ mod test {
             payload: ShapedPayload::Empty,
         };
         let is_empty = alias.elim((), |(), ShapedAliasFieldShape { payload }| {
-            matches!(*payload, ShapedPayload::Empty)
+            matches!(payload, ShapedPayload::Empty)
         });
         let foreign = ShapedOpaqueForeignPath {
             set: [7_u8].into_iter().collect(),
@@ -215,10 +215,10 @@ mod test {
             5,
             |_, ShapedTreeLeaf| 0,
             |state, branch| {
-                assert!(matches!(**branch.left, ShapedTree::Leaf));
-                assert!(matches!(**branch.right, ShapedTree::Leaf));
+                assert!(matches!(*branch.left, ShapedTree::Leaf));
+                assert!(matches!(*branch.right, ShapedTree::Leaf));
                 assert_eq!(branch.flags.as_slice(), &[true, false]);
-                state + *branch.value
+                state + branch.value
             },
         );
 
