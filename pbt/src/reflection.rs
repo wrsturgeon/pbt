@@ -19,7 +19,7 @@ use {
 ///
 /// The above realization also leads to the following insight:
 /// *strongly connected components define mutually inductive types.*
-pub static VERTICES: RwLock<HashMap<Type, AlgebraicDataType>> = RwLock::new(map());
+static VERTICES: RwLock<HashMap<Type, Arc<AlgebraicDataType>>> = RwLock::new(map());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -30,7 +30,8 @@ pub static VERTICES: RwLock<HashMap<Type, AlgebraicDataType>> = RwLock::new(map(
 /// first lift each type to its enclosing SCC, then test SCC reachability.
 /// This is especially nice since this quotient graph is a DAG by construction,
 /// so this reachability logic can safely assume the absence of cycles.
-pub static QUOTIENT: RwLock<UnionFind<Scc, Arc<SccQuotientVertex>>> = RwLock::new(UnionFind::new());
+#[expect(dead_code, reason = "TODO")]
+static QUOTIENT: RwLock<UnionFind<Scc, Arc<SccQuotientVertex>>> = RwLock::new(UnionFind::new());
 
 /// Transitive reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -40,7 +41,8 @@ pub static QUOTIENT: RwLock<UnionFind<Scc, Arc<SccQuotientVertex>>> = RwLock::ne
 /// This is useful when determining whether some variant is potentially inductive:
 /// if any of its fields can reach `Self`, then it can potentially be inductive,
 /// so we should consider it when we have plenty of size left to generate.
-pub static REACHABLE: RwLock<HashMap<Scc, HashSet<Scc>>> = RwLock::new(map());
+#[expect(dead_code, reason = "TODO")]
+static REACHABLE: RwLock<HashMap<Scc, Arc<HashSet<Scc>>>> = RwLock::new(map());
 
 /// This encodes the notion that "if we start generating a term of type A,
 /// then must unavoidably generate terms of type B, C, ... in the process."
@@ -48,13 +50,15 @@ pub static REACHABLE: RwLock<HashMap<Scc, HashSet<Scc>>> = RwLock::new(map());
 /// This is useful when determining whether some variant could be a leaf:
 /// if any of its fields unavoidably reach `Self`, then it can never be a leaf,
 /// so we should avoid it when we're running out of size remaining to generate.
-pub static UNAVOIDABLE: RwLock<HashMap<Type, HashSet<Type>>> = RwLock::new(map());
+#[expect(dead_code, reason = "TODO")]
+static UNAVOIDABLE: RwLock<HashMap<Type, Arc<HashSet<Type>>>> = RwLock::new(map());
 
 /// Runtime representation of the structure of an algebraic data type.
 ///
 /// A `struct` is a singleton degenerate case of an `enum`;
 /// viewed differently, an `enum` is a collection of `struct`s.
 #[non_exhaustive]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct AlgebraicDataType {
     /// The name of this type, as acquired by `core::any::type_name`.
     pub name: &'static str,
@@ -66,6 +70,7 @@ pub struct AlgebraicDataType {
 
 /// Type-level reflection: variants, field types, erased trait operations, etc.
 #[non_exhaustive]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Reflection {
     /// Each variant of this type, in source order.
     pub variants: Box<[Variant]>,
@@ -105,6 +110,7 @@ pub struct SccQuotientVertex {
 /// A `struct` is a singleton degenerate case of an `enum`;
 /// viewed differently, an `enum` is a collection of `struct`s.
 #[non_exhaustive]
+#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Variant {
     /// The types of each field in this variant.
     /// Order does not matter, but total count does.
@@ -134,34 +140,46 @@ impl AlgebraicDataType {
     }
 }
 
+/// Query reflection for the given type ID iff it is *immediately* available.
+///
+/// If the type graph is currently locked, no matter how briefly, this will fail.
+#[inline]
+pub fn get_immediate(ty: &Type) -> Option<Arc<AlgebraicDataType>> {
+    let map = VERTICES.try_read().ok()?;
+    let adt = map.get(ty)?;
+    Some(Arc::clone(adt))
+}
+
 /// Register the type `T` in the global type reflection graph.
 ///
 /// Note that this does *not* include `T` in any strongly connected components logic
 /// or any higher graph-theoretic operations. This merely registers the type for later use.
-///
-/// # Panics
-///
-/// If the reflection registry lock has been poisoned:
-/// i.e. if *another* process *already* panicked while holding the lock.
 #[inline]
+#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 #[expect(
-    clippy::expect_used,
-    clippy::panic,
+    clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn register<T>()
-where
+pub fn register<T>(
+    vertices: &mut HashMap<Type, Arc<AlgebraicDataType>>,
+    visited: &mut HashSet<Type>,
+) where
     T: Pbt,
 {
-    let mut vertices = VERTICES
-        .write()
-        .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned");
+    // If this type has already been registered, short-circuit:
     let ty = Type::new::<T>();
-    if !vertices.contains_key(&ty)
-        && vertices
-            .insert(ty, AlgebraicDataType::new::<T>(T::reflect()))
-            .is_some()
-    {
-        panic!("INTERNAL ERROR (`pbt`): TOCTOU despite `&mut` (some witchcraft going on)")
+    if vertices.contains_key(&ty) || !visited.insert(ty) {
+        return;
     }
+
+    // Recurse, i.e. run depth-first search,
+    // and also gather type reflection data:
+    let reflection = T::reflect(vertices, visited);
+
+    // Insert the recursive result:
+    assert_eq!(
+        vertices.insert(ty, Arc::new(AlgebraicDataType::new::<T>(reflection))),
+        None,
+        "INTERNAL ERROR (`pbt`): TOCTOU during DFS",
+    );
 }

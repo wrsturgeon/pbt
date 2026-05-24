@@ -34,19 +34,9 @@ impl Type {
 impl fmt::Debug for Type {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match reflection::VERTICES.try_read() {
-            Ok(vertices) => {
-                if let Some(adt) = vertices.get(self) {
-                    write!(f, "`{}`", adt.name)
-                } else {
-                    write!(f, "<unregistered type with ID {:?}>", self.id)
-                }
-            }
-            Err(e) => write!(
-                f,
-                "<inaccessible type with ID {:?} (vertices are locked: {e})>",
-                self.id,
-            ),
+        match reflection::get_immediate(self) {
+            Some(adt) => write!(f, "`{}`", adt.name),
+            None => write!(f, "<inaccessible type with ID {:?}>", self.id),
         }
     }
 }
