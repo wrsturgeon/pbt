@@ -54,6 +54,10 @@ pub fn update_quotient_reachable_from<'edges, OutgoingEdges, Vertex>(
     OutgoingEdges: Fn(Vertex) -> &'edges HashSet<Vertex>,
     Vertex: 'edges + Copy + Eq + Hash,
 {
+    if quotient.root(vertex).is_some() {
+        return; // SCC already discovered from some other type
+    }
+
     let () = tarjan(
         vertex,
         outgoing_edges,
@@ -129,6 +133,10 @@ fn tarjan<'edges, OutgoingEdges, Vertex>(
 
     #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
     for child in outgoing_edges(vertex) {
+        if quotient.root(*child).is_some() {
+            continue; // SCC already discovered from some other type
+        }
+
         if let Some(child_books) = bookkeeping.get(child) {
             if child_books.on_stack {
                 let child_index = child_books.global_visit_index;
@@ -158,37 +166,30 @@ fn tarjan<'edges, OutgoingEdges, Vertex>(
     // i.e. the first visited within that SCC:
     let v_books = get!(&vertex);
     if v_books.global_visit_index == v_books.low_link {
-        {
-            let immediately_reachable = outgoing_edges(vertex)
-                .iter()
-                .copied()
-                .map(|dst| root!(dst))
-                .collect();
-            quotient.insert_singleton(
-                // SAFETY: Unions favor the left argument, so this will be the root.
-                vertex,
-                Arc::new(QuotientVertex {
-                    immediately_reachable,
-                }),
-            );
-        }
-
-        'pop: loop {
-            let popped = stack
-                .pop()
-                .expect("INTERNAL ERROR (`pbt`): violated stack invariant during SCC discovery");
-            get_mut!(&popped).on_stack = false;
-            if popped == vertex {
-                break 'pop;
+        let n_before_stack = {
+            // Mutually inductive types are small groups, so use linear search from the back:
+            let mut i = stack.len() - 1;
+            while *stack
+                .get(i)
+                .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery")
+                != vertex
+            {
+                i -= 1;
             }
+            i
+        };
 
+        for &popped in stack
+            .get(n_before_stack..)
+            .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery")
+        {
             let immediately_reachable = outgoing_edges(popped)
                 .iter()
                 .copied()
+                .filter(|dst| !bookkeeping.get(dst).is_some_and(|books| books.on_stack))
                 .map(|dst| root!(dst))
                 .collect();
             quotient.insert_singleton(
-                // SAFETY: Unions favor the left argument, so this will be the root.
                 popped,
                 Arc::new(QuotientVertex {
                     immediately_reachable,
@@ -204,5 +205,14 @@ fn tarjan<'edges, OutgoingEdges, Vertex>(
                 })
             });
         }
+
+        for &popped in stack
+            .get(n_before_stack..)
+            .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery")
+        {
+            get_mut!(&popped).on_stack = false;
+        }
+
+        let () = stack.truncate(n_before_stack);
     }
 }
