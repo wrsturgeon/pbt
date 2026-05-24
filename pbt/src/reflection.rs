@@ -160,117 +160,6 @@ fn compute_reachable(
     to_return
 }
 
-/// Compute all raw types unavoidably reached when generating `ty`.
-///
-/// This solves the full mutually inductive group containing `ty` in one local
-/// fixed point, then caches each raw type in that SCC separately.
-#[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::iter_over_hash_type,
-    clippy::panic,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-fn compute_unavoidable(
-    map: &mut HashMap<Type, Arc<HashSet<Type>>>,
-    vertices: &HashMap<Type, Arc<AlgebraicDataType>>,
-    quotient: &mut UnionFind<Type, Arc<scc::QuotientVertex<Type>>>,
-    ty: Type,
-) {
-    if map.contains_key(&ty) {
-        return;
-    }
-
-    let scc_elements = quotient
-        .root(ty)
-        .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis")
-        .metadata
-        .elements
-        .clone();
-
-    for &scc_element in &scc_elements {
-        let adt = vertices
-            .get(&scc_element)
-            .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis");
-        for variant in &adt.reflection.variants {
-            for field in variant.fields.counts.keys() {
-                if !scc_elements.contains(field) {
-                    let () = compute_unavoidable(map, vertices, quotient, *field);
-                }
-            }
-        }
-    }
-
-    for (fixed_ty, unavoidables) in fixed_point_unavoidable(vertices, map, &scc_elements) {
-        let arc = Arc::new(unavoidables);
-        if let Some(_dup) = map.insert(fixed_ty, arc) {
-            panic!("INTERNAL ERROR (`pbt`): duplicate unavoidability result")
-        }
-    }
-}
-
-/// Compute the least fixed point of unavoidability for one SCC.
-#[inline]
-#[must_use]
-#[expect(
-    clippy::expect_used,
-    clippy::iter_over_hash_type,
-    reason = "For internal use only: invariant violations should fail loudly; order is irrelevant."
-)]
-fn fixed_point_unavoidable(
-    vertices: &HashMap<Type, Arc<AlgebraicDataType>>,
-    cached: &HashMap<Type, Arc<HashSet<Type>>>,
-    scc_elements: &HashSet<Type>,
-) -> HashMap<Type, HashSet<Type>> {
-    let mut scc_acc = map();
-    for &scc_ty in scc_elements {
-        let mut just_self = set();
-        let newly_inserted = just_self.insert(scc_ty);
-        debug_assert!(newly_inserted, "INTERNAL ERROR (`pbt`): witchcraft");
-        assert_eq!(
-            scc_acc.insert(scc_ty, just_self),
-            None,
-            "INTERNAL ERROR (`pbt`): duplicate unavoidability entry",
-        );
-    }
-
-    // Currently, this iteratively scans until a least fixed point is reached.
-    // Other approaches may be more efficient as SCCs grw asymptotically large,
-    // but mutually inductive groups of types in Rust are almost always tiny,
-    // so readability and auditability are most important here. May change later.
-    'fixed_point: loop {
-        let mut changed = false;
-        for &scc_ty in scc_elements {
-            let adt = vertices
-                .get(&scc_ty)
-                .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis");
-            let mut variants = adt.reflection.variants.iter();
-            let mut next = match variants.next() {
-                Some(variant) => variant_unavoidable(variant, cached, &scc_acc),
-                None => set(),
-            };
-            for variant in variants {
-                let variant_unavoidables = variant_unavoidable(variant, cached, &scc_acc);
-                next.retain(|candidate| variant_unavoidables.contains(candidate));
-            }
-            let _dup: bool = next.insert(scc_ty);
-
-            let slot = scc_acc
-                .get_mut(&scc_ty)
-                .expect("INTERNAL ERROR (`pbt`): missing unavoidability entry");
-            if *slot != next {
-                *slot = next;
-                changed = true;
-            }
-        }
-        if !changed {
-            break 'fixed_point;
-        }
-    }
-
-    scc_acc
-}
-
 /// Query reflection for the given type ID iff it is *immediately* available.
 ///
 /// If the type graph is currently locked, no matter how briefly, this will fail.
@@ -325,15 +214,19 @@ pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
     let unavoidable = &mut UNAVOIDABLE
         .lock()
         .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
-    let () = compute_unavoidable(
-        unavoidable,
-        &VERTICES
-            .lock()
-            .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned"),
-        &mut QUOTIENT
-            .lock()
-            .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned"),
+    let vertices = VERTICES
+        .lock()
+        .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned");
+    let mut quotient = QUOTIENT
+        .lock()
+        .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
+    let () = scc::update_unavoidable(
         ty,
+        unavoidable,
+        &vertices,
+        &mut quotient,
+        &|adt: &Arc<AlgebraicDataType>| adt.reflection.variants.as_ref(),
+        &|variant: &Variant| &variant.fields,
     );
 
     Arc::clone(
@@ -375,32 +268,4 @@ pub fn register<T>(
         None,
         "INTERNAL ERROR (`pbt`): TOCTOU during DFS",
     );
-}
-
-/// Compute the unavoidable raw types forced by a single variant.
-#[inline]
-#[must_use]
-#[expect(
-    clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-fn variant_unavoidable(
-    variant: &Variant,
-    cached: &HashMap<Type, Arc<HashSet<Type>>>,
-    scc_acc: &HashMap<Type, HashSet<Type>>,
-) -> HashSet<Type> {
-    let mut union = set();
-
-    #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-    for field in variant.fields.counts.keys() {
-        if let Some(local_unavoidables) = scc_acc.get(field) {
-            let () = union.extend(local_unavoidables.iter().copied());
-        } else {
-            let cached_unavoidables = cached
-                .get(field)
-                .expect("INTERNAL ERROR (`pbt`): missing unavoidability entry");
-            let () = union.extend(cached_unavoidables.iter().copied());
-        }
-    }
-    union
 }
