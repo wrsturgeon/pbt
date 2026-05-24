@@ -3,7 +3,7 @@
 //! Rust types are translated s.t. a `struct` is a singleton degenerate case (one variant).
 
 use {
-    crate::{hash::map, multiset::Multiset, type_id::Type, union_find::UnionFind},
+    crate::{hash::map, multiset::Multiset, pbt::Pbt, type_id::Type, union_find::UnionFind},
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
     core::any,
@@ -60,20 +60,22 @@ pub struct AlgebraicDataType {
     pub name: &'static str,
     /// All types of all fields of all variants.
     pub potential_fields: HashSet<Type>,
+    /// Type-level reflection: variants, field types, erased trait operations, etc.
+    pub reflection: Reflection,
+}
+
+/// Type-level reflection: variants, field types, erased trait operations, etc.
+#[non_exhaustive]
+pub struct Reflection {
     /// Each variant of this type, in source order.
     pub variants: Box<[Variant]>,
 }
 
-/// One variant of an `enum`, or all fields on a `struct`.
-///
-/// A `struct` is a singleton degenerate case of an `enum`;
-/// viewed differently, an `enum` is a collection of `struct`s.
-#[non_exhaustive]
-pub struct Variant {
-    /// The types of each field in this variant.
-    /// Order does not matter, but total count does.
-    pub fields: Multiset<Type>,
-}
+/// A thin wrapper around `Type` to indicate that
+/// this *individual* type should be discarded
+/// as merely an index into the SCC of which is it an element.
+#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
+pub struct Scc(Type);
 
 /// All fields of all types within an SCC (i.e. a mutually inductive set of types)
 /// that do not themselves belong to the SCC.
@@ -98,11 +100,16 @@ pub struct SccQuotientVertex {
     pub immediately_reachable: HashSet<Scc>,
 }
 
-/// A thin wrapper around `Type` to indicate that
-/// this *individual* type should be discarded
-/// as merely an index into the SCC of which is it an element.
-#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Scc(Type);
+/// One variant of an `enum`, or all fields on a `struct`.
+///
+/// A `struct` is a singleton degenerate case of an `enum`;
+/// viewed differently, an `enum` is a collection of `struct`s.
+#[non_exhaustive]
+pub struct Variant {
+    /// The types of each field in this variant.
+    /// Order does not matter, but total count does.
+    pub fields: Multiset<Type>,
+}
 
 impl AlgebraicDataType {
     /// Analyze the type `T` given that `variants` accurately represents its variants.
@@ -111,17 +118,50 @@ impl AlgebraicDataType {
     /// viewed differently, an `enum` is a collection of `struct`s.
     #[inline]
     #[must_use]
-    pub fn new<T>(variants: Box<[Variant]>) -> Self
+    pub fn new<T>(reflection: Reflection) -> Self
     where
         T: ?Sized,
     {
         Self {
             name: any::type_name::<T>(),
-            potential_fields: variants
+            potential_fields: reflection
+                .variants
                 .iter()
                 .flat_map(|variant| variant.fields.counts.keys().copied())
                 .collect(),
-            variants,
+            reflection,
         }
+    }
+}
+
+/// Register the type `T` in the global type reflection graph.
+///
+/// Note that this does *not* include `T` in any strongly connected components logic
+/// or any higher graph-theoretic operations. This merely registers the type for later use.
+///
+/// # Panics
+///
+/// If the reflection registry lock has been poisoned:
+/// i.e. if *another* process *already* panicked while holding the lock.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+pub fn register<T>()
+where
+    T: Pbt,
+{
+    let mut vertices = VERTICES
+        .write()
+        .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned");
+    let ty = Type::new::<T>();
+    if !vertices.contains_key(&ty)
+        && vertices
+            .insert(ty, AlgebraicDataType::new::<T>(T::reflect()))
+            .is_some()
+    {
+        panic!("INTERNAL ERROR (`pbt`): TOCTOU despite `&mut` (some witchcraft going on)")
     }
 }

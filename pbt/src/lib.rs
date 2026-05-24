@@ -5,6 +5,7 @@ extern crate alloc;
 
 pub mod hash;
 pub mod multiset;
+pub mod pbt;
 pub mod reflection;
 pub mod type_id;
 pub mod union_find;
