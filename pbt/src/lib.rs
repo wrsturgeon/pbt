@@ -7,5 +7,6 @@ pub mod hash;
 pub mod multiset;
 pub mod pbt;
 pub mod reflection;
+pub mod scc;
 pub mod type_id;
 pub mod union_find;

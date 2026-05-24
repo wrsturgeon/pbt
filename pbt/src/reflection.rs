@@ -3,7 +3,14 @@
 //! Rust types are translated s.t. a `struct` is a singleton degenerate case (one variant).
 
 use {
-    crate::{hash::map, multiset::Multiset, pbt::Pbt, type_id::Type, union_find::UnionFind},
+    crate::{
+        hash::map,
+        multiset::Multiset,
+        pbt::Pbt,
+        scc,
+        type_id::Type,
+        union_find::{RootElement, UnionFind},
+    },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
     core::any,
@@ -31,7 +38,8 @@ static VERTICES: RwLock<HashMap<Type, Arc<AlgebraicDataType>>> = RwLock::new(map
 /// This is especially nice since this quotient graph is a DAG by construction,
 /// so this reachability logic can safely assume the absence of cycles.
 #[expect(dead_code, reason = "TODO")]
-static QUOTIENT: RwLock<UnionFind<Scc, Arc<SccQuotientVertex>>> = RwLock::new(UnionFind::new());
+static QUOTIENT: RwLock<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
+    RwLock::new(UnionFind::new());
 
 /// Transitive reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -42,7 +50,8 @@ static QUOTIENT: RwLock<UnionFind<Scc, Arc<SccQuotientVertex>>> = RwLock::new(Un
 /// if any of its fields can reach `Self`, then it can potentially be inductive,
 /// so we should consider it when we have plenty of size left to generate.
 #[expect(dead_code, reason = "TODO")]
-static REACHABLE: RwLock<HashMap<Scc, Arc<HashSet<Scc>>>> = RwLock::new(map());
+static REACHABLE: RwLock<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>>>>> =
+    RwLock::new(map());
 
 /// This encodes the notion that "if we start generating a term of type A,
 /// then must unavoidably generate terms of type B, C, ... in the process."
@@ -74,35 +83,6 @@ pub struct AlgebraicDataType {
 pub struct Reflection {
     /// Each variant of this type, in source order.
     pub variants: Box<[Variant]>,
-}
-
-/// A thin wrapper around `Type` to indicate that
-/// this *individual* type should be discarded
-/// as merely an index into the SCC of which is it an element.
-#[derive(Clone, Copy, Eq, Hash, Ord, PartialEq, PartialOrd)]
-pub struct Scc(Type);
-
-/// All fields of all types within an SCC (i.e. a mutually inductive set of types)
-/// that do not themselves belong to the SCC.
-///
-/// Recall that fields of each individual type are directed edges,
-/// so directed edges out of an SCC are not a very well-defined concept,
-/// but they could be seen as representing "optional dependencies,"
-/// i.e. that there exists a generator path that contains a term of this type.
-#[non_exhaustive]
-pub struct SccQuotientVertex {
-    /// All elements of this strongly connected component,
-    /// i.e. all types mutually inductive w.r.t. each other.
-    pub elements: HashSet<Type>,
-
-    /// All fields of all types within an SCC (i.e. a mutually inductive set of types)
-    /// that do not themselves belong to the SCC.
-    ///
-    /// Recall that fields of each individual type are directed edges,
-    /// so directed edges out of an SCC are not a very well-defined concept,
-    /// but they could be seen as representing "optional dependencies,"
-    /// i.e. that there exists a generator path that contains a term of this type.
-    pub immediately_reachable: HashSet<Scc>,
 }
 
 /// One variant of an `enum`, or all fields on a `struct`.

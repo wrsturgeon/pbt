@@ -4,19 +4,25 @@
 use {
     crate::hash::map,
     ahash::HashMap,
-    core::{hash::Hash, mem, num::NonZero},
+    core::{hash::Hash, mem, num::NonZero, ops::Deref},
 };
+
+/// The result of querying the root of a given element's set,
+/// wihout any metadata.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+pub struct RootElement<K>(K);
 
 /// The result of querying the root of a given element's set.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
 pub struct Root<K, V> {
     /// The total number of elements in this set.
-    cardinality: NonZero<usize>,
+    pub cardinality: NonZero<usize>,
     /// The arbitrary distinguished element that represents this entire set.
-    k: K,
+    pub element: RootElement<K>,
     /// User-defined metadata associated with this set as a whole.
-    metadata: V,
+    pub metadata: V,
 }
 
 /// The standard disjoint-set data structure
@@ -45,6 +51,15 @@ pub enum Upward<K, V> {
         /// User-defined metadata associated with this set as a whole.
         metadata: V,
     },
+}
+
+impl<K> Deref for RootElement<K> {
+    type Target = K;
+
+    #[inline]
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
 }
 
 impl<K, V> Default for UnionFind<K, V> {
@@ -80,11 +95,11 @@ where
     ///
     /// If `k` is already present.
     #[inline]
-    pub fn insert_singleton(&mut self, k: K, metadata: V) {
+    pub fn insert_singleton(&mut self, element: K, metadata: V) {
         if self
             .upward
             .insert(
-                k,
+                element,
                 Upward::Root {
                     cardinality: const { NonZero::new(1).unwrap() },
                     metadata,
@@ -120,7 +135,7 @@ where
             .expect("INTERNAL ERROR (`pbt`): merging unregistered Union-Find entry");
 
         // Check if these elements are already in the same set:
-        if lhs_root.k == rhs_root.k {
+        if lhs_root.element == rhs_root.element {
             return;
         }
 
@@ -132,13 +147,15 @@ where
         // Point the smaller set at the larger set:
         let rhs_update = self
             .upward
-            .get_mut(&rhs_root.k)
+            .get_mut(&rhs_root.element)
             .expect("INTERNAL ERROR (`pbt`): Union-Find entry erased");
-        *rhs_update = Upward::Parent { parent: lhs_root.k };
+        *rhs_update = Upward::Parent {
+            parent: *lhs_root.element,
+        };
 
         let lhs_update = self
             .upward
-            .get_mut(&lhs_root.k)
+            .get_mut(&lhs_root.element)
             .expect("INTERNAL ERROR (`pbt`): Union-Find entry erased");
         *lhs_update = Upward::Root {
             // SAFETY: Already limited by the in-memory size of the hash map;
@@ -163,13 +180,13 @@ where
     ///
     /// If and only if internal invariants have already been violated.
     #[inline]
-    pub fn root(&mut self, k: K) -> Option<Root<K, V>> {
-        Some(match *self.upward.get(&k)? {
+    pub fn root(&mut self, element: K) -> Option<Root<K, V>> {
+        Some(match *self.upward.get(&element)? {
             Upward::Root {
                 cardinality,
                 ref metadata,
             } => Root {
-                k,
+                element: RootElement(element),
                 cardinality,
                 metadata: metadata.clone(),
             },
@@ -179,9 +196,11 @@ where
                     .expect("INTERNAL ERROR (`pbt`): Union-Find parent is unregistered");
                 let shorten = self
                     .upward
-                    .get_mut(&k)
+                    .get_mut(&element)
                     .expect("INTERNAL ERROR (`pbt`): Union-Find entry erased");
-                *shorten = Upward::Parent { parent: root.k };
+                *shorten = Upward::Parent {
+                    parent: *root.element,
+                };
                 root
             }
         })
@@ -270,7 +289,7 @@ mod tests {
             uf.root(5),
             Some(Root {
                 cardinality: NonZero::new(4).unwrap(),
-                k: 2,
+                element: RootElement(2),
                 metadata: (),
             })
         );
