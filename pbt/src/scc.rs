@@ -216,3 +216,157 @@ fn tarjan<'edges, OutgoingEdges, Vertex>(
         let () = stack.truncate(n_before_stack);
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![expect(clippy::unwrap_used, reason = "Failing tests ought to panic.")]
+
+    use {super::*, crate::hash::set, pretty_assertions::assert_eq};
+
+    type Graph = HashMap<u8, HashSet<u8>>;
+
+    fn graph(edges: &[(u8, &[u8])]) -> Graph {
+        let mut graph = map();
+        for &(source, destinations) in edges {
+            assert_eq!(
+                graph.insert(source, vertex_set(destinations)),
+                None,
+                "test graph has a duplicate source vertex",
+            );
+        }
+        graph
+    }
+
+    fn outgoing_edges<'graph>(graph: &'graph Graph) -> impl Fn(u8) -> &'graph HashSet<u8> + 'graph {
+        move |vertex| &graph[&vertex]
+    }
+
+    fn immediate_roots(
+        quotient: &mut UnionFind<u8, Arc<QuotientVertex<u8>>>,
+        vertex: u8,
+    ) -> HashSet<RootElement<u8>> {
+        quotient
+            .root(vertex)
+            .unwrap()
+            .metadata
+            .immediately_reachable
+            .clone()
+    }
+
+    fn root_set(
+        quotient: &mut UnionFind<u8, Arc<QuotientVertex<u8>>>,
+        vertices: &[u8],
+    ) -> HashSet<RootElement<u8>> {
+        let mut roots = set();
+        for vertex in vertices {
+            let _: bool = roots.insert(quotient.root(*vertex).unwrap().element);
+        }
+        roots
+    }
+
+    #[test]
+    fn singleton_without_edges_has_empty_quotient_edges() {
+        let graph = graph(&[(1, &[])]);
+        let edges = outgoing_edges(&graph);
+        let mut quotient = UnionFind::new();
+
+        update_quotient_reachable_from(1, &edges, &mut quotient);
+
+        assert_eq!(
+            immediate_roots(&mut quotient, 1),
+            root_set(&mut quotient, &[])
+        );
+    }
+
+    #[test]
+    fn self_loop_does_not_create_a_quotient_self_edge() {
+        let graph = graph(&[(1, &[1])]);
+        let edges = outgoing_edges(&graph);
+        let mut quotient = UnionFind::new();
+
+        update_quotient_reachable_from(1, &edges, &mut quotient);
+
+        assert_eq!(
+            immediate_roots(&mut quotient, 1),
+            root_set(&mut quotient, &[])
+        );
+    }
+
+    #[test]
+    fn two_vertex_cycle_becomes_one_quotient_vertex_without_self_edges() {
+        let graph = graph(&[(1, &[2]), (2, &[1])]);
+        let edges = outgoing_edges(&graph);
+        let mut quotient = UnionFind::new();
+
+        update_quotient_reachable_from(1, &edges, &mut quotient);
+
+        assert_eq!(
+            quotient.root(1).unwrap().element,
+            quotient.root(2).unwrap().element
+        );
+        assert_eq!(
+            immediate_roots(&mut quotient, 1),
+            root_set(&mut quotient, &[])
+        );
+    }
+
+    #[test]
+    fn mutually_inductive_component_keeps_only_external_quotient_edges() {
+        let graph = graph(&[(1, &[2, 3]), (2, &[1, 3]), (3, &[])]);
+        let edges = outgoing_edges(&graph);
+        let mut quotient = UnionFind::new();
+
+        update_quotient_reachable_from(1, &edges, &mut quotient);
+
+        assert_eq!(
+            quotient.root(1).unwrap().element,
+            quotient.root(2).unwrap().element
+        );
+        assert_ne!(
+            quotient.root(1).unwrap().element,
+            quotient.root(3).unwrap().element
+        );
+        assert_eq!(
+            immediate_roots(&mut quotient, 1),
+            root_set(&mut quotient, &[3])
+        );
+        assert_eq!(
+            immediate_roots(&mut quotient, 3),
+            root_set(&mut quotient, &[])
+        );
+    }
+
+    #[test]
+    fn later_rooted_run_reuses_an_already_quotiented_subgraph() {
+        let graph = graph(&[(1, &[2, 4]), (2, &[3]), (3, &[2, 4]), (4, &[])]);
+        let edges = outgoing_edges(&graph);
+        let mut quotient = UnionFind::new();
+
+        update_quotient_reachable_from(2, &edges, &mut quotient);
+        let recursive_child_root = quotient.root(2).unwrap().element;
+        let leaf_root = quotient.root(4).unwrap().element;
+
+        update_quotient_reachable_from(1, &edges, &mut quotient);
+
+        assert_ne!(quotient.root(1).unwrap().element, recursive_child_root);
+        assert_eq!(quotient.root(2).unwrap().element, recursive_child_root);
+        assert_eq!(quotient.root(3).unwrap().element, recursive_child_root);
+        assert_eq!(quotient.root(4).unwrap().element, leaf_root);
+        assert_eq!(
+            immediate_roots(&mut quotient, 1),
+            root_set(&mut quotient, &[2, 4])
+        );
+        assert_eq!(
+            immediate_roots(&mut quotient, 2),
+            root_set(&mut quotient, &[4])
+        );
+    }
+
+    fn vertex_set(vertices: &[u8]) -> HashSet<u8> {
+        let mut set = set();
+        for vertex in vertices {
+            let _: bool = set.insert(*vertex);
+        }
+        set
+    }
+}
