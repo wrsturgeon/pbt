@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        hash::map,
+        hash::{map, set},
         union_find::{RootElement, UnionFind},
     },
     ahash::{HashMap, HashSet},
@@ -10,15 +10,12 @@ use {
     core::hash::Hash,
 };
 
-/// All fields of all types within an SCC (i.e. a mutually inductive set of types)
-/// that do not themselves belong to the SCC.
-///
-/// Recall that fields of each individual type are directed edges,
-/// so directed edges out of an SCC are not a very well-defined concept,
-/// but they could be seen as representing "optional dependencies,"
-/// i.e. that there exists a generator path that contains a term of this type.
+/// Metadata associated with one SCC in the quotient graph.
 #[non_exhaustive]
 pub struct QuotientVertex<Vertex> {
+    /// All vertices in this strongly connected component.
+    pub elements: HashSet<Vertex>,
+
     /// All fields of all types within an SCC (i.e. a mutually inductive set of types)
     /// that do not themselves belong to the SCC.
     ///
@@ -189,14 +186,18 @@ fn tarjan<'edges, OutgoingEdges, Vertex>(
                 .filter(|dst| !bookkeeping.get(dst).is_some_and(|books| books.on_stack))
                 .map(|dst| root!(dst))
                 .collect();
+            let mut elements = set();
+            let _: bool = elements.insert(popped);
             quotient.insert_singleton(
                 popped,
                 Arc::new(QuotientVertex {
+                    elements,
                     immediately_reachable,
                 }),
             );
             let () = quotient.merge(vertex, popped, |lhs, rhs| {
                 Arc::new(QuotientVertex {
+                    elements: lhs.elements.union(&rhs.elements).copied().collect(),
                     immediately_reachable: lhs
                         .immediately_reachable
                         .union(&rhs.immediately_reachable)
