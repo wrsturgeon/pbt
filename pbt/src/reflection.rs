@@ -4,7 +4,7 @@
 
 use {
     crate::{
-        hash::{map, set},
+        hash::map,
         multiset::Multiset,
         pbt::Pbt,
         scc,
@@ -117,49 +117,6 @@ impl AlgebraicDataType {
     }
 }
 
-/// Compute all reachable SCCs from the given SCC,
-/// transitively caching all results.
-///
-/// N.B.: since the SCC quotient graph is a DAG by construction,
-/// we arbitrarily consider reachability to be reflexive w.l.o.g.
-/// (i.e. all SCCs can reach themselves)
-/// to simplify downstream reachability checks.
-#[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::panic,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-fn compute_reachable(
-    map: &mut HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>>>>,
-    quotient: &mut UnionFind<Type, Arc<scc::QuotientVertex<Type>>>,
-    scc_root: RootElement<Type>,
-) -> Arc<HashSet<RootElement<Type>>> {
-    // The SCC quotient graph is a DAG by construction,
-    // so we don't need to worry about cycles here.
-    if let Some(cached) = map.get(&scc_root) {
-        return Arc::clone(cached);
-    }
-    let mut union = set();
-    let newly_inserted = union.insert(scc_root); // Roots can reach themselves, by convention.
-    debug_assert!(newly_inserted, "INTERNAL ERROR (`pbt`): witchcraft");
-    #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-    for &child in &quotient
-        .root(*scc_root)
-        .expect("INTERNAL ERROR (`pbt`): unregistered type during reachability analysis")
-        .metadata
-        .immediately_reachable
-    {
-        let () = union.extend(compute_reachable(map, quotient, child).iter());
-    }
-    let arc = Arc::new(union);
-    let to_return = Arc::clone(&arc);
-    if let Some(_dup) = map.insert(scc_root, arc) {
-        panic!("INTERNAL ERROR (`pbt`): SCC quotient graph is cyclic")
-    }
-    to_return
-}
-
 /// Query reflection for the given type ID iff it is *immediately* available.
 ///
 /// If the type graph is currently locked, no matter how briefly, this will fail.
@@ -186,7 +143,7 @@ pub fn get_immediate(ty: &Type) -> Option<Arc<AlgebraicDataType>> {
     reason = "For internal use only: invariant violations should fail loudly."
 )]
 pub fn reachable(scc_root: RootElement<Type>) -> Arc<HashSet<RootElement<Type>>> {
-    compute_reachable(
+    scc::reachable(
         &mut REACHABLE
             .lock()
             .expect("INTERNAL ERROR (`pbt`): graph reachability lock poisoned"),
