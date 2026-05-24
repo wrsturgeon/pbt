@@ -4,7 +4,7 @@
 
 use {
     crate::{
-        hash::map,
+        hash::{map, set},
         multiset::Multiset,
         pbt::Pbt,
         scc,
@@ -14,7 +14,7 @@ use {
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
     core::any,
-    std::sync::RwLock,
+    std::sync::Mutex,
 };
 
 /// Every registered type and its directed edges (representing "has a field of this type"),
@@ -26,7 +26,7 @@ use {
 ///
 /// The above realization also leads to the following insight:
 /// *strongly connected components define mutually inductive types.*
-static VERTICES: RwLock<HashMap<Type, Arc<AlgebraicDataType>>> = RwLock::new(map());
+static VERTICES: Mutex<HashMap<Type, Arc<AlgebraicDataType>>> = Mutex::new(map());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -37,9 +37,8 @@ static VERTICES: RwLock<HashMap<Type, Arc<AlgebraicDataType>>> = RwLock::new(map
 /// first lift each type to its enclosing SCC, then test SCC reachability.
 /// This is especially nice since this quotient graph is a DAG by construction,
 /// so this reachability logic can safely assume the absence of cycles.
-#[expect(dead_code, reason = "TODO")]
-static QUOTIENT: RwLock<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
-    RwLock::new(UnionFind::new());
+static QUOTIENT: Mutex<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
+    Mutex::new(UnionFind::new());
 
 /// Transitive reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -49,9 +48,8 @@ static QUOTIENT: RwLock<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
 /// This is useful when determining whether some variant is potentially inductive:
 /// if any of its fields can reach `Self`, then it can potentially be inductive,
 /// so we should consider it when we have plenty of size left to generate.
-#[expect(dead_code, reason = "TODO")]
-static REACHABLE: RwLock<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>>>>> =
-    RwLock::new(map());
+static REACHABLE: Mutex<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>>>>> =
+    Mutex::new(map());
 
 /// This encodes the notion that "if we start generating a term of type A,
 /// then must unavoidably generate terms of type B, C, ... in the process."
@@ -60,7 +58,7 @@ static REACHABLE: RwLock<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type
 /// if any of its fields unavoidably reach `Self`, then it can never be a leaf,
 /// so we should avoid it when we're running out of size remaining to generate.
 #[expect(dead_code, reason = "TODO")]
-static UNAVOIDABLE: RwLock<HashMap<Type, Arc<HashSet<Type>>>> = RwLock::new(map());
+static UNAVOIDABLE: Mutex<HashMap<Type, Arc<HashSet<Type>>>> = Mutex::new(map());
 
 /// Runtime representation of the structure of an algebraic data type.
 ///
@@ -120,14 +118,84 @@ impl AlgebraicDataType {
     }
 }
 
+/// Compute all reachable SCCs from the given SCC,
+/// transitively caching all results.
+///
+/// N.B.: since the SCC quotient graph is a DAG by construction,
+/// we arbitrarily consider reachability to be reflexive w.l.o.g.
+/// (i.e. all SCCs can reach themselves)
+/// to simplify downstream reachability checks.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    clippy::panic,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+fn compute_reachable(
+    map: &mut HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>>>>,
+    quotient: &mut UnionFind<Type, Arc<scc::QuotientVertex<Type>>>,
+    scc_root: RootElement<Type>,
+) -> Arc<HashSet<RootElement<Type>>> {
+    // The SCC quotient graph is a DAG by construction,
+    // so we don't need to worry about cycles here.
+    if let Some(cached) = map.get(&scc_root) {
+        return Arc::clone(cached);
+    }
+    let mut union = set();
+    let newly_inserted = union.insert(scc_root); // Roots can reach themselves, by convention.
+    debug_assert!(newly_inserted, "INTERNAL ERROR (`pbt`): witchcraft");
+    #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
+    for &child in &quotient
+        .root(*scc_root)
+        .expect("INTERNAL ERROR (`pbt`): unregistered type during reachability analysis")
+        .metadata
+        .immediately_reachable
+    {
+        let () = union.extend(compute_reachable(map, quotient, child).iter());
+    }
+    let arc = Arc::new(union);
+    let to_return = Arc::clone(&arc);
+    if let Some(_dup) = map.insert(scc_root, arc) {
+        panic!("INTERNAL ERROR (`pbt`): SCC quotient graph is cyclic")
+    }
+    to_return
+}
+
 /// Query reflection for the given type ID iff it is *immediately* available.
 ///
 /// If the type graph is currently locked, no matter how briefly, this will fail.
 #[inline]
 pub fn get_immediate(ty: &Type) -> Option<Arc<AlgebraicDataType>> {
-    let map = VERTICES.try_read().ok()?;
+    let map = VERTICES.try_lock().ok()?;
     let adt = map.get(ty)?;
     Some(Arc::clone(adt))
+}
+
+/// Compute all reachable SCCs from the given SCC,
+/// transitively caching all results.
+///
+/// N.B.: since the SCC quotient graph is a DAG by construction,
+/// we arbitrarily consider reachability to be reflexive w.l.o.g.
+/// (i.e. all SCCs can reach themselves)
+/// to simplify downstream reachability checks.
+///
+/// N.B.: This function locks `REACHABLE` and `QUOTIENT`, in that order.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    clippy::missing_panics_doc,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+pub fn reachable(scc_root: RootElement<Type>) -> Arc<HashSet<RootElement<Type>>> {
+    compute_reachable(
+        &mut REACHABLE
+            .lock()
+            .expect("INTERNAL ERROR (`pbt`): graph reachability lock poisoned"),
+        &mut QUOTIENT
+            .lock()
+            .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned"),
+        scc_root,
+    )
 }
 
 /// Register the type `T` in the global type reflection graph.
