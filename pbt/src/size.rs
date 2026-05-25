@@ -1,0 +1,134 @@
+//! Approximate AST size of a value to be generated,
+//! counting only inductive types and ignoring leaves.
+
+use {
+    alloc::collections::BinaryHeap,
+    core::{cmp, mem, num::NonZero},
+    wyrand::WyRand,
+};
+
+/// Partition this size into a known number of sizes
+/// which add up to the same size we started with.
+pub struct Partition {
+    /// The "bars" in "stars and bars."
+    /// (The *combinatorics* "stars and bars," not the confederate flag.)
+    separators: BinaryHeap<cmp::Reverse<usize>>,
+    /// The original size being partitioned.
+    total: usize,
+    /// The total size that has been used so far,
+    /// e.g. if we're mid-iteration over partitioned sizes.
+    used: usize,
+}
+
+/// Approximate AST size of a value to be generated,
+/// counting only inductive types and ignoring leaves.
+///
+/// N.B.: this type is *not* `Clone` and
+/// must not be, since size cannot be reused.
+/// Instead, size must merely be split/partitioned
+/// among fields of a chosen variant,
+/// all the way down to leaves (forced when size runs out).
+pub struct Size {
+    /// Approximate AST size of a value to be generated,
+    /// counting only inductive types and ignoring leaves.
+    ///
+    /// N.B.: this field is *not* public and
+    /// must not be accessible, since size cannot be reused.
+    /// Instead, size must merely be split/partitioned
+    /// among fields of a chosen variant,
+    /// all the way down to leaves (forced when size runs out).
+    total: usize,
+}
+
+impl Size {
+    /// Partition this size into a known number of sizes
+    /// which add up to the same size we started with.
+    ///
+    /// # Panics
+    ///
+    /// If the total size of `self` is `usize::MAX`.
+    /// This is a bad idea, since your
+    /// memory will not hold the generated value.
+    #[inline]
+    pub fn partition(self, into_how_many: usize, prng: &mut WyRand) -> Partition {
+        // TODO: switch algorithm if `into_how_many < self.total`
+        #[expect(
+            clippy::expect_used,
+            reason = "genuinely cataclysmic state, should panic"
+        )]
+        let incremented = self
+            .total
+            .checked_add(1)
+            .expect("PSA from `pbt`: your memory will not hold a term of size `usize::MAX`.");
+        // SAFETY: Incremented above, starting from at least zero,
+        // so the result must be at least 1.
+        let modulo = unsafe { NonZero::new_unchecked(incremented) };
+        let mut separators = BinaryHeap::new();
+        for _ in 1..into_how_many {
+            #[expect(
+                clippy::as_conversions,
+                clippy::cast_possible_truncation,
+                reason = "intentional"
+            )]
+            let () = separators.push(cmp::Reverse(prng.rand() as usize % modulo));
+        }
+        Partition {
+            total: self.total,
+            used: 0,
+            separators,
+        }
+    }
+}
+
+impl Iterator for Partition {
+    type Item = Size;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        let cap = self
+            .separators
+            .pop()
+            .map_or(self.total, |cmp::Reverse(u)| u);
+        let used = mem::replace(&mut self.used, cap);
+        Some(Size {
+            // SAFETY: by sorted-`pop` invariant of `BinaryHeap`.
+            total: unsafe { cap.unchecked_sub(used) },
+        })
+        // This will continue to generate 0 ad aeternum
+        // after the heap has been exhausted.
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use {super::*, pretty_assertions::assert_eq};
+
+    #[test]
+    fn partition_10() {
+        let mut prng = WyRand::new(0xBAAD_5EED_BAAD_C0DE);
+        assert_eq!(
+            Size { total: 10 }
+                .partition(3, &mut prng)
+                .take(3)
+                .map(|Size { total }| total)
+                .collect::<Vec<usize>>(),
+            vec![1, 8, 1],
+        );
+        assert_eq!(
+            Size { total: 10 }
+                .partition(3, &mut prng)
+                .take(3)
+                .map(|Size { total }| total)
+                .collect::<Vec<usize>>(),
+            vec![5, 3, 2],
+        );
+        assert_eq!(
+            Size { total: 10 }
+                .partition(3, &mut prng)
+                .take(10)
+                .map(|Size { total }| total)
+                .collect::<Vec<usize>>(),
+            vec![6, 3, 1, 0, 0, 0, 0, 0, 0, 0],
+        );
+    }
+}

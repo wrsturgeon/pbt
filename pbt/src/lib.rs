@@ -9,5 +9,6 @@ pub mod multiset;
 pub mod pbt;
 pub mod reflection;
 pub mod scc;
+pub mod size;
 pub mod type_id;
 pub mod union_find;
