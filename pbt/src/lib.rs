@@ -4,6 +4,7 @@
 extern crate alloc;
 
 pub mod hash;
+pub mod impls;
 pub mod multiset;
 pub mod pbt;
 pub mod reflection;

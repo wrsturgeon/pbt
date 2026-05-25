@@ -4,7 +4,7 @@
 
 use {
     crate::{
-        hash::map,
+        hash::{map, set},
         multiset::Multiset,
         pbt::Pbt,
         scc,
@@ -13,8 +13,9 @@ use {
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
-    core::any,
+    core::{any, mem},
     std::sync::Mutex,
+    wyrand::WyRand,
 };
 
 /// Every registered type and its directed edges (representing "has a field of this type"),
@@ -26,7 +27,7 @@ use {
 ///
 /// The above realization also leads to the following insight:
 /// *strongly connected components define mutually inductive types.*
-static VERTICES: Mutex<HashMap<Type, Arc<AlgebraicDataType>>> = Mutex::new(map());
+static VERTICES: Mutex<HashMap<Type, Arc<TypeGraphVertex>>> = Mutex::new(map());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -64,55 +65,109 @@ static UNAVOIDABLE: Mutex<HashMap<Type, Arc<HashSet<Type>>>> = Mutex::new(map())
 /// A `struct` is a singleton degenerate case of an `enum`;
 /// viewed differently, an `enum` is a collection of `struct`s.
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct AlgebraicDataType {
+#[derive(Clone, Debug)]
+pub struct TypeGraphVertex {
     /// The name of this type, as acquired by `core::any::type_name`.
     pub name: &'static str,
     /// All types of all fields of all variants.
     pub potential_fields: HashSet<Type>,
     /// Type-level reflection: variants, field types, erased trait operations, etc.
-    pub reflection: Reflection,
+    pub reflection: Reflection<Erased>,
 }
+
+/// An erased type.
+///
+/// This type itself is uninstantiable (it's an `enum` without variants):
+/// do not use it directly. Instead, `mem::transmute` and be very, very careful.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug)]
+pub enum Erased {}
 
 /// Type-level reflection: variants, field types, erased trait operations, etc.
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Reflection {
+#[derive(Clone, Debug)]
+pub struct Reflection<SelfType: ?Sized> {
     /// Each variant of this type, in source order.
-    pub variants: Box<[Variant]>,
+    ///
+    /// - If this is an `enum`, each variant is one `enum` variant.
+    /// - if this is a `struct`, there's exactly one variant with all fields.
+    /// - If this is a literal type, each variant is an opaque generator.
+    ///   For example, `usize` might have two generators:
+    ///   *small* `usize`s (for indices) and *uniform* `usize`s.
+    ///   Swarm testing will pick *either* one *or* the other about half the time
+    ///   and enable both the other half of the time, so this works elegantly
+    ///   no matter which "flavor" of `usize` we want.
+    pub variants: Box<[Variant<SelfType>]>,
 }
 
-/// One variant of an `enum`, or all fields on a `struct`.
+/// Each variant of some type, in source order.
 ///
-/// A `struct` is a singleton degenerate case of an `enum`;
-/// viewed differently, an `enum` is a collection of `struct`s.
+/// - If this is an `enum`, each variant is one `enum` variant.
+/// - if this is a `struct`, there's exactly one variant with all fields.
+/// - If this is a literal type, each variant is an opaque generator.
+///   For example, `usize` might have two generators:
+///   *small* `usize`s (for indices) and *uniform* `usize`s.
+///   Swarm testing will pick *either* one *or* the other about half the time
+///   and enable both the other half of the time, so this works elegantly
+///   no matter which "flavor" of `usize` we want.
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct Variant {
+#[derive(Clone, Debug)]
+pub enum Variant<SelfType: ?Sized> {
     /// The types of each field in this variant.
     /// Order does not matter, but total count does.
-    pub fields: Multiset<Type>,
+    Algebraic {
+        /// The types of each field in this variant.
+        /// Order does not matter, but total count does.
+        fields: Multiset<Type>,
+    },
+    /// An opaque function pointer that generates values of this type.
+    Literal {
+        /// An opaque function pointer that generates values of this type.
+        generator: fn(&mut WyRand) -> SelfType,
+    },
 }
 
-impl AlgebraicDataType {
+impl<T: ?Sized> Reflection<T> {
+    /// Erase the type that originally created this reflection.
+    ///
+    /// This is extremely dangerous.
+    /// You must be sure you statically know the type with which
+    /// to use the erased function after transmuting it back in the future.
+    #[inline]
+    const fn erase(self) -> Reflection<Erased> {
+        // SAFETY: `T` is only ever the codomain of a function pointer.
+        unsafe {
+            mem::transmute::<
+                Reflection<T>, // i.e. `Self`
+                Reflection<Erased>,
+            >(self)
+        }
+    }
+}
+
+impl TypeGraphVertex {
     /// Analyze the type `T` given that `variants` accurately represents its variants.
     ///
     /// A `struct` is a singleton degenerate case of an `enum` (use a single variant);
     /// viewed differently, an `enum` is a collection of `struct`s.
     #[inline]
     #[must_use]
-    pub fn new<T>(reflection: Reflection) -> Self
+    pub fn new<T>(reflection: Reflection<T>) -> Self
     where
         T: ?Sized,
     {
         Self {
             name: any::type_name::<T>(),
-            potential_fields: reflection
-                .variants
-                .iter()
-                .flat_map(|variant| variant.fields.counts.keys().copied())
-                .collect(),
-            reflection,
+            potential_fields: {
+                let mut acc = set();
+                for variant in &reflection.variants {
+                    if let Variant::Algebraic { ref fields } = *variant {
+                        let () = acc.extend(fields.counts.keys().copied());
+                    }
+                }
+                acc
+            },
+            reflection: reflection.erase(),
         }
     }
 }
@@ -121,7 +176,7 @@ impl AlgebraicDataType {
 ///
 /// If the type graph is currently locked, no matter how briefly, this will fail.
 #[inline]
-pub fn get_immediate(ty: &Type) -> Option<Arc<AlgebraicDataType>> {
+pub fn get_immediate(ty: &Type) -> Option<Arc<TypeGraphVertex>> {
     let map = VERTICES.try_lock().ok()?;
     let adt = map.get(ty)?;
     Some(Arc::clone(adt))
@@ -182,8 +237,14 @@ pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
         unavoidable,
         &vertices,
         &mut quotient,
-        &|adt: &Arc<AlgebraicDataType>| adt.reflection.variants.as_ref(),
-        &|variant: &Variant| &variant.fields,
+        &|adt: &Arc<TypeGraphVertex>| &*adt.reflection.variants,
+        &|variant: &Variant<Erased>| {
+            const EMPTY: &Multiset<Type> = &Multiset::new();
+            match *variant {
+                Variant::Algebraic { ref fields } => fields,
+                Variant::Literal { .. } => EMPTY,
+            }
+        },
     );
 
     Arc::clone(
@@ -203,10 +264,8 @@ pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
     clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn register<T>(
-    vertices: &mut HashMap<Type, Arc<AlgebraicDataType>>,
-    visited: &mut HashSet<Type>,
-) where
+pub fn register<T>(vertices: &mut HashMap<Type, Arc<TypeGraphVertex>>, visited: &mut HashSet<Type>)
+where
     T: Pbt,
 {
     // If this type has already been registered, short-circuit:
@@ -220,9 +279,6 @@ pub fn register<T>(
     let reflection = T::reflect(vertices, visited);
 
     // Insert the recursive result:
-    assert_eq!(
-        vertices.insert(ty, Arc::new(AlgebraicDataType::new::<T>(reflection))),
-        None,
-        "INTERNAL ERROR (`pbt`): TOCTOU during DFS",
-    );
+    let dup = vertices.insert(ty, Arc::new(TypeGraphVertex::new::<T>(reflection)));
+    assert!(dup.is_none(), "INTERNAL ERROR (`pbt`): TOCTOU during DFS");
 }

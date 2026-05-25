@@ -160,7 +160,8 @@ pub fn update_unavoidable<Vertex, Adt, Variant, VariantsOf, FieldsOf>(
         let adt = vertices
             .get(&scc_element)
             .expect("INTERNAL ERROR (`pbt`): unregistered vertex during unavoidability analysis");
-        for variant in variants_of(adt) {
+        let variants: &[Variant] = variants_of(adt);
+        for variant in variants {
             for field in fields_of(variant).counts.keys() {
                 if !scc_elements.contains(field) {
                     let () = update_unavoidable(
@@ -230,14 +231,18 @@ where
             let adt = vertices.get(&scc_vertex).expect(
                 "INTERNAL ERROR (`pbt`): unregistered vertex during unavoidability analysis",
             );
-            let mut variants = variants_of(adt).iter();
+            let variant_slice: &[Variant] = variants_of(adt);
+            let mut variants = variant_slice.iter();
             let mut next = match variants.next() {
-                Some(variant) => variant_unavoidable(variant, cached, &scc_acc, fields_of),
+                Some(variant) => variant_unavoidable::<Vertex, Variant, FieldsOf>(
+                    variant, cached, &scc_acc, fields_of,
+                ),
                 None => set(),
             };
             for variant in variants {
-                let variant_unavoidables =
-                    variant_unavoidable(variant, cached, &scc_acc, fields_of);
+                let variant_unavoidables = variant_unavoidable::<Vertex, Variant, FieldsOf>(
+                    variant, cached, &scc_acc, fields_of,
+                );
                 next.retain(|candidate| variant_unavoidables.contains(candidate));
             }
             let _: bool = next.insert(scc_vertex);

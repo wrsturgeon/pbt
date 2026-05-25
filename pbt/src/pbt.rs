@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        reflection::{AlgebraicDataType, Reflection},
+        reflection::{Reflection, TypeGraphVertex},
         type_id::Type,
     },
     ahash::{HashMap, HashSet},
@@ -17,7 +17,7 @@ pub trait Pbt: 'static {
     /// specifically, for each type `T` of each field of each variant,
     /// this function must call `::pbt::reflection::register::<T>(vertices, visited)`.
     fn reflect(
-        vertices: &mut HashMap<Type, Arc<AlgebraicDataType>>,
+        vertices: &mut HashMap<Type, Arc<TypeGraphVertex>>,
         visited: &mut HashSet<Type>,
-    ) -> Reflection;
+    ) -> Reflection<Self>;
 }
