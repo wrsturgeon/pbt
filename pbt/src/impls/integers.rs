@@ -21,7 +21,7 @@ impl Pbt for usize {
             // here's where we'd run DFS iff not already in `visited`
         }
         Reflection {
-            variants: Box::new([
+            variants: Arc::new([
                 Variant::Literal {
                     generator: |prng| {
                         if const { usize::BITS <= 64 } {

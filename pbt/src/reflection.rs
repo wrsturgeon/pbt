@@ -14,7 +14,7 @@ use {
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
     core::{any, mem},
-    std::sync::RwLock,
+    std::sync::{Mutex, RwLock},
     wyrand::WyRand,
 };
 
@@ -38,8 +38,8 @@ static VERTICES: RwLock<HashMap<Type, Arc<TypeGraphVertex>>> = RwLock::new(map()
 /// first lift each type to its enclosing SCC, then test SCC reachability.
 /// This is especially nice since this quotient graph is a DAG by construction,
 /// so this reachability logic can safely assume the absence of cycles.
-static QUOTIENT: RwLock<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
-    RwLock::new(UnionFind::new());
+static QUOTIENT: Mutex<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
+    Mutex::new(UnionFind::new());
 
 /// Transitive reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -60,6 +60,63 @@ static REACHABLE: RwLock<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type
 /// so we should avoid it when we're running out of size remaining to generate.
 static UNAVOIDABLE: RwLock<HashMap<Type, Arc<HashSet<Type>>>> = RwLock::new(map());
 
+/// The "final boss" of graph analysis, containing
+/// precomputed data structures for efficient generation.
+#[expect(dead_code, reason = "TODO")]
+static AFFORDANCES: RwLock<HashMap<Type, Affordances<Erased>>> = RwLock::new(map());
+
+/// An erased type.
+///
+/// This type itself is uninstantiable (it's an `enum` without variants):
+/// do not use it directly. Instead, `mem::transmute` and be very, very careful.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug)]
+pub enum Erased {}
+
+/// A type's constructors,
+/// partitioned into potential leaves and loops.
+#[non_exhaustive]
+pub struct Affordances<SelfType> {
+    /// All constructors of this type in source order.
+    ///
+    /// DO NOT sample over `constructors` directly.
+    /// Instead, sample `potential_loops` or `potential_leaves`,
+    /// then use that index here to query the associated constructor.
+    pub constructors: Arc<[Variant<SelfType>]>,
+    /// Sorted lists of indices of instantiable constructors for which
+    /// a sub-term of type `Self` is either *avoidable* or *reachable*.
+    pub leaves_and_loops: LeavesAndLoops,
+}
+
+/// Sorted lists of constructor indices for which
+/// a sub-term of type `Self` is *avoidable* or *reachable*.
+#[non_exhaustive]
+pub struct LeavesAndLoops {
+    /// Sorted list of indices of instantiable constructors
+    /// for which a sub-term of type `Self` is *avoidable*.
+    pub potential_leaves: Box<[usize]>,
+    /// Sorted list of indices of instantiable constructors
+    /// for which a sub-term of type `Self` is *reachable*.
+    pub potential_loops: Box<[usize]>,
+}
+
+/// Type-level reflection: variants, field types, erased trait operations, etc.
+#[non_exhaustive]
+#[derive(Clone, Debug)]
+pub struct Reflection<SelfType: ?Sized> {
+    /// Each variant of this type in source order.
+    ///
+    /// - If this is an `enum`, each variant is one `enum` variant.
+    /// - if this is a `struct`, there's exactly one variant with all fields.
+    /// - If this is a literal type, each variant is an opaque generator.
+    ///   For example, `usize` might have two generators:
+    ///   *small* `usize`s (for indices) and *uniform* `usize`s.
+    ///   Swarm testing will pick *either* one *or* the other about half the time
+    ///   and enable both the other half of the time, so this works elegantly
+    ///   no matter which "flavor" of `usize` we want.
+    pub variants: Arc<[Variant<SelfType>]>,
+}
+
 /// Runtime representation of the structure of an algebraic data type.
 ///
 /// A `struct` is a singleton degenerate case of an `enum`;
@@ -75,32 +132,7 @@ pub struct TypeGraphVertex {
     pub reflection: Reflection<Erased>,
 }
 
-/// An erased type.
-///
-/// This type itself is uninstantiable (it's an `enum` without variants):
-/// do not use it directly. Instead, `mem::transmute` and be very, very careful.
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug)]
-pub enum Erased {}
-
-/// Type-level reflection: variants, field types, erased trait operations, etc.
-#[non_exhaustive]
-#[derive(Clone, Debug)]
-pub struct Reflection<SelfType: ?Sized> {
-    /// Each variant of this type, in source order.
-    ///
-    /// - If this is an `enum`, each variant is one `enum` variant.
-    /// - if this is a `struct`, there's exactly one variant with all fields.
-    /// - If this is a literal type, each variant is an opaque generator.
-    ///   For example, `usize` might have two generators:
-    ///   *small* `usize`s (for indices) and *uniform* `usize`s.
-    ///   Swarm testing will pick *either* one *or* the other about half the time
-    ///   and enable both the other half of the time, so this works elegantly
-    ///   no matter which "flavor" of `usize` we want.
-    pub variants: Box<[Variant<SelfType>]>,
-}
-
-/// Each variant of some type, in source order.
+/// Each variant of some type in source order.
 ///
 /// - If this is an `enum`, each variant is one `enum` variant.
 /// - if this is a `struct`, there's exactly one variant with all fields.
@@ -113,10 +145,10 @@ pub struct Reflection<SelfType: ?Sized> {
 #[non_exhaustive]
 #[derive(Clone, Debug)]
 pub enum Variant<SelfType: ?Sized> {
-    /// The types of each field in this variant.
+    /// The type of each field in this variant.
     /// Order does not matter, but total count does.
     Algebraic {
-        /// The types of each field in this variant.
+        /// The type of each field in this variant.
         /// Order does not matter, but total count does.
         fields: Multiset<Type>,
     },
@@ -125,6 +157,40 @@ pub enum Variant<SelfType: ?Sized> {
         /// An opaque function pointer that generates values of this type.
         generator: fn(&mut WyRand) -> SelfType,
     },
+}
+
+impl<SelfType> Affordances<SelfType> {
+    /// Whether this type can transitively
+    /// contain a field of its own type.
+    ///
+    /// Equivalently, whether this type can be arbitrarily large.
+    ///
+    /// The reason this is computed instead of cached
+    /// is that swarm testing may mask some constructors,
+    /// and if all inductive constructors are masked,
+    /// then a masked inductive type becomes non-inductive.
+    #[inline]
+    #[must_use]
+    pub const fn is_inductive(&self) -> bool {
+        self.leaves_and_loops.is_inductive()
+    }
+}
+
+impl LeavesAndLoops {
+    /// Whether this type can transitively
+    /// contain a field of its own type.
+    ///
+    /// Equivalently, whether this type can be arbitrarily large.
+    ///
+    /// The reason this is computed instead of cached
+    /// is that swarm testing may mask some constructors,
+    /// and if all inductive constructors are masked,
+    /// then a masked inductive type becomes non-inductive.
+    #[inline]
+    #[must_use]
+    pub const fn is_inductive(&self) -> bool {
+        !self.potential_loops.is_empty()
+    }
 }
 
 impl<T: ?Sized> Reflection<T> {
@@ -160,7 +226,7 @@ impl TypeGraphVertex {
             name: any::type_name::<T>(),
             potential_fields: {
                 let mut acc = set();
-                for variant in &reflection.variants {
+                for variant in &*reflection.variants {
                     if let Variant::Algebraic { ref fields } = *variant {
                         let () = acc.extend(fields.counts.keys().copied());
                     }
@@ -190,7 +256,7 @@ pub fn get_immediate(ty: &Type) -> Option<Arc<TypeGraphVertex>> {
 /// (i.e. all SCCs can reach themselves)
 /// to simplify downstream reachability checks.
 ///
-/// N.B.: This function locks `REACHABLE` and `QUOTIENT`, in that order.
+/// N.B.: This function locks `REACHABLE` and `QUOTIENT` in that order.
 #[inline]
 #[expect(
     clippy::expect_used,
@@ -203,7 +269,7 @@ pub fn reachable(scc_root: RootElement<Type>) -> Arc<HashSet<RootElement<Type>>>
             .write()
             .expect("INTERNAL ERROR (`pbt`): graph reachability lock poisoned"),
         &mut QUOTIENT
-            .write()
+            .lock()
             .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned"),
         scc_root,
     )
@@ -215,7 +281,7 @@ pub fn reachable(scc_root: RootElement<Type>) -> Arc<HashSet<RootElement<Type>>>
 /// eventually requires a field whose type unavoidably reaches `U`.
 /// Unavoidability is reflexive by convention: every type unavoidably reaches itself.
 ///
-/// N.B.: This function locks `UNAVOIDABLE`, `VERTICES`, and `QUOTIENT`, in that order.
+/// N.B.: This function locks `UNAVOIDABLE`, `VERTICES`, and `QUOTIENT` in that order.
 #[inline]
 #[expect(
     clippy::expect_used,
@@ -230,7 +296,7 @@ pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
         .read()
         .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned");
     let mut quotient = QUOTIENT
-        .write()
+        .lock()
         .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
     let () = scc::update_unavoidable(
         ty,

@@ -22,7 +22,7 @@ impl Pbt for bool {
             // here's where we'd run DFS iff not already in `visited`
         }
         Reflection {
-            variants: Box::new([
+            variants: Arc::new([
                 Variant::Algebraic {
                     fields: Multiset::new(),
                     // TODO

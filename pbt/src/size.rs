@@ -28,6 +28,7 @@ pub struct Partition {
 /// Instead, size must merely be split/partitioned
 /// among fields of a chosen variant,
 /// all the way down to leaves (forced when size runs out).
+#[derive(Default)]
 pub struct Size {
     /// Approximate AST size of a value to be generated,
     /// counting only inductive types and ignoring leaves.
@@ -78,6 +79,13 @@ impl Size {
             separators,
         }
     }
+
+    /// A total size of zero.
+    #[inline]
+    #[must_use]
+    pub const fn zero() -> Self {
+        Self { total: 0 }
+    }
 }
 
 impl Iterator for Partition {
@@ -96,6 +104,16 @@ impl Iterator for Partition {
         })
         // This will continue to generate 0 ad aeternum
         // after the heap has been exhausted.
+    }
+}
+
+impl Drop for Partition {
+    #[inline]
+    fn drop(&mut self) {
+        debug_assert_eq!(
+            self.used, self.total,
+            "INTERNAL ERROR (`pbt`): unused size partition",
+        );
     }
 }
 

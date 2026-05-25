@@ -3,6 +3,8 @@
 
 extern crate alloc;
 
+pub mod arbitrary;
+pub mod fields;
 pub mod hash;
 pub mod impls;
 pub mod multiset;
@@ -10,5 +12,6 @@ pub mod pbt;
 pub mod reflection;
 pub mod scc;
 pub mod size;
+pub mod swarm;
 pub mod type_id;
 pub mod union_find;
