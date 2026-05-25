@@ -14,7 +14,7 @@ use {
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
     core::{any, mem},
-    std::sync::Mutex,
+    std::sync::RwLock,
     wyrand::WyRand,
 };
 
@@ -27,7 +27,7 @@ use {
 ///
 /// The above realization also leads to the following insight:
 /// *strongly connected components define mutually inductive types.*
-static VERTICES: Mutex<HashMap<Type, Arc<TypeGraphVertex>>> = Mutex::new(map());
+static VERTICES: RwLock<HashMap<Type, Arc<TypeGraphVertex>>> = RwLock::new(map());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -38,8 +38,8 @@ static VERTICES: Mutex<HashMap<Type, Arc<TypeGraphVertex>>> = Mutex::new(map());
 /// first lift each type to its enclosing SCC, then test SCC reachability.
 /// This is especially nice since this quotient graph is a DAG by construction,
 /// so this reachability logic can safely assume the absence of cycles.
-static QUOTIENT: Mutex<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
-    Mutex::new(UnionFind::new());
+static QUOTIENT: RwLock<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
+    RwLock::new(UnionFind::new());
 
 /// Transitive reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -49,8 +49,8 @@ static QUOTIENT: Mutex<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
 /// This is useful when determining whether some variant is potentially inductive:
 /// if any of its fields can reach `Self`, then it can potentially be inductive,
 /// so we should consider it when we have plenty of size left to generate.
-static REACHABLE: Mutex<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>>>>> =
-    Mutex::new(map());
+static REACHABLE: RwLock<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>>>>> =
+    RwLock::new(map());
 
 /// This encodes the notion that "if we start generating a term of type A,
 /// then must unavoidably generate terms of type B, C, ... in the process."
@@ -58,7 +58,7 @@ static REACHABLE: Mutex<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>
 /// This is useful when determining whether some variant could be a leaf:
 /// if any of its fields unavoidably reach `Self`, then it can never be a leaf,
 /// so we should avoid it when we're running out of size remaining to generate.
-static UNAVOIDABLE: Mutex<HashMap<Type, Arc<HashSet<Type>>>> = Mutex::new(map());
+static UNAVOIDABLE: RwLock<HashMap<Type, Arc<HashSet<Type>>>> = RwLock::new(map());
 
 /// Runtime representation of the structure of an algebraic data type.
 ///
@@ -177,7 +177,7 @@ impl TypeGraphVertex {
 /// If the type graph is currently locked, no matter how briefly, this will fail.
 #[inline]
 pub fn get_immediate(ty: &Type) -> Option<Arc<TypeGraphVertex>> {
-    let map = VERTICES.try_lock().ok()?;
+    let map = VERTICES.try_read().ok()?;
     let adt = map.get(ty)?;
     Some(Arc::clone(adt))
 }
@@ -200,10 +200,10 @@ pub fn get_immediate(ty: &Type) -> Option<Arc<TypeGraphVertex>> {
 pub fn reachable(scc_root: RootElement<Type>) -> Arc<HashSet<RootElement<Type>>> {
     scc::reachable(
         &mut REACHABLE
-            .lock()
+            .write()
             .expect("INTERNAL ERROR (`pbt`): graph reachability lock poisoned"),
         &mut QUOTIENT
-            .lock()
+            .write()
             .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned"),
         scc_root,
     )
@@ -224,13 +224,13 @@ pub fn reachable(scc_root: RootElement<Type>) -> Arc<HashSet<RootElement<Type>>>
 )]
 pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
     let unavoidable = &mut UNAVOIDABLE
-        .lock()
+        .write()
         .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
     let vertices = VERTICES
-        .lock()
+        .read()
         .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned");
     let mut quotient = QUOTIENT
-        .lock()
+        .write()
         .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
     let () = scc::update_unavoidable(
         ty,
