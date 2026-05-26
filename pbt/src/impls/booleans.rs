@@ -4,7 +4,7 @@ use {
     crate::{
         multiset::Multiset,
         pbt::Pbt,
-        reflection::{Reflection, TypeGraphVertex, Variant},
+        reflection::{Erased, Variant},
         type_id::Type,
     },
     ahash::{HashMap, HashSet},
@@ -13,25 +13,23 @@ use {
 
 impl Pbt for bool {
     #[inline]
-    fn reflect(
-        _vertices: &mut HashMap<Type, Arc<TypeGraphVertex>>,
+    fn variants(
+        _variants: &mut HashMap<Type, Arc<[Variant<Erased>]>>,
         visited: &mut HashSet<Type>,
-    ) -> Reflection<Self> {
+    ) -> Arc<[Variant<Self>]> {
         let ty = Type::new::<Self>();
         if visited.insert(ty) {
             // here's where we'd run DFS iff not already in `visited`
         }
-        Reflection {
-            variants: Arc::new([
-                Variant::Algebraic {
-                    fields: Multiset::new(),
-                    // TODO
-                },
-                Variant::Algebraic {
-                    fields: Multiset::new(),
-                    // TODO
-                },
-            ]),
-        }
+        Arc::new([
+            Variant::Algebraic {
+                fields: Multiset::new(),
+                // TODO
+            },
+            Variant::Algebraic {
+                fields: Multiset::new(),
+                // TODO
+            },
+        ])
     }
 }

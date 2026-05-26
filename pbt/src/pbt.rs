@@ -2,7 +2,7 @@
 
 use {
     crate::{
-        reflection::{Reflection, TypeGraphVertex},
+        reflection::{Erased, Variant},
         type_id::Type,
     },
     ahash::{HashMap, HashSet},
@@ -11,13 +11,26 @@ use {
 
 /// The main property-based testing trait.
 pub trait Pbt: 'static {
-    /// Type-level reflection: variants, field types, erased trait operations, etc.
+    /// Enumerate the logical structure of all variants of this type.
     ///
-    /// This must *also* register all dependencies of this type:
-    /// specifically, for each type `T` of each field of each variant,
-    /// this function must call `::pbt::reflection::register::<T>(vertices, visited)`.
-    fn reflect(
-        vertices: &mut HashMap<Type, Arc<TypeGraphVertex>>,
+    /// This must *also* register all dependencies of this type.
+    /// For example, if this type  contains fields of types
+    /// `A`, `B`, and `C`,  we'd write the following:
+    /// ```rust
+    /// # type A = bool;
+    /// # type B = usize;
+    /// # type C = usize;
+    /// # let mut variants_map = pbt::hash::map();
+    /// # let mut visited_map = pbt::hash::set();
+    /// # let variants = &mut variants_map;
+    /// # let visited = &mut visited_map;
+    /// pbt::reflection::register::<A>(variants, visited);
+    /// pbt::reflection::register::<B>(variants, visited);
+    /// pbt::reflection::register::<C>(variants, visited);
+    /// // ... return this type's variants ...
+    /// ```
+    fn variants(
+        variants: &mut HashMap<Type, Arc<[Variant<Erased>]>>,
         visited: &mut HashSet<Type>,
-    ) -> Reflection<Self>;
+    ) -> Arc<[Variant<Self>]>;
 }

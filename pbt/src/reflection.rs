@@ -13,7 +13,7 @@ use {
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
-    core::{any, mem},
+    core::{any, iter, mem},
     std::sync::{Mutex, RwLock},
     wyrand::WyRand,
 };
@@ -52,6 +52,18 @@ macro_rules! cache {
     }};
 }
 
+/// Instantiable constructors for each type.
+///
+/// This is the least fixed point of the following relation:
+///
+/// - Constructors are instantiable if all their fields' types are instantiable.
+/// - Types are instantiable if any of their constructors are instantiable.
+///
+/// We specify the *least* fixed point to exclude
+/// coinductive/infinitely-sized types like `struct Loop(Box<Self>)`.
+#[expect(dead_code, reason = "TODO")]
+static CONSTRUCTORS: RwLock<HashMap<Type, Arc<[Variant<Erased>]>>> = RwLock::new(map());
+
 /// Every registered type and its directed edges (representing "has a field of this type"),
 /// without any non-local graph-theoretic information.
 ///
@@ -62,23 +74,6 @@ macro_rules! cache {
 /// The above realization also leads to the following insight:
 /// *strongly connected components define mutually inductive types.*
 static VERTICES: RwLock<HashMap<Type, Arc<TypeGraphVertex>>> = RwLock::new(map());
-
-/// DFS of reachability between *strongly connected components* of the type-dependency graph,
-/// i.e. the graph in which vertices are types and edges represent "has a field of this type."
-///
-/// The key insight is that *strongly connected components define mutually inductive types.*
-///
-/// To test reachability between *types* (not SCCs themselves),
-/// first lift each type to its enclosing SCC, then test SCC reachability.
-/// This is especially nice since this quotient graph is a DAG by construction,
-/// so this reachability logic can safely assume the absence of cycles.
-///
-/// This does *not* filter out uninstantiable types or constructors.
-/// Raw SCCs are used to solve exact instantiability before we build the
-/// productive graph used by generation.
-#[expect(dead_code, reason = "TODO")]
-static RAW_QUOTIENT: Mutex<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
-    Mutex::new(UnionFind::new());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -371,18 +366,134 @@ pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
     )
 }
 
-/// Register the type `T` in the global type reflection graph.
+/// Register the type `T` (and all of its dependencies)
+/// in the global type reflection graph.
 ///
-/// Note that this does *not* include `T` in any strongly connected components logic
-/// or any higher graph-theoretic operations. This merely registers the type for later use.
+/// This prunes all uninstantiable variants.
+///
+/// # Panics
+///
+/// If a `Pbt` implementation fails to register one of its field dependencies.
+#[inline]
+#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
+#[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
+#[expect(
+    clippy::expect_used,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+pub fn register_instantiable<T>(vertices: &mut HashMap<Type, Arc<[Variant<Erased>]>>)
+where
+    T: Pbt,
+{
+    if vertices.contains_key(&Type::new::<T>()) {
+        return;
+    }
+
+    // Collect the *naive* graph (including any uninstantiable variants):
+    let mut naive_reachable = map();
+    let mut visited = set();
+    let () = register::<T>(&mut naive_reachable, &mut visited);
+
+    let mut type_masks: HashMap<Type, bool> = map();
+    let mut variant_masks: HashMap<Type, Box<[bool]>> = map();
+    for (&ty, variants) in &mut naive_reachable {
+        if let Some(already_registered) = vertices.get(&ty) {
+            *variants = Arc::clone(already_registered);
+            let _: Option<_> = type_masks.insert(ty, !variants.is_empty());
+            let _: Option<_> =
+                variant_masks.insert(ty, iter::repeat_n(true, variants.len()).collect());
+        } else {
+            let _: Option<_> = type_masks.insert(ty, false);
+            let _: Option<_> =
+                variant_masks.insert(ty, iter::repeat_n(false, variants.len()).collect());
+        }
+    }
+
+    'fixed_point: loop {
+        let mut changed = false;
+
+        'types: for (&ty, variants) in &naive_reachable {
+            let variant_mask: &mut [bool] = variant_masks.get_mut(&ty).expect(
+                "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
+            );
+            debug_assert_eq!(
+                variant_mask.len(),
+                variants.len(),
+                "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
+            );
+            'variants: for i in 0..variants.len() {
+                // SAFETY: Loop bounds above.
+                let variant = unsafe { variants.get_unchecked(i) };
+                // SAFETY: Checked above (see the `debug_assert_eq!`).
+                let mask = unsafe { variant_mask.get_unchecked_mut(i) };
+                if *mask {
+                    continue 'variants;
+                }
+                let instantiable = match *variant {
+                    Variant::Algebraic { ref fields } => fields.iter_dedup().all(|&t| {
+                        *type_masks.get(&t).expect(
+                            "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
+                        )
+                    }),
+                    Variant::Literal { .. } => true,
+                };
+                if instantiable {
+                    *mask = true;
+                    changed = true;
+                }
+            }
+            let mask: &mut bool = type_masks.get_mut(&ty).expect(
+                "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
+            );
+            if *mask {
+                continue 'types;
+            }
+            if variant_mask.iter().any(|&b| b) {
+                *mask = true;
+                changed = true;
+            }
+        }
+
+        if !changed {
+            break 'fixed_point;
+        }
+    }
+
+    for (ty, variants) in naive_reachable {
+        let _: &mut _ = vertices
+            .entry(ty)
+            .or_insert_with(|| -> Arc<[Variant<Erased>]> {
+                let variant_mask: &[bool] = variant_masks.get(&ty).expect(
+                    "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
+                );
+                debug_assert_eq!(
+                    variant_mask.len(),
+                    variants.len(),
+                    "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
+                );
+                variants
+                    .iter()
+                    .zip(variant_mask)
+                    .filter_map(|(variant, &enabled)| enabled.then_some(variant))
+                    .cloned()
+                    .collect()
+            });
+    }
+}
+
+/// Register the type `T` and its dependencies
+/// in a naive type reflection graph,
+/// including any uninstantiable variants.
 #[inline]
 #[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 #[expect(
     clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn register<T>(vertices: &mut HashMap<Type, Arc<TypeGraphVertex>>, visited: &mut HashSet<Type>)
-where
+pub fn register<T>(
+    vertices: &mut HashMap<Type, Arc<[Variant<Erased>]>>,
+    visited: &mut HashSet<Type>,
+) where
     T: Pbt,
 {
     // If this type has already been registered, short-circuit:
@@ -391,11 +502,18 @@ where
         return;
     }
 
-    // Recurse, i.e. run depth-first search,
-    // and also gather type reflection data:
-    let reflection = T::reflect(vertices, visited);
+    // Recurse, i.e. run depth-first search:
+    let variants = T::variants(vertices, visited);
+
+    // SAFETY: `T` is only ever the codomain of a function pointer.
+    let erased = unsafe {
+        mem::transmute::<
+            Arc<[Variant<T>]>, //
+            Arc<[Variant<Erased>]>,
+        >(variants)
+    };
 
     // Insert the recursive result:
-    let dup = vertices.insert(ty, Arc::new(TypeGraphVertex::new::<T>(reflection)));
+    let dup: Option<_> = vertices.insert(ty, erased);
     assert!(dup.is_none(), "INTERNAL ERROR (`pbt`): TOCTOU during DFS");
 }
