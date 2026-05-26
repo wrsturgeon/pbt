@@ -1,12 +1,10 @@
 //! The main property-based testing trait.
 
 use {
-    crate::{
-        reflection::{Erased, Variant},
-        type_id::Type,
-    },
+    crate::reflection::{Erased, Variant},
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
+    core::any::TypeId,
 };
 
 /// The main property-based testing trait.
@@ -30,7 +28,7 @@ pub trait Pbt: 'static {
     /// // ... return this type's variants ...
     /// ```
     fn variants(
-        variants: &mut HashMap<Type, Arc<[Variant<Erased>]>>,
-        visited: &mut HashSet<Type>,
+        variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+        visited: &mut HashSet<TypeId>,
     ) -> Arc<[Variant<Self>]>;
 }

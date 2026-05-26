@@ -5,19 +5,19 @@ use {
         multiset::Multiset,
         pbt::Pbt,
         reflection::{Erased, Variant},
-        type_id::Type,
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
+    core::any::TypeId,
 };
 
 impl Pbt for bool {
     #[inline]
     fn variants(
-        _variants: &mut HashMap<Type, Arc<[Variant<Erased>]>>,
-        visited: &mut HashSet<Type>,
+        _variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+        visited: &mut HashSet<TypeId>,
     ) -> Arc<[Variant<Self>]> {
-        let ty = Type::new::<Self>();
+        let ty = TypeId::of::<Self>();
         if visited.insert(ty) {
             // here's where we'd run DFS iff not already in `visited`
         }

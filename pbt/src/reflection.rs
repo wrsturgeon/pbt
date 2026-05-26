@@ -8,12 +8,14 @@ use {
         multiset::Multiset,
         pbt::Pbt,
         scc,
-        type_id::Type,
         union_find::{RootElement, UnionFind},
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
-    core::{any, iter, mem},
+    core::{
+        any::{self, TypeId},
+        iter, mem,
+    },
     std::sync::{Mutex, RwLock},
     wyrand::WyRand,
 };
@@ -61,8 +63,11 @@ macro_rules! cache {
 ///
 /// We specify the *least* fixed point to exclude
 /// coinductive/infinitely-sized types like `struct Loop(Box<Self>)`.
+///
+/// A nice consequence is that a type's instantiability *after* this pass
+/// is merely `!constructors.is_empty()`.
 #[expect(dead_code, reason = "TODO")]
-static CONSTRUCTORS: RwLock<HashMap<Type, Arc<[Variant<Erased>]>>> = RwLock::new(map());
+static CONSTRUCTORS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
 
 /// Every registered type and its directed edges (representing "has a field of this type"),
 /// without any non-local graph-theoretic information.
@@ -73,7 +78,7 @@ static CONSTRUCTORS: RwLock<HashMap<Type, Arc<[Variant<Erased>]>>> = RwLock::new
 ///
 /// The above realization also leads to the following insight:
 /// *strongly connected components define mutually inductive types.*
-static VERTICES: RwLock<HashMap<Type, Arc<TypeGraphVertex>>> = RwLock::new(map());
+static VERTICES: RwLock<HashMap<TypeId, Arc<TypeGraphVertex>>> = RwLock::new(map());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -84,7 +89,7 @@ static VERTICES: RwLock<HashMap<Type, Arc<TypeGraphVertex>>> = RwLock::new(map()
 /// first lift each type to its enclosing SCC, then test SCC reachability.
 /// This is especially nice since this quotient graph is a DAG by construction,
 /// so this reachability logic can safely assume the absence of cycles.
-static QUOTIENT: Mutex<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
+static QUOTIENT: Mutex<UnionFind<TypeId, Arc<scc::QuotientVertex<TypeId>>>> =
     Mutex::new(UnionFind::new());
 
 /// Transitive reachability between *strongly connected components* of the type-dependency graph,
@@ -95,7 +100,7 @@ static QUOTIENT: Mutex<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
 /// This is useful when determining whether some variant is potentially inductive:
 /// if any of its fields can reach `Self`, then it can potentially be inductive,
 /// so we should consider it when we have plenty of size left to generate.
-static REACHABLE: RwLock<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type>>>>> =
+static REACHABLE: RwLock<HashMap<RootElement<TypeId>, Arc<HashSet<RootElement<TypeId>>>>> =
     RwLock::new(map());
 
 /// This encodes the notion that "if we start generating a term of type A,
@@ -104,12 +109,12 @@ static REACHABLE: RwLock<HashMap<RootElement<Type>, Arc<HashSet<RootElement<Type
 /// This is useful when determining whether some variant could be a leaf:
 /// if any of its fields unavoidably reach `Self`, then it can never be a leaf,
 /// so we should avoid it when we're running out of size remaining to generate.
-static UNAVOIDABLE: RwLock<HashMap<Type, Arc<HashSet<Type>>>> = RwLock::new(map());
+static UNAVOIDABLE: RwLock<HashMap<TypeId, Arc<HashSet<TypeId>>>> = RwLock::new(map());
 
 /// The "final boss" of graph analysis, containing
 /// precomputed data structures for efficient generation.
 #[expect(dead_code, reason = "TODO")]
-static AFFORDANCES: RwLock<HashMap<Type, Affordances<Erased>>> = RwLock::new(map());
+static AFFORDANCES: RwLock<HashMap<TypeId, Affordances<Erased>>> = RwLock::new(map());
 
 /// An erased type.
 ///
@@ -173,7 +178,7 @@ pub struct TypeGraphVertex {
     /// The name of this type, as acquired by `core::any::type_name`.
     pub name: &'static str,
     /// All types of all fields of all variants.
-    pub potential_fields: HashSet<Type>,
+    pub potential_fields: HashSet<TypeId>,
     /// Type-level reflection: variants, field types, erased trait operations, etc.
     pub reflection: Reflection<Erased>,
 }
@@ -196,7 +201,7 @@ pub enum Variant<SelfType: ?Sized> {
     Algebraic {
         /// The type of each field in this variant.
         /// Order does not matter, but total count does.
-        fields: Multiset<Type>,
+        fields: Multiset<TypeId>,
     },
     /// An opaque function pointer that generates values of this type.
     Literal {
@@ -284,16 +289,6 @@ impl TypeGraphVertex {
     }
 }
 
-/// Query reflection for the given type ID iff it is *immediately* available.
-///
-/// If the type graph is currently locked, no matter how briefly, this will fail.
-#[inline]
-pub fn get_immediate(ty: &Type) -> Option<Arc<TypeGraphVertex>> {
-    let map = VERTICES.try_read().ok()?;
-    let adt = map.get(ty)?;
-    Some(Arc::clone(adt))
-}
-
 /// Compute all reachable SCCs from the given SCC,
 /// transitively caching all results.
 ///
@@ -309,7 +304,7 @@ pub fn get_immediate(ty: &Type) -> Option<Arc<TypeGraphVertex>> {
     clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn reachable(scc_root: RootElement<Type>) -> Arc<HashSet<RootElement<Type>>> {
+pub fn reachable(scc_root: RootElement<TypeId>) -> Arc<HashSet<RootElement<TypeId>>> {
     scc::reachable(
         &mut REACHABLE
             .write()
@@ -334,7 +329,7 @@ pub fn reachable(scc_root: RootElement<Type>) -> Arc<HashSet<RootElement<Type>>>
     clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
+pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
     let unavoidable = &mut UNAVOIDABLE
         .write()
         .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
@@ -351,7 +346,7 @@ pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
         &mut quotient,
         &|adt: &Arc<TypeGraphVertex>| &*adt.reflection.variants,
         &|variant: &Variant<Erased>| {
-            const EMPTY: &Multiset<Type> = &Multiset::new();
+            const EMPTY: &Multiset<TypeId> = &Multiset::new();
             match *variant {
                 Variant::Algebraic { ref fields } => fields,
                 Variant::Literal { .. } => EMPTY,
@@ -381,11 +376,11 @@ pub fn unavoidable(ty: Type) -> Arc<HashSet<Type>> {
     clippy::expect_used,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn register_instantiable<T>(vertices: &mut HashMap<Type, Arc<[Variant<Erased>]>>)
+pub fn register_instantiable<T>(vertices: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>)
 where
     T: Pbt,
 {
-    if vertices.contains_key(&Type::new::<T>()) {
+    if vertices.contains_key(&TypeId::of::<T>()) {
         return;
     }
 
@@ -394,8 +389,8 @@ where
     let mut visited = set();
     let () = register::<T>(&mut naive_reachable, &mut visited);
 
-    let mut type_masks: HashMap<Type, bool> = map();
-    let mut variant_masks: HashMap<Type, Box<[bool]>> = map();
+    let mut type_masks: HashMap<TypeId, bool> = map();
+    let mut variant_masks: HashMap<TypeId, Box<[bool]>> = map();
     for (&ty, variants) in &mut naive_reachable {
         if let Some(already_registered) = vertices.get(&ty) {
             *variants = Arc::clone(already_registered);
@@ -491,13 +486,13 @@ where
     reason = "For internal use only: invariant violations should fail loudly."
 )]
 pub fn register<T>(
-    vertices: &mut HashMap<Type, Arc<[Variant<Erased>]>>,
-    visited: &mut HashSet<Type>,
+    vertices: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+    visited: &mut HashSet<TypeId>,
 ) where
     T: Pbt,
 {
     // If this type has already been registered, short-circuit:
-    let ty = Type::new::<T>();
+    let ty = TypeId::of::<T>();
     if vertices.contains_key(&ty) || !visited.insert(ty) {
         return;
     }

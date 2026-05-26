@@ -13,5 +13,4 @@ pub mod reflection;
 pub mod scc;
 pub mod size;
 pub mod swarm;
-pub mod type_id;
 pub mod union_find;

@@ -7,8 +7,8 @@ use {
         pbt::Pbt,
         size::{self, Size},
         swarm::Swarm,
-        type_id::Type,
     },
+    core::any::TypeId,
     wyrand::WyRand,
 };
 
@@ -56,7 +56,7 @@ impl Fields for Lazy<'_, '_, '_> {
     where
         T: Pbt,
     {
-        let ty = Type::new::<T>();
+        let ty = TypeId::of::<T>();
         let size = if self.swarm.affordances(ty, self.prng).is_inductive() {
             // SAFETY: `Partition::next` always returns `Some(_)`,
             // since it returns endless zeros after its assigned cardinality.

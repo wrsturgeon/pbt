@@ -2,13 +2,10 @@
 //! partitioned into potential leaves and loops.
 
 use {
-    crate::{
-        reflection::{Affordances, Erased, LeavesAndLoops},
-        type_id::Type,
-    },
+    crate::reflection::{Affordances, Erased, LeavesAndLoops},
     ahash::HashMap,
     alloc::sync::Arc,
-    core::num::NonZero,
+    core::{any::TypeId, num::NonZero},
     wyrand::WyRand,
 };
 
@@ -17,10 +14,10 @@ use {
 pub struct Swarm<'full> {
     /// An immutable reference to the global map
     /// from types to their *full* set of constructors.
-    full: &'full HashMap<Type, Affordances<Erased>>,
+    full: &'full HashMap<TypeId, Affordances<Erased>>,
     /// A masked (partial) set of constructors for this type,
     /// partitioned into potential leaves and loops.
-    masked: HashMap<Type, Affordances<Erased>>,
+    masked: HashMap<TypeId, Affordances<Erased>>,
 }
 
 impl Swarm<'_> {
@@ -32,7 +29,7 @@ impl Swarm<'_> {
         clippy::missing_panics_doc,
         reason = "For internal use only: invariant violations should fail loudly."
     )]
-    pub fn affordances(&mut self, ty: Type, prng: &mut WyRand) -> &Affordances<Erased> {
+    pub fn affordances(&mut self, ty: TypeId, prng: &mut WyRand) -> &Affordances<Erased> {
         self.masked.entry(ty).or_insert_with(|| {
             let full = self
                 .full
