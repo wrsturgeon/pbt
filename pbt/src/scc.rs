@@ -133,16 +133,14 @@ where
     clippy::panic,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn update_unavoidable<Vertex, Adt, Variant, VariantsOf, FieldsOf>(
+pub fn update_unavoidable<Vertex, Variant, FieldsOf>(
     vertex: Vertex,
     cache: &mut HashMap<Vertex, Arc<HashSet<Vertex>>>,
-    vertices: &HashMap<Vertex, Adt>,
+    constructors: &HashMap<Vertex, Arc<[Variant]>>,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
-    variants_of: &VariantsOf,
     fields_of: &FieldsOf,
 ) where
     Vertex: Copy + Eq + Hash,
-    VariantsOf: Fn(&Adt) -> &[Variant],
     FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
 {
     if cache.contains_key(&vertex) {
@@ -157,28 +155,20 @@ pub fn update_unavoidable<Vertex, Adt, Variant, VariantsOf, FieldsOf>(
         .clone();
 
     for &scc_element in &scc_elements {
-        let adt = vertices
+        let variants: &[Variant] = constructors
             .get(&scc_element)
             .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis");
-        let variants: &[Variant] = variants_of(adt);
         for variant in variants {
             for field in fields_of(variant).counts.keys() {
                 if !scc_elements.contains(field) {
-                    let () = update_unavoidable(
-                        *field,
-                        cache,
-                        vertices,
-                        quotient,
-                        variants_of,
-                        fields_of,
-                    );
+                    let () = update_unavoidable(*field, cache, constructors, quotient, fields_of);
                 }
             }
         }
     }
 
     for (fixed_vertex, unavoidables) in
-        fixed_point_unavoidable(vertices, cache, &scc_elements, variants_of, fields_of)
+        fixed_point_unavoidable(constructors, cache, &scc_elements, fields_of)
     {
         let arc = Arc::new(unavoidables);
         if let Some(_dup) = cache.insert(fixed_vertex, arc) {
@@ -194,16 +184,14 @@ pub fn update_unavoidable<Vertex, Adt, Variant, VariantsOf, FieldsOf>(
     clippy::expect_used,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-fn fixed_point_unavoidable<Vertex, Adt, Variant, VariantsOf, FieldsOf>(
-    vertices: &HashMap<Vertex, Adt>,
+fn fixed_point_unavoidable<Vertex, Variant, FieldsOf>(
+    constructors: &HashMap<Vertex, Arc<[Variant]>>,
     cached: &HashMap<Vertex, Arc<HashSet<Vertex>>>,
     scc_elements: &HashSet<Vertex>,
-    variants_of: &VariantsOf,
     fields_of: &FieldsOf,
 ) -> HashMap<Vertex, HashSet<Vertex>>
 where
     Vertex: Copy + Eq + Hash,
-    VariantsOf: Fn(&Adt) -> &[Variant],
     FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
 {
     let mut scc_acc = map();
@@ -228,10 +216,9 @@ where
 
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for &scc_vertex in scc_elements {
-            let adt = vertices
+            let variant_slice: &[Variant] = constructors
                 .get(&scc_vertex)
                 .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis");
-            let variant_slice: &[Variant] = variants_of(adt);
             let mut variants = variant_slice.iter();
             let mut next = match variants.next() {
                 Some(variant) => variant_unavoidable::<Vertex, Variant, FieldsOf>(
@@ -453,10 +440,10 @@ mod tests {
 
     use {super::*, crate::hash::set, pretty_assertions::assert_eq};
 
-    type AdtGraph = HashMap<u8, Vec<Multiset<u8>>>;
+    type AdtGraph = HashMap<u8, Arc<[Multiset<u8>]>>;
     type Graph = HashMap<u8, HashSet<u8>>;
 
-    fn adt(variants: &[&[u8]]) -> Vec<Multiset<u8>> {
+    fn adt(variants: &[&[u8]]) -> Arc<[Multiset<u8>]> {
         variants
             .iter()
             .copied()
@@ -464,7 +451,7 @@ mod tests {
             .collect()
     }
 
-    fn adt_graph<const N: usize>(entries: [(u8, Vec<Multiset<u8>>); N]) -> AdtGraph {
+    fn adt_graph<const N: usize>(entries: [(u8, Arc<[Multiset<u8>]>); N]) -> AdtGraph {
         let mut graph = map();
         for (vertex, adt) in entries {
             assert_eq!(
@@ -493,7 +480,7 @@ mod tests {
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for (vertex, adt) in vertices {
             let mut destinations = set();
-            for variant in adt {
+            for variant in &**adt {
                 destinations.extend(variant.counts.keys().copied());
             }
             assert_eq!(
@@ -529,14 +516,9 @@ mod tests {
             &mut cache,
             vertices,
             &mut quotient,
-            &variants_of_adt,
             &fields_of_multiset,
         );
         cache
-    }
-
-    fn variants_of_adt(adt: &Vec<Multiset<u8>>) -> &[Multiset<u8>] {
-        adt.as_slice()
     }
 
     fn immediate_roots(

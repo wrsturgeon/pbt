@@ -66,19 +66,7 @@ macro_rules! cache {
 ///
 /// A nice consequence is that a type's instantiability *after* this pass
 /// is merely `!constructors.is_empty()`.
-#[expect(dead_code, reason = "TODO")]
 static CONSTRUCTORS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
-
-/// Every registered type and its directed edges (representing "has a field of this type"),
-/// without any non-local graph-theoretic information.
-///
-/// This graph may be cyclic (and it often will be, exactly when there exists an inductive type),
-/// but incoming edges will never affect inductive logic unless it closes a loop,
-/// so graph-theoretic analyses are free to care only about vertices reachable from some type.
-///
-/// The above realization also leads to the following insight:
-/// *strongly connected components define mutually inductive types.*
-static VERTICES: RwLock<HashMap<TypeId, Arc<TypeGraphVertex>>> = RwLock::new(map());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -322,7 +310,7 @@ pub fn reachable(scc_root: RootElement<TypeId>) -> Arc<HashSet<RootElement<TypeI
 /// eventually requires a field whose type unavoidably reaches `U`.
 /// Unavoidability is reflexive by convention: every type unavoidably reaches itself.
 ///
-/// N.B.: This function locks `UNAVOIDABLE`, `VERTICES`, and `QUOTIENT` in that order.
+/// N.B.: This function locks `UNAVOIDABLE`, `QUOTIENT`, and `CONSTRUCTORS` in that order.
 #[inline]
 #[expect(
     clippy::expect_used,
@@ -333,18 +321,17 @@ pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
     let unavoidable = &mut UNAVOIDABLE
         .write()
         .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
-    let vertices = VERTICES
-        .read()
-        .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned");
     let mut quotient = QUOTIENT
         .lock()
         .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
+    let constructors = CONSTRUCTORS
+        .read()
+        .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned");
     let () = scc::update_unavoidable(
         ty,
         unavoidable,
-        &vertices,
+        &constructors,
         &mut quotient,
-        &|adt: &Arc<TypeGraphVertex>| &*adt.reflection.variants,
         &|variant: &Variant<Erased>| {
             const EMPTY: &Multiset<TypeId> = &Multiset::new();
             match *variant {
