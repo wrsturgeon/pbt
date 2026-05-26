@@ -133,15 +133,16 @@ where
     clippy::panic,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn update_unavoidable<Vertex, Variant, FieldsOf>(
+pub fn update_unavoidable<Vertex, Variant, Constructors, FieldsOf>(
     vertex: Vertex,
     cache: &mut HashMap<Vertex, Arc<HashSet<Vertex>>>,
-    constructors: &HashMap<Vertex, Arc<[Variant]>>,
+    constructors: &Constructors,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
     fields_of: &FieldsOf,
 ) where
-    Vertex: Copy + Eq + Hash,
+    Constructors: Fn(Vertex) -> Arc<[Variant]>,
     FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
+    Vertex: Copy + Eq + Hash,
 {
     if cache.contains_key(&vertex) {
         return;
@@ -155,9 +156,7 @@ pub fn update_unavoidable<Vertex, Variant, FieldsOf>(
         .clone();
 
     for &scc_element in &scc_elements {
-        let variants: &[Variant] = constructors
-            .get(&scc_element)
-            .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis");
+        let variants: &[Variant] = &constructors(scc_element);
         for variant in variants {
             for field in fields_of(variant).counts.keys() {
                 if !scc_elements.contains(field) {
@@ -184,15 +183,16 @@ pub fn update_unavoidable<Vertex, Variant, FieldsOf>(
     clippy::expect_used,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-fn fixed_point_unavoidable<Vertex, Variant, FieldsOf>(
-    constructors: &HashMap<Vertex, Arc<[Variant]>>,
+fn fixed_point_unavoidable<Vertex, Variant, Constructors, FieldsOf>(
+    constructors: &Constructors,
     cached: &HashMap<Vertex, Arc<HashSet<Vertex>>>,
     scc_elements: &HashSet<Vertex>,
     fields_of: &FieldsOf,
 ) -> HashMap<Vertex, HashSet<Vertex>>
 where
-    Vertex: Copy + Eq + Hash,
+    Constructors: Fn(Vertex) -> Arc<[Variant]>,
     FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
+    Vertex: Copy + Eq + Hash,
 {
     let mut scc_acc = map();
 
@@ -216,9 +216,7 @@ where
 
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for &scc_vertex in scc_elements {
-            let variant_slice: &[Variant] = constructors
-                .get(&scc_vertex)
-                .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis");
+            let variant_slice: &[Variant] = &constructors(scc_vertex);
             let mut variants = variant_slice.iter();
             let mut next = match variants.next() {
                 Some(variant) => variant_unavoidable::<Vertex, Variant, FieldsOf>(
@@ -514,7 +512,7 @@ mod tests {
         update_unavoidable(
             root,
             &mut cache,
-            vertices,
+            &|i| Arc::clone(vertices.get(&i).unwrap()),
             &mut quotient,
             &fields_of_multiset,
         );

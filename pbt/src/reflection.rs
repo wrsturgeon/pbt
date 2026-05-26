@@ -54,19 +54,15 @@ macro_rules! cache {
     }};
 }
 
-/// Instantiable constructors for each type.
+/// All variants of each registered type
+/// (transitively through dependencies),
+/// *including* uninstantiable variants.
 ///
-/// This is the least fixed point of the following relation:
-///
-/// - Constructors are instantiable if all their fields' types are instantiable.
-/// - Types are instantiable if any of their constructors are instantiable.
-///
-/// We specify the *least* fixed point to exclude
-/// coinductive/infinitely-sized types like `struct Loop(Box<Self>)`.
-///
-/// A nice consequence is that a type's instantiability *after* this pass
-/// is merely `!constructors.is_empty()`.
-static CONSTRUCTORS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
+/// Graph-theoretically, this is a bipartite graph in which
+/// types point to constructors and constructors point to types.
+/// Each directed edge means "contains," i.e.
+/// "has a field of this type" or "contains this variant."
+static NAIVE_VARIANTS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
@@ -277,6 +273,41 @@ impl TypeGraphVertex {
     }
 }
 
+/// Instantiable constructors for each type.
+///
+/// N.B.: A type's instantiability is as simple as `!constructors.is_empty()`.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    clippy::missing_panics_doc,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+pub fn constructors(ty: TypeId) -> Arc<[Variant<Erased>]> {
+    static CACHE: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
+
+    if let Some(cached) = CACHE
+        .read()
+        .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned")
+        .get(&ty)
+    {
+        return Arc::clone(cached);
+    }
+
+    let mut cache = CACHE
+        .write()
+        .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
+    let naive = NAIVE_VARIANTS
+        .read()
+        .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
+    let () = update_instantiability(&naive, &mut cache);
+
+    Arc::clone(
+        cache
+            .get(&ty)
+            .expect("INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis"),
+    )
+}
+
 /// Incrementally computes the least fixed point of the following relation:
 ///
 /// - Constructors are instantiable if all their fields' types are instantiable.
@@ -290,17 +321,15 @@ impl TypeGraphVertex {
 #[inline]
 #[expect(
     clippy::expect_used,
-    clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-pub fn update_instantiability(
-    naive: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+fn update_instantiability(
+    naive: &HashMap<TypeId, Arc<[Variant<Erased>]>>,
     constructors: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
 ) {
     let mut masks: HashMap<TypeId, (bool, Box<[bool]>)> = map();
-    for (&ty, variants) in &mut *naive {
+    for (&ty, variants) in naive {
         if !constructors.contains_key(&ty) {
             let _: Option<_> =
                 masks.insert(ty, (false, iter::repeat_n(false, variants.len()).collect()));
@@ -311,7 +340,7 @@ pub fn update_instantiability(
         let mut changed = false;
 
         // 'types: for (&ty, &mut (ref mut type_mask, ref mut variant_mask)) in &mut masks {
-        'types: for (&ty, naive_variants) in &*naive {
+        'types: for (&ty, naive_variants) in naive {
             if !masks.contains_key(&ty) {
                 continue 'types;
             }
@@ -338,7 +367,7 @@ pub fn update_instantiability(
                         } else {
                             debug_assert!(
                                 naive.contains_key(field),
-                                "INTERNAL ERROR (`pbt`): unregistered type",
+                                "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
                             );
                             true
                         }
@@ -376,7 +405,7 @@ pub fn update_instantiability(
         }
     }
 
-    for (&ty, variants) in &*naive {
+    for (&ty, variants) in naive {
         let _: &mut _ = constructors
             .entry(ty)
             .or_insert_with(|| -> Arc<[Variant<Erased>]> {
@@ -409,8 +438,8 @@ pub fn update_instantiability(
 ///
 /// If a `Pbt` implementation fails to register one of its field dependencies.
 #[inline]
-#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
-pub fn register_constructors<T>(
+#[expect(dead_code, reason = "TODO")]
+fn register_constructors<T>(
     naive: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
     vertices: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
 ) where
@@ -475,9 +504,6 @@ pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
     let mut quotient = QUOTIENT
         .lock()
         .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
-    let constructors = CONSTRUCTORS
-        .read()
-        .expect("INTERNAL ERROR (`pbt`): reflection registry lock poisoned");
     let () = scc::update_unavoidable(
         ty,
         unavoidable,
