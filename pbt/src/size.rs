@@ -3,7 +3,7 @@
 
 use {
     alloc::collections::BinaryHeap,
-    core::{cmp, mem, num::NonZero},
+    core::{cmp, iter, mem, num::NonZero},
     wyrand::WyRand,
 };
 
@@ -12,7 +12,7 @@ use {
 pub struct Partition {
     /// The "bars" in "stars and bars."
     /// (The *combinatorics* "stars and bars," not the confederate flag.)
-    separators: BinaryHeap<cmp::Reverse<usize>>,
+    separators: Option<BinaryHeap<cmp::Reverse<usize>>>,
     /// The original size being partitioned.
     total: usize,
     /// The total size that has been used so far,
@@ -53,26 +53,27 @@ impl Size {
     #[inline]
     pub fn partition(self, into_how_many: usize, prng: &mut WyRand) -> Partition {
         // TODO: switch algorithm if `into_how_many < self.total`
-        #[expect(
-            clippy::expect_used,
-            reason = "genuinely cataclysmic state, should panic"
-        )]
-        let incremented = self
-            .total
-            .checked_add(1)
-            .expect("PSA from `pbt`: your memory will not hold a term of size `usize::MAX`.");
-        // SAFETY: Incremented above, starting from at least zero,
-        // so the result must be at least 1.
-        let modulo = unsafe { NonZero::new_unchecked(incremented) };
-        let mut separators = BinaryHeap::new();
-        for _ in 1..into_how_many {
+        let separators = into_how_many.checked_sub(1).map(|n_separators| {
+            #[expect(
+                clippy::expect_used,
+                reason = "genuinely cataclysmic state, should panic"
+            )]
+            let incremented = self
+                .total
+                .checked_add(1)
+                .expect("PSA from `pbt`: your memory will not hold a term of size `usize::MAX`.");
+            // SAFETY: Incremented above, starting from at least zero,
+            // so the result must be at least 1.
+            let modulo = unsafe { NonZero::new_unchecked(incremented) };
             #[expect(
                 clippy::as_conversions,
                 clippy::cast_possible_truncation,
                 reason = "intentional"
             )]
-            let () = separators.push(cmp::Reverse(prng.rand() as usize % modulo));
-        }
+            iter::repeat_with(|| cmp::Reverse(prng.rand() as usize % modulo))
+                .take(n_separators)
+                .collect()
+        });
         Partition {
             total: self.total,
             used: 0,
@@ -92,11 +93,17 @@ impl Iterator for Partition {
     type Item = Size;
 
     #[inline]
+    #[expect(
+        clippy::expect_used,
+        clippy::unwrap_in_result,
+        reason = "For internal use only: invariant violations should fail loudly."
+    )]
     fn next(&mut self) -> Option<Self::Item> {
-        let cap = self
+        let separators = self
             .separators
-            .pop()
-            .map_or(self.total, |cmp::Reverse(u)| u);
+            .as_mut()
+            .expect("INTERNAL ERROR (`pbt`): overdrawn size partition");
+        let cap = separators.pop().map_or(self.total, |cmp::Reverse(u)| u);
         let used = mem::replace(&mut self.used, cap);
         Some(Size {
             // SAFETY: by sorted-`pop` invariant of `BinaryHeap`.

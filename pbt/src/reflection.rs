@@ -277,6 +277,157 @@ impl TypeGraphVertex {
     }
 }
 
+/// Incrementally computes the least fixed point of the following relation:
+///
+/// - Constructors are instantiable if all their fields' types are instantiable.
+/// - Types are instantiable if any of their constructors are instantiable.
+///
+/// We specify the *least* fixed point to exclude
+/// coinductive/infinitely-sized types like `struct Loop(Box<Self>)`.
+///
+/// A nice consequence is that a type's instantiability *after* this pass
+/// is merely `!constructors.is_empty()`.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    clippy::missing_panics_doc,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
+#[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
+pub fn update_instantiability(
+    naive: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+    constructors: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+) {
+    let mut masks: HashMap<TypeId, (bool, Box<[bool]>)> = map();
+    for (&ty, variants) in &mut *naive {
+        if !constructors.contains_key(&ty) {
+            let _: Option<_> =
+                masks.insert(ty, (false, iter::repeat_n(false, variants.len()).collect()));
+        }
+    }
+
+    'fixed_point: loop {
+        let mut changed = false;
+
+        // 'types: for (&ty, &mut (ref mut type_mask, ref mut variant_mask)) in &mut masks {
+        'types: for (&ty, naive_variants) in &*naive {
+            if !masks.contains_key(&ty) {
+                continue 'types;
+            }
+            'variants: for i in 0..naive_variants.len() {
+                // SAFETY: Loop bounds above.
+                let naive_variant = unsafe { naive_variants.get_unchecked(i) };
+                let variant_masks: &[bool] = &masks
+                    .get(&ty)
+                    .expect("INTERNAL ERROR (`pbt`): mask disappeared")
+                    .1;
+                debug_assert_eq!(
+                    variant_masks.len(),
+                    naive_variants.len(),
+                    "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
+                );
+                // SAFETY: Invariant, also checked above.
+                if *unsafe { variant_masks.get_unchecked(i) } {
+                    continue 'variants;
+                }
+                let instantiable = match *naive_variant {
+                    Variant::Algebraic { ref fields } => fields.iter_dedup().all(|field| {
+                        if let Some(&(type_mask, ref _variant_mask)) = masks.get(field) {
+                            type_mask
+                        } else {
+                            debug_assert!(
+                                naive.contains_key(field),
+                                "INTERNAL ERROR (`pbt`): unregistered type",
+                            );
+                            true
+                        }
+                    }),
+                    Variant::Literal { .. } => true,
+                };
+                if instantiable {
+                    let variant_masks_mut: &mut [bool] = &mut masks
+                        .get_mut(&ty)
+                        .expect("INTERNAL ERROR (`pbt`): mask disappeared")
+                        .1;
+                    // SAFETY: Invariant, also checked above.
+                    let variant_mask = unsafe { variant_masks_mut.get_unchecked_mut(i) };
+                    *variant_mask = true;
+                    changed = true;
+                }
+            }
+            let (type_mask, ref variant_masks) = *masks
+                .get(&ty)
+                .expect("INTERNAL ERROR (`pbt`): TOCTOU despite holding a reference");
+            if type_mask {
+                continue 'types;
+            }
+            if variant_masks.iter().any(|&instantiable| instantiable) {
+                masks
+                    .get_mut(&ty)
+                    .expect("INTERNAL ERROR (`pbt`): TOCTOU despite holding a reference")
+                    .0 = true;
+                changed = true;
+            }
+        }
+
+        if !changed {
+            break 'fixed_point;
+        }
+    }
+
+    for (&ty, variants) in &*naive {
+        let _: &mut _ = constructors
+            .entry(ty)
+            .or_insert_with(|| -> Arc<[Variant<Erased>]> {
+                let variant_mask: &[bool] = &masks
+                    .get(&ty)
+                    .expect(
+                        "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
+                    )
+                    .1;
+                debug_assert_eq!(
+                    variant_mask.len(),
+                    variants.len(),
+                    "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
+                );
+                variants
+                    .iter()
+                    .zip(variant_mask)
+                    .filter_map(|(variant, &enabled)| enabled.then_some(variant))
+                    .cloned()
+                    .collect()
+            });
+    }
+}
+
+/// Register the type `T` (and all of its dependencies)
+/// in the global type reflection graph, and
+/// prune all uninstantiable variants.
+///
+/// # Panics
+///
+/// If a `Pbt` implementation fails to register one of its field dependencies.
+#[inline]
+#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
+pub fn register_constructors<T>(
+    naive: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+    vertices: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+) where
+    T: Pbt,
+{
+    let ty = TypeId::of::<T>();
+    if vertices.contains_key(&ty) {
+        return;
+    }
+
+    // Collect the *naive* graph (including any uninstantiable variants):
+    let mut visited = set();
+    let () = register::<T>(naive, &mut visited);
+
+    let () = update_instantiability(naive, vertices);
+}
+
 /// Compute all reachable SCCs from the given SCC,
 /// transitively caching all results.
 ///
@@ -346,121 +497,6 @@ pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
             .get(&ty)
             .expect("INTERNAL ERROR (`pbt`): missing requested unavoidability result"),
     )
-}
-
-/// Register the type `T` (and all of its dependencies)
-/// in the global type reflection graph.
-///
-/// This prunes all uninstantiable variants.
-///
-/// # Panics
-///
-/// If a `Pbt` implementation fails to register one of its field dependencies.
-#[inline]
-#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
-#[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-#[expect(
-    clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-pub fn register_instantiable<T>(vertices: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>)
-where
-    T: Pbt,
-{
-    if vertices.contains_key(&TypeId::of::<T>()) {
-        return;
-    }
-
-    // Collect the *naive* graph (including any uninstantiable variants):
-    let mut naive_reachable = map();
-    let mut visited = set();
-    let () = register::<T>(&mut naive_reachable, &mut visited);
-
-    let mut type_masks: HashMap<TypeId, bool> = map();
-    let mut variant_masks: HashMap<TypeId, Box<[bool]>> = map();
-    for (&ty, variants) in &mut naive_reachable {
-        if let Some(already_registered) = vertices.get(&ty) {
-            *variants = Arc::clone(already_registered);
-            let _: Option<_> = type_masks.insert(ty, !variants.is_empty());
-            let _: Option<_> =
-                variant_masks.insert(ty, iter::repeat_n(true, variants.len()).collect());
-        } else {
-            let _: Option<_> = type_masks.insert(ty, false);
-            let _: Option<_> =
-                variant_masks.insert(ty, iter::repeat_n(false, variants.len()).collect());
-        }
-    }
-
-    'fixed_point: loop {
-        let mut changed = false;
-
-        'types: for (&ty, variants) in &naive_reachable {
-            let variant_mask: &mut [bool] = variant_masks.get_mut(&ty).expect(
-                "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
-            );
-            debug_assert_eq!(
-                variant_mask.len(),
-                variants.len(),
-                "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
-            );
-            'variants: for i in 0..variants.len() {
-                // SAFETY: Loop bounds above.
-                let variant = unsafe { variants.get_unchecked(i) };
-                // SAFETY: Checked above (see the `debug_assert_eq!`).
-                let mask = unsafe { variant_mask.get_unchecked_mut(i) };
-                if *mask {
-                    continue 'variants;
-                }
-                let instantiable = match *variant {
-                    Variant::Algebraic { ref fields } => fields.iter_dedup().all(|&t| {
-                        *type_masks.get(&t).expect(
-                            "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
-                        )
-                    }),
-                    Variant::Literal { .. } => true,
-                };
-                if instantiable {
-                    *mask = true;
-                    changed = true;
-                }
-            }
-            let mask: &mut bool = type_masks.get_mut(&ty).expect(
-                "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
-            );
-            if *mask {
-                continue 'types;
-            }
-            if variant_mask.iter().any(|&b| b) {
-                *mask = true;
-                changed = true;
-            }
-        }
-
-        if !changed {
-            break 'fixed_point;
-        }
-    }
-
-    for (ty, variants) in naive_reachable {
-        let _: &mut _ = vertices
-            .entry(ty)
-            .or_insert_with(|| -> Arc<[Variant<Erased>]> {
-                let variant_mask: &[bool] = variant_masks.get(&ty).expect(
-                    "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
-                );
-                debug_assert_eq!(
-                    variant_mask.len(),
-                    variants.len(),
-                    "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
-                );
-                variants
-                    .iter()
-                    .zip(variant_mask)
-                    .filter_map(|(variant, &enabled)| enabled.then_some(variant))
-                    .cloned()
-                    .collect()
-            });
-    }
 }
 
 /// Register the type `T` and its dependencies
