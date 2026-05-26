@@ -100,7 +100,7 @@ where
 
     for &child in &quotient
         .root(*root)
-        .expect("INTERNAL ERROR (`pbt`): unregistered vertex during reachability analysis")
+        .expect("INTERNAL ERROR (`pbt`): unregistered type during reachability analysis")
         .metadata
         .immediately_reachable
     {
@@ -151,7 +151,7 @@ pub fn update_unavoidable<Vertex, Adt, Variant, VariantsOf, FieldsOf>(
 
     let scc_elements = quotient
         .root(vertex)
-        .expect("INTERNAL ERROR (`pbt`): unregistered vertex during unavoidability analysis")
+        .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis")
         .metadata
         .elements
         .clone();
@@ -159,7 +159,7 @@ pub fn update_unavoidable<Vertex, Adt, Variant, VariantsOf, FieldsOf>(
     for &scc_element in &scc_elements {
         let adt = vertices
             .get(&scc_element)
-            .expect("INTERNAL ERROR (`pbt`): unregistered vertex during unavoidability analysis");
+            .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis");
         let variants: &[Variant] = variants_of(adt);
         for variant in variants {
             for field in fields_of(variant).counts.keys() {
@@ -228,9 +228,9 @@ where
 
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for &scc_vertex in scc_elements {
-            let adt = vertices.get(&scc_vertex).expect(
-                "INTERNAL ERROR (`pbt`): unregistered vertex during unavoidability analysis",
-            );
+            let adt = vertices
+                .get(&scc_vertex)
+                .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis");
             let variant_slice: &[Variant] = variants_of(adt);
             let mut variants = variant_slice.iter();
             let mut next = match variants.next() {

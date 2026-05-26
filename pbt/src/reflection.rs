@@ -18,6 +18,40 @@ use {
     wyrand::WyRand,
 };
 
+/// Cache an *idempotent* calculation with an `RwLock<HashMap<K, V>>`.
+#[expect(
+    unused_macros,
+    reason = "TODO: evaluate after reflection caches settle"
+)]
+macro_rules! cache {
+    ($name:literal = |$k:ident: $K:ty| -> $V:ty $b:block) => {{
+        static CACHE: RwLock<HashMap<$K, $V>> = RwLock::new(map());
+
+        // Check if this key already has a cached result:
+        {
+            let read = CACHE.read().expect(concat!(
+                "INTERNAL ERROR (`pbt`): ",
+                $name,
+                " cache lock poisoned",
+            ));
+            if let Some(cached) = read.get(&$k) {
+                return <$V as Clone>::clone(cached);
+            }
+        }
+
+        // Otherwise, compute the result and insert it,
+        // unless there was a race condition (in which case
+        // it's important that this function be idempotent):
+        let v = $b;
+        let mut write = CACHE.write().expect(concat!(
+            "INTERNAL ERROR (`pbt`): ",
+            $name,
+            " cache lock poisoned",
+        ));
+        <$V as Clone>::clone(write.entry($k).or_insert(v))
+    }};
+}
+
 /// Every registered type and its directed edges (representing "has a field of this type"),
 /// without any non-local graph-theoretic information.
 ///
@@ -28,6 +62,23 @@ use {
 /// The above realization also leads to the following insight:
 /// *strongly connected components define mutually inductive types.*
 static VERTICES: RwLock<HashMap<Type, Arc<TypeGraphVertex>>> = RwLock::new(map());
+
+/// DFS of reachability between *strongly connected components* of the type-dependency graph,
+/// i.e. the graph in which vertices are types and edges represent "has a field of this type."
+///
+/// The key insight is that *strongly connected components define mutually inductive types.*
+///
+/// To test reachability between *types* (not SCCs themselves),
+/// first lift each type to its enclosing SCC, then test SCC reachability.
+/// This is especially nice since this quotient graph is a DAG by construction,
+/// so this reachability logic can safely assume the absence of cycles.
+///
+/// This does *not* filter out uninstantiable types or constructors.
+/// Raw SCCs are used to solve exact instantiability before we build the
+/// productive graph used by generation.
+#[expect(dead_code, reason = "TODO")]
+static RAW_QUOTIENT: Mutex<UnionFind<Type, Arc<scc::QuotientVertex<Type>>>> =
+    Mutex::new(UnionFind::new());
 
 /// DFS of reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."

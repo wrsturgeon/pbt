@@ -54,6 +54,18 @@ where
             .or_insert(const { NonZero::new(1).unwrap() });
     }
 
+    /// Iterate over each distinct element and its count.
+    #[inline]
+    pub fn iter(&self) -> impl Iterator<Item = (&T, &NonZero<usize>)> {
+        self.counts.iter()
+    }
+
+    /// Iterate over each distinct element, ignoring duplicate counts.
+    #[inline]
+    pub fn iter_dedup(&self) -> impl Iterator<Item = &T> {
+        self.counts.keys()
+    }
+
     /// Initialize an empty multiset.
     #[inline]
     #[must_use]
