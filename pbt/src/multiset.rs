@@ -5,6 +5,7 @@ use {
     crate::hash::map,
     ahash::HashMap,
     core::{hash::Hash, num::NonZero},
+    std::collections::hash_map,
 };
 
 /// A multiset/bag: an unordered collection tracking the
@@ -62,7 +63,8 @@ where
 
     /// Iterate over each distinct element, ignoring duplicate counts.
     #[inline]
-    pub fn iter_dedup(&self) -> impl Iterator<Item = &T> {
+    #[must_use]
+    pub fn iter_dedup(&self) -> hash_map::Keys<'_, T, NonZero<usize>> {
         self.counts.keys()
     }
 

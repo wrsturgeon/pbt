@@ -5,6 +5,7 @@ extern crate alloc;
 
 pub mod arbitrary;
 pub mod fields;
+pub mod graph;
 pub mod hash;
 pub mod impls;
 pub mod multiset;
