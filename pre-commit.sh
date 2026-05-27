@@ -17,6 +17,7 @@ env "$runner_env=$valgrind_runner" \
     cargo test --all-features --doc --quiet --workspace
 
 
+echo
 echo 'Linting with Clippy...'
 cargo clippy --all-features --all-targets --quiet --workspace
 
