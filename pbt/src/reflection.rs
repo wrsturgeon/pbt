@@ -78,7 +78,7 @@ static NAIVE_VARIANTS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock:
 /// first lift each type to its enclosing SCC, then test SCC reachability.
 /// This is especially nice since this quotient graph is a DAG by construction,
 /// so this reachability logic can safely assume the absence of cycles.
-static QUOTIENT: Mutex<UnionFind<TypeId, Arc<scc::QuotientVertex<TypeId>>>> =
+static SCC_QUOTIENT: Mutex<UnionFind<TypeId, Arc<scc::QuotientVertex<TypeId>>>> =
     Mutex::new(UnionFind::new());
 
 /// Transitive reachability between *strongly connected components* of the type-dependency graph,
@@ -346,6 +346,23 @@ where
         >(erased)
     }
 }
+/// All variants of a given type,
+/// even uninstantiable variants.
+#[inline]
+#[expect(dead_code, reason = "TODO")]
+#[expect(
+    clippy::expect_used,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+fn naive_variants_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
+    Arc::clone(
+        NAIVE_VARIANTS
+            .read()
+            .expect("INTERNAL ERROR (`pbt`): variants lock poisoned")
+            .get(&ty)
+            .expect("INTERNAL ERROR (`pbt`): unregistered type"),
+    )
+}
 
 /// Compute all reachable SCCs from the given SCC,
 /// transitively caching all results.
@@ -367,69 +384,10 @@ pub fn reachable(scc_root: RootElement<TypeId>) -> Arc<HashSet<RootElement<TypeI
         &mut REACHABLE
             .write()
             .expect("INTERNAL ERROR (`pbt`): graph reachability lock poisoned"),
-        &mut QUOTIENT
+        &mut SCC_QUOTIENT
             .lock()
             .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned"),
         scc_root,
-    )
-}
-
-/// Compute all raw types unavoidably reached when generating the given raw type.
-///
-/// A type `U` is unavoidable from `T` iff every constructor path for `T`
-/// eventually requires a field whose type unavoidably reaches `U`.
-/// Unavoidability is reflexive by convention: every type unavoidably reaches itself.
-///
-/// N.B.: This function locks `UNAVOIDABLE`, `QUOTIENT`, and `CONSTRUCTORS` in that order.
-#[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::missing_panics_doc,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
-    let unavoidable = &mut UNAVOIDABLE
-        .write()
-        .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
-    let mut quotient = QUOTIENT
-        .lock()
-        .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
-    let () = scc::update_unavoidable(
-        ty,
-        unavoidable,
-        &constructors_of,
-        &mut quotient,
-        &|variant: &Variant<Erased>| {
-            const EMPTY: &Multiset<TypeId> = &Multiset::new();
-            match *variant {
-                Variant::Algebraic { ref fields } => fields,
-                Variant::Literal { .. } => EMPTY,
-            }
-        },
-    );
-
-    Arc::clone(
-        unavoidable
-            .get(&ty)
-            .expect("INTERNAL ERROR (`pbt`): missing requested unavoidability result"),
-    )
-}
-
-/// All variants of a given type,
-/// even uninstantiable variants.
-#[inline]
-#[expect(dead_code, reason = "TODO")]
-#[expect(
-    clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-fn naive_variants_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
-    Arc::clone(
-        NAIVE_VARIANTS
-            .read()
-            .expect("INTERNAL ERROR (`pbt`): variants lock poisoned")
-            .get(&ty)
-            .expect("INTERNAL ERROR (`pbt`): unregistered type"),
     )
 }
 
@@ -500,4 +458,45 @@ where
 
     let mut visited = set();
     let () = register::<T>(&mut naive_variants, &mut visited);
+}
+
+/// Compute all raw types unavoidably reached when generating the given raw type.
+///
+/// A type `U` is unavoidable from `T` iff every constructor path for `T`
+/// eventually requires a field whose type unavoidably reaches `U`.
+/// Unavoidability is reflexive by convention: every type unavoidably reaches itself.
+///
+/// N.B.: This function locks `UNAVOIDABLE`, `QUOTIENT`, and `CONSTRUCTORS` in that order.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    clippy::missing_panics_doc,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
+    let unavoidable = &mut UNAVOIDABLE
+        .write()
+        .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
+    let mut quotient = SCC_QUOTIENT
+        .lock()
+        .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
+    let () = scc::update_unavoidable(
+        ty,
+        unavoidable,
+        &constructors_of,
+        &mut quotient,
+        &|variant: &Variant<Erased>| {
+            const EMPTY: &Multiset<TypeId> = &Multiset::new();
+            match *variant {
+                Variant::Algebraic { ref fields } => fields,
+                Variant::Literal { .. } => EMPTY,
+            }
+        },
+    );
+
+    Arc::clone(
+        unavoidable
+            .get(&ty)
+            .expect("INTERNAL ERROR (`pbt`): missing requested unavoidability result"),
+    )
 }
