@@ -3,10 +3,9 @@
 
 use {
     crate::{
-        arbitrary,
         pbt::Pbt,
         size::{self, Size},
-        swarm::Swarm,
+        swarm::{self, Swarm},
     },
     core::any::TypeId,
     wyrand::WyRand,
@@ -64,6 +63,6 @@ impl Fields for Lazy<'_, '_, '_> {
         } else {
             Size::zero()
         };
-        arbitrary::arbitrary(self.swarm, size, self.prng)
+        swarm::arbitrary(self.swarm, size, self.prng)
     }
 }

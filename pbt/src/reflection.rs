@@ -5,7 +5,7 @@
 // Toposort of caching layers (top to bottom, where moving
 // downward means "can access"/"can rely on"), strictly ordered to prevent cycles:
 //
-// - reachability (whether some type can transitively contain a field of some other type)
+// - unavoidability (whether some type transitively requires a field of some other type)
 // - strongly connected components (precisely identifies mutually inductive types)
 // - dependencies (remove constructors from the graph by flat-mapping over field types)
 // - constructors (least fixed point of removing uninstantiable variants)
@@ -19,15 +19,11 @@ use {
         multiset::Multiset,
         pbt::Pbt,
         scc, unavoidability,
-        union_find::{self, RootElement, UnionFind},
+        union_find::{self, UnionFind},
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
-    core::{
-        any::{self, TypeId},
-        iter, mem,
-        num::NonZero,
-    },
+    core::{any::TypeId, iter, mem, num::NonZero},
     std::{
         collections::hash_map,
         sync::{Mutex, RwLock},
@@ -45,20 +41,6 @@ use {
 /// "has a field of this type" or "contains this variant."
 static NAIVE_VARIANTS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
 
-/// This encodes the notion that "if we start generating a term of type A,
-/// then must unavoidably generate terms of type B, C, ... in the process."
-///
-/// This is useful when determining whether some variant could be a leaf:
-/// if any of its fields unavoidably reach `Self`, then it can never be a leaf,
-/// so we should avoid it when we're running out of size remaining to generate.
-#[expect(dead_code, reason = "TODO")]
-static UNAVOIDABLE: RwLock<HashMap<TypeId, Arc<HashSet<TypeId>>>> = RwLock::new(map());
-
-/// The "final boss" of graph analysis, containing
-/// precomputed data structures for efficient generation.
-#[expect(dead_code, reason = "TODO")]
-static AFFORDANCES: RwLock<HashMap<TypeId, Affordances<Erased>>> = RwLock::new(map());
-
 /// An erased type.
 ///
 /// This type itself is uninstantiable (it's an `enum` without variants):
@@ -70,7 +52,7 @@ pub enum Erased {}
 /// A type's constructors,
 /// partitioned into potential leaves and loops.
 #[non_exhaustive]
-pub struct Affordances<SelfType> {
+pub(crate) struct Affordances<SelfType> {
     /// All constructors of this type in source order.
     ///
     /// DO NOT sample over `constructors` directly.
@@ -85,45 +67,13 @@ pub struct Affordances<SelfType> {
 /// Sorted lists of constructor indices for which
 /// a sub-term of type `Self` is *avoidable* or *reachable*.
 #[non_exhaustive]
-pub struct LeavesAndLoops {
+pub(crate) struct LeavesAndLoops {
     /// Sorted list of indices of instantiable constructors
     /// for which a sub-term of type `Self` is *avoidable*.
     pub potential_leaves: Box<[usize]>,
     /// Sorted list of indices of instantiable constructors
     /// for which a sub-term of type `Self` is *reachable*.
     pub potential_loops: Box<[usize]>,
-}
-
-/// Type-level reflection: variants, field types, erased trait operations, etc.
-#[non_exhaustive]
-#[derive(Clone, Debug)]
-pub struct Reflection<SelfType: ?Sized> {
-    /// Each variant of this type in source order.
-    ///
-    /// - If this is an `enum`, each variant is one `enum` variant.
-    /// - if this is a `struct`, there's exactly one variant with all fields.
-    /// - If this is a literal type, each variant is an opaque generator.
-    ///   For example, `usize` might have two generators:
-    ///   *small* `usize`s (for indices) and *uniform* `usize`s.
-    ///   Swarm testing will pick *either* one *or* the other about half the time
-    ///   and enable both the other half of the time, so this works elegantly
-    ///   no matter which "flavor" of `usize` we want.
-    pub variants: Arc<[Variant<SelfType>]>,
-}
-
-/// Runtime representation of the structure of an algebraic data type.
-///
-/// A `struct` is a singleton degenerate case of an `enum`;
-/// viewed differently, an `enum` is a collection of `struct`s.
-#[non_exhaustive]
-#[derive(Clone, Debug)]
-pub struct TypeGraphVertex {
-    /// The name of this type, as acquired by `core::any::type_name`.
-    pub name: &'static str,
-    /// All types of all fields of all variants.
-    pub potential_fields: HashSet<TypeId>,
-    /// Type-level reflection: variants, field types, erased trait operations, etc.
-    pub reflection: Reflection<Erased>,
 }
 
 /// Each variant of some type in source order.
@@ -187,56 +137,11 @@ impl LeavesAndLoops {
     }
 }
 
-impl<T: ?Sized> Reflection<T> {
-    /// Erase the type that originally created this reflection.
-    ///
-    /// This is extremely dangerous.
-    /// You must be sure you statically know the type with which
-    /// to use the erased function after transmuting it back in the future.
-    #[inline]
-    const fn erase(self) -> Reflection<Erased> {
-        // SAFETY: `T` is only ever the codomain of a function pointer.
-        unsafe {
-            mem::transmute::<
-                Reflection<T>, // i.e. `Self`
-                Reflection<Erased>,
-            >(self)
-        }
-    }
-}
-
-impl TypeGraphVertex {
-    /// Analyze the type `T` given that `variants` accurately represents its variants.
-    ///
-    /// A `struct` is a singleton degenerate case of an `enum` (use a single variant);
-    /// viewed differently, an `enum` is a collection of `struct`s.
-    #[inline]
-    #[must_use]
-    pub fn new<T>(reflection: Reflection<T>) -> Self
-    where
-        T: ?Sized,
-    {
-        Self {
-            name: any::type_name::<T>(),
-            potential_fields: {
-                let mut acc = set();
-                for variant in &*reflection.variants {
-                    if let Variant::Algebraic { ref fields } = *variant {
-                        let () = acc.extend(fields.counts.keys().copied());
-                    }
-                }
-                acc
-            },
-            reflection: reflection.erase(),
-        }
-    }
-}
-
 impl<T> Variant<T> {
     /// Iterate over the types of all fields in this variant,
     /// yielding each type exactly once (skipping duplicates).
     #[inline]
-    pub fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
+    fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
         const EMPTY: &HashMap<TypeId, NonZero<usize>> = &map();
         match *self {
             Self::Algebraic { ref fields } => fields.iter_dedup(),
@@ -249,7 +154,7 @@ impl<T> Variant<T> {
     /// yielding each type exactly once (skipping duplicates).
     #[inline]
     #[must_use]
-    pub fn fields(&self) -> &Multiset<TypeId> {
+    fn fields(&self) -> &Multiset<TypeId> {
         const EMPTY: &Multiset<TypeId> = &Multiset::new();
         match *self {
             Self::Algebraic { ref fields } => fields,
@@ -358,32 +263,6 @@ fn naive_variants_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
     )
 }
 
-/// Compute all reachable SCCs from the given SCC,
-/// transitively caching all results.
-///
-/// N.B.: since the SCC quotient graph is a DAG by construction,
-/// we arbitrarily consider reachability to be reflexive w.l.o.g.
-/// (i.e. all SCCs can reach themselves)
-/// to simplify downstream reachability checks.
-#[inline]
-#[must_use]
-pub fn reachable(ty: TypeId) -> Arc<HashSet<RootElement<TypeId>>> {
-    memoize!(
-        "reachability" = |ty: TypeId| -> Arc<HashSet<RootElement<TypeId>>> {
-            let root = scc(ty);
-            let mut acc = set();
-            let _dup: bool = acc.insert(root.element);
-            #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-            for dst in &root.metadata.outgoing_edges {
-                // The SCC quotient graph is a DAG by construction,
-                // so we don't need to worry about cycles.
-                acc.extend(reachable(**dst).iter());
-            }
-            Arc::new(acc)
-        }
-    )
-}
-
 /// Register the type `T` and its dependencies
 /// in a naive type reflection graph,
 /// including any uninstantiable variants.
@@ -465,10 +344,10 @@ where
 #[inline]
 #[expect(
     clippy::expect_used,
-    clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn scc(ty: TypeId) -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeId>>> {
+#[expect(dead_code, reason = "TODO")]
+fn scc(ty: TypeId) -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeId>>> {
     static QUOTIENT: Mutex<UnionFind<TypeId, Arc<scc::QuotientVertex<TypeId>>>> =
         Mutex::new(UnionFind::new());
     let mut quotient = QUOTIENT
@@ -494,7 +373,17 @@ pub fn scc(ty: TypeId) -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeI
     reason = "For internal use only: invariant violations should fail loudly."
 )]
 fn unavoidable_of(ty: TypeId) -> Arc<HashSet<TypeId>> {
-    let cache = &mut UNAVOIDABLE
+    static CACHE: RwLock<HashMap<TypeId, Arc<HashSet<TypeId>>>> = RwLock::new(map());
+
+    if let Some(cached) = CACHE
+        .read()
+        .expect("INTERNAL ERROR (`pbt`): unavoidability lock poisoned")
+        .get(&ty)
+    {
+        return Arc::clone(cached);
+    }
+
+    let cache = &mut CACHE
         .write()
         .expect("INTERNAL ERROR (`pbt`): unavoidability lock poisoned");
 

@@ -2,7 +2,11 @@
 //! partitioned into potential leaves and loops.
 
 use {
-    crate::reflection::{Affordances, Erased, LeavesAndLoops},
+    crate::{
+        pbt::Pbt,
+        reflection::{Affordances, Erased, LeavesAndLoops},
+        size::Size,
+    },
     ahash::HashMap,
     alloc::sync::Arc,
     core::{any::TypeId, num::NonZero},
@@ -11,7 +15,7 @@ use {
 
 /// A masked view into a type's constructors,
 /// partitioned into potential leaves and loops.
-pub struct Swarm<'full> {
+pub(crate) struct Swarm<'full> {
     /// An immutable reference to the global map
     /// from types to their *full* set of constructors.
     full: &'full HashMap<TypeId, Affordances<Erased>>,
@@ -26,7 +30,6 @@ impl Swarm<'_> {
     #[inline]
     #[expect(
         clippy::expect_used,
-        clippy::missing_panics_doc,
         reason = "For internal use only: invariant violations should fail loudly."
     )]
     pub fn affordances(&mut self, ty: TypeId, prng: &mut WyRand) -> &Affordances<Erased> {
@@ -136,4 +139,14 @@ impl Swarm<'_> {
             }
         })
     }
+}
+
+/// Generate an arbitrary term of some type.
+#[inline]
+#[expect(clippy::todo, reason = "TODO")]
+pub(crate) fn arbitrary<T>(_swarm: &mut Swarm, _size: Size, _prng: &mut WyRand) -> T
+where
+    T: Pbt,
+{
+    todo!()
 }

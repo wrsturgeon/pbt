@@ -3,7 +3,6 @@
 
 extern crate alloc;
 
-pub mod arbitrary;
 pub mod fields;
 pub mod hash;
 pub mod impls;
