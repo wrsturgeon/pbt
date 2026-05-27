@@ -4,8 +4,8 @@
 
 use {
     crate::{
-        graph::update_instantiability,
         hash::{map, set},
+        instantiability,
         multiset::Multiset,
         pbt::Pbt,
         scc,
@@ -319,7 +319,7 @@ fn constructors_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
     let mut cache = CACHE
         .write()
         .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
-    let () = update_instantiability(&naive, &mut cache, &Variant::dedup_fields);
+    let () = instantiability::update(&naive, &mut cache, &Variant::dedup_fields);
 
     Arc::clone(
         cache

@@ -30,7 +30,7 @@ use {
 )]
 #[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-pub fn update_instantiability<'naive, Vertex, Variant, Fields, FieldsOfVariant>(
+pub fn update<'naive, Vertex, Variant, Fields, FieldsOfVariant>(
     naive: &'naive HashMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
     fields_of_variant: &FieldsOfVariant,
@@ -167,7 +167,7 @@ mod tests {
     ) -> HashMap<u8, Arc<[TestVariant]>> {
         let naive = test_graph(entries);
         let mut constructors = map();
-        let () = update_instantiability(&naive, &mut constructors, &fields_of_variant);
+        let () = update(&naive, &mut constructors, &fields_of_variant);
         constructors
     }
 
@@ -275,7 +275,7 @@ mod tests {
         let naive = test_graph([(1, variants([variant("one::NeedsCachedVoid", [2])]))]);
         let mut constructors = test_graph([(2, variants([]))]);
 
-        let () = update_instantiability(&naive, &mut constructors, &fields_of_variant);
+        let () = update(&naive, &mut constructors, &fields_of_variant);
 
         assert_eq!(
             constructor_names(&constructors, 1),
@@ -293,7 +293,7 @@ mod tests {
         let naive = test_graph([(1, variants([variant("one::NeedsCachedLeaf", [2])]))]);
         let mut constructors = test_graph([(2, variants([variant("two::Leaf", [])]))]);
 
-        let () = update_instantiability(&naive, &mut constructors, &fields_of_variant);
+        let () = update(&naive, &mut constructors, &fields_of_variant);
 
         assert_eq!(
             constructor_names(&constructors, 1),
