@@ -431,3 +431,23 @@ pub fn register<T>(
     let dup: Option<_> = vertices.insert(ty, erased);
     assert!(dup.is_none(), "INTERNAL ERROR (`pbt`): TOCTOU during DFS");
 }
+
+/// Register the type `T` and its dependencies
+/// in the global naive type reflection graph,
+/// including any uninstantiable variants.
+#[inline]
+#[expect(dead_code, reason = "TODO")]
+#[expect(
+    clippy::expect_used,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+fn register_globally<T>()
+where
+    T: Pbt,
+{
+    let mut vertices = NAIVE_VARIANTS
+        .write()
+        .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
+    let mut visited = set();
+    let () = register::<T>(&mut vertices, &mut visited);
+}

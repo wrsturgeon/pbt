@@ -73,14 +73,13 @@ pub fn update_instantiability<'fields, Vertex, Variant, Fields, FieldsOfVariant>
                     continue 'variants;
                 }
                 let instantiable = fields_of_variant(naive_variant).all(|field| {
-                    if let Some(&(type_mask, ref _variant_mask)) = masks.get(field) {
-                        type_mask
+                    if let Some(field_ctors) = constructors.get(field) {
+                        !field_ctors.is_empty()
                     } else {
-                        debug_assert!(
-                            naive.contains_key(field),
-                            "INTERNAL ERROR (`pbt`): unregistered type",
-                        );
-                        true
+                        masks
+                            .get(field)
+                            .expect("INTERNAL ERROR (`pbt`): mask disappeared")
+                            .0
                     }
                 });
                 if instantiable {
