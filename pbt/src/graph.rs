@@ -133,3 +133,172 @@ pub fn update_instantiability<'fields, Vertex, Variant, Fields, FieldsOfVariant>
         });
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![expect(clippy::expect_used, reason = "Failing tests ought to panic.")]
+
+    use {super::*, core::slice, pretty_assertions::assert_eq};
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct TestVariant {
+        fields: Arc<[u8]>,
+        name: &'static str,
+    }
+
+    fn constructor_names(
+        constructors: &HashMap<u8, Arc<[TestVariant]>>,
+        ty: u8,
+    ) -> Vec<&'static str> {
+        constructors
+            .get(&ty)
+            .expect("test should have registered this type")
+            .iter()
+            .map(|variant| variant.name)
+            .collect()
+    }
+
+    fn fields_of_variant(variant: &TestVariant) -> slice::Iter<'_, u8> {
+        variant.fields.iter()
+    }
+
+    fn instantiable_constructors<const N: usize>(
+        entries: [(u8, Arc<[TestVariant]>); N],
+    ) -> HashMap<u8, Arc<[TestVariant]>> {
+        let naive = test_graph(entries);
+        let mut constructors = map();
+        let () = update_instantiability(&naive, &mut constructors, &fields_of_variant);
+        constructors
+    }
+
+    fn test_graph<const N: usize>(
+        entries: [(u8, Arc<[TestVariant]>); N],
+    ) -> HashMap<u8, Arc<[TestVariant]>> {
+        let mut graph = map();
+        for (ty, variants) in entries {
+            assert_eq!(
+                graph.insert(ty, variants),
+                None,
+                "test graph has a duplicate type",
+            );
+        }
+        graph
+    }
+
+    fn variant<const N: usize>(name: &'static str, fields: [u8; N]) -> TestVariant {
+        TestVariant {
+            fields: Arc::from(fields),
+            name,
+        }
+    }
+
+    fn variants<const N: usize>(variants: [TestVariant; N]) -> Arc<[TestVariant]> {
+        Arc::from(variants)
+    }
+
+    #[test]
+    fn leaf_constructor_seeds_the_fixed_point() {
+        // 1 = leaf.
+        let constructors = instantiable_constructors([(1, variants([variant("one::Leaf", [])]))]);
+
+        assert_eq!(constructor_names(&constructors, 1), vec!["one::Leaf"]);
+    }
+
+    #[test]
+    fn uninstantiable_field_removes_only_the_variants_that_need_it() {
+        // 1 = leaf | impossible(2); 2 = !.
+        let constructors = instantiable_constructors([
+            (
+                1,
+                variants([variant("one::Leaf", []), variant("one::Impossible", [2])]),
+            ),
+            (2, variants([])),
+        ]);
+
+        assert_eq!(constructor_names(&constructors, 1), vec!["one::Leaf"]);
+        assert_eq!(
+            constructor_names(&constructors, 2),
+            Vec::<&'static str>::new()
+        );
+    }
+
+    #[test]
+    fn self_cycle_without_leaf_is_not_a_finite_term() {
+        // 1 = loop(1).
+        let constructors = instantiable_constructors([(1, variants([variant("one::Loop", [1])]))]);
+
+        assert_eq!(
+            constructor_names(&constructors, 1),
+            Vec::<&'static str>::new()
+        );
+    }
+
+    #[test]
+    fn mutual_cycle_without_escape_is_not_a_finite_term() {
+        // 1 = needs_2(2); 2 = needs_1(1).
+        let constructors = instantiable_constructors([
+            (1, variants([variant("one::NeedsTwo", [2])])),
+            (2, variants([variant("two::NeedsOne", [1])])),
+        ]);
+
+        assert_eq!(
+            constructor_names(&constructors, 1),
+            Vec::<&'static str>::new()
+        );
+        assert_eq!(
+            constructor_names(&constructors, 2),
+            Vec::<&'static str>::new()
+        );
+    }
+
+    #[test]
+    fn mutual_cycle_with_one_escape_makes_the_whole_cycle_instantiable() {
+        // 1 = needs_2(2); 2 = leaf | needs_1(1).
+        let constructors = instantiable_constructors([
+            (1, variants([variant("one::NeedsTwo", [2])])),
+            (
+                2,
+                variants([variant("two::Leaf", []), variant("two::NeedsOne", [1])]),
+            ),
+        ]);
+
+        assert_eq!(constructor_names(&constructors, 1), vec!["one::NeedsTwo"]);
+        assert_eq!(
+            constructor_names(&constructors, 2),
+            vec!["two::Leaf", "two::NeedsOne"],
+        );
+    }
+
+    #[test]
+    fn cached_empty_constructors_are_not_instantiable() {
+        // 1 = needs_cached_void(2), while a previous pass proved 2 = !.
+        let naive = test_graph([(1, variants([variant("one::NeedsCachedVoid", [2])]))]);
+        let mut constructors = test_graph([(2, variants([]))]);
+
+        let () = update_instantiability(&naive, &mut constructors, &fields_of_variant);
+
+        assert_eq!(
+            constructor_names(&constructors, 1),
+            Vec::<&'static str>::new()
+        );
+        assert_eq!(
+            constructor_names(&constructors, 2),
+            Vec::<&'static str>::new()
+        );
+    }
+
+    #[test]
+    fn cached_nonempty_constructors_are_instantiable() {
+        // 1 = needs_cached_leaf(2), while a previous pass proved 2 = leaf.
+        let naive = test_graph([(1, variants([variant("one::NeedsCachedLeaf", [2])]))]);
+        let mut constructors = test_graph([(2, variants([variant("two::Leaf", [])]))]);
+
+        let () = update_instantiability(&naive, &mut constructors, &fields_of_variant);
+
+        assert_eq!(
+            constructor_names(&constructors, 1),
+            vec!["one::NeedsCachedLeaf"]
+        );
+        assert_eq!(constructor_names(&constructors, 2), vec!["two::Leaf"]);
+    }
+}
