@@ -44,13 +44,13 @@ pub struct VertexBookkeeping {
 ///
 /// See <https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm#The_algorithm_in_pseudocode>.
 #[inline]
-pub fn update_quotient_reachable_from<'edges, OutgoingEdges, Vertex>(
+pub fn update_quotient_reachable_from<OutgoingEdges, Vertex>(
     vertex: Vertex,
     outgoing_edges: &OutgoingEdges,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
 ) where
-    OutgoingEdges: Fn(Vertex) -> &'edges HashSet<Vertex>,
-    Vertex: 'edges + Copy + Eq + Hash,
+    OutgoingEdges: Fn(Vertex) -> Arc<HashSet<Vertex>>,
+    Vertex: Copy + Eq + Hash,
 {
     if quotient.root(vertex).is_some() {
         return; // SCC already discovered from some other type
@@ -257,7 +257,7 @@ where
     reason = "For internal use only: invariant violations should fail loudly."
 )]
 #[expect(clippy::too_many_lines, reason = "take it up with Tarjan")]
-fn tarjan<'edges, OutgoingEdges, Vertex>(
+fn tarjan<OutgoingEdges, Vertex>(
     vertex: Vertex,
     outgoing_edges: &OutgoingEdges,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
@@ -265,8 +265,8 @@ fn tarjan<'edges, OutgoingEdges, Vertex>(
     bookkeeping: &mut HashMap<Vertex, VertexBookkeeping>,
     stack: &mut Vec<Vertex>,
 ) where
-    OutgoingEdges: Fn(Vertex) -> &'edges HashSet<Vertex>,
-    Vertex: 'edges + Copy + Eq + Hash,
+    OutgoingEdges: Fn(Vertex) -> Arc<HashSet<Vertex>>,
+    Vertex: Copy + Eq + Hash,
 {
     macro_rules! get {
         ($e:expr) => {
@@ -310,7 +310,7 @@ fn tarjan<'edges, OutgoingEdges, Vertex>(
     stack.push(vertex);
 
     #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-    for child in outgoing_edges(vertex) {
+    for child in &*outgoing_edges(vertex) {
         if quotient.root(*child).is_some() {
             continue; // SCC already discovered from some other type
         }
@@ -439,7 +439,7 @@ mod tests {
     use {super::*, crate::hash::set, pretty_assertions::assert_eq};
 
     type AdtGraph = HashMap<u8, Arc<[Multiset<u8>]>>;
-    type Graph = HashMap<u8, HashSet<u8>>;
+    type Graph = HashMap<u8, Arc<HashSet<u8>>>;
 
     fn adt(variants: &[&[u8]]) -> Arc<[Multiset<u8>]> {
         variants
@@ -465,7 +465,7 @@ mod tests {
         let mut graph = map();
         for &(source, destinations) in edges {
             assert_eq!(
-                graph.insert(source, vertex_set(destinations)),
+                graph.insert(source, Arc::new(vertex_set(destinations))),
                 None,
                 "test graph has a duplicate source vertex",
             );
@@ -482,7 +482,7 @@ mod tests {
                 destinations.extend(variant.counts.keys().copied());
             }
             assert_eq!(
-                graph.insert(*vertex, destinations),
+                graph.insert(*vertex, Arc::new(destinations)),
                 None,
                 "test ADT graph has a duplicate vertex",
             );
@@ -498,8 +498,8 @@ mod tests {
         variant
     }
 
-    fn outgoing_edges<'graph>(graph: &'graph Graph) -> impl Fn(u8) -> &'graph HashSet<u8> + 'graph {
-        move |vertex| &graph[&vertex]
+    fn outgoing_edges(graph: &Graph) -> impl Fn(u8) -> Arc<HashSet<u8>> {
+        move |vertex| Arc::clone(&graph[&vertex])
     }
 
     fn update_unavoidables_from(vertices: &AdtGraph, root: u8) -> HashMap<u8, Arc<HashSet<u8>>> {

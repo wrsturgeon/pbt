@@ -30,15 +30,15 @@ use {
 )]
 #[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-pub fn update_instantiability<'fields, Vertex, Variant, Fields, FieldsOfVariant>(
-    naive: &'fields HashMap<Vertex, Arc<[Variant]>>,
+pub fn update_instantiability<'naive, Vertex, Variant, Fields, FieldsOfVariant>(
+    naive: &'naive HashMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
     fields_of_variant: &FieldsOfVariant,
 ) where
-    Variant: 'fields + Clone,
-    Vertex: 'fields + Copy + Eq + Hash,
-    Fields: Iterator<Item = &'fields Vertex>,
-    FieldsOfVariant: Fn(&'fields Variant) -> Fields,
+    Variant: Clone,
+    Vertex: Copy + Eq + Hash,
+    Fields: Iterator<Item = Vertex>,
+    FieldsOfVariant: Fn(&'naive Variant) -> Fields,
 {
     let mut masks: HashMap<Vertex, (bool, Box<[bool]>)> = map();
     for (&ty, variants) in naive {
@@ -73,11 +73,11 @@ pub fn update_instantiability<'fields, Vertex, Variant, Fields, FieldsOfVariant>
                     continue 'variants;
                 }
                 let instantiable = fields_of_variant(naive_variant).all(|field| {
-                    if let Some(field_ctors) = constructors.get(field) {
+                    if let Some(field_ctors) = constructors.get(&field) {
                         !field_ctors.is_empty()
                     } else {
                         masks
-                            .get(field)
+                            .get(&field)
                             .expect("INTERNAL ERROR (`pbt`): mask disappeared")
                             .0
                     }
@@ -158,8 +158,8 @@ mod tests {
             .collect()
     }
 
-    fn fields_of_variant(variant: &TestVariant) -> slice::Iter<'_, u8> {
-        variant.fields.iter()
+    fn fields_of_variant(variant: &TestVariant) -> iter::Copied<slice::Iter<'_, u8>> {
+        variant.fields.iter().copied()
     }
 
     fn instantiable_constructors<const N: usize>(

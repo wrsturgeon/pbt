@@ -9,13 +9,13 @@ use {
         multiset::Multiset,
         pbt::Pbt,
         scc,
-        union_find::{RootElement, UnionFind},
+        union_find::{self, RootElement, UnionFind},
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
     core::{
         any::{self, TypeId},
-        mem,
+        iter, mem,
         num::NonZero,
     },
     std::{
@@ -69,18 +69,6 @@ macro_rules! cache {
 /// "has a field of this type" or "contains this variant."
 static NAIVE_VARIANTS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
 
-/// DFS of reachability between *strongly connected components* of the type-dependency graph,
-/// i.e. the graph in which vertices are types and edges represent "has a field of this type."
-///
-/// The key insight is that *strongly connected components define mutually inductive types.*
-///
-/// To test reachability between *types* (not SCCs themselves),
-/// first lift each type to its enclosing SCC, then test SCC reachability.
-/// This is especially nice since this quotient graph is a DAG by construction,
-/// so this reachability logic can safely assume the absence of cycles.
-static SCC_QUOTIENT: Mutex<UnionFind<TypeId, Arc<scc::QuotientVertex<TypeId>>>> =
-    Mutex::new(UnionFind::new());
-
 /// Transitive reachability between *strongly connected components* of the type-dependency graph,
 /// i.e. the graph in which vertices are types and edges represent "has a field of this type."
 ///
@@ -89,6 +77,7 @@ static SCC_QUOTIENT: Mutex<UnionFind<TypeId, Arc<scc::QuotientVertex<TypeId>>>> 
 /// This is useful when determining whether some variant is potentially inductive:
 /// if any of its fields can reach `Self`, then it can potentially be inductive,
 /// so we should consider it when we have plenty of size left to generate.
+#[expect(dead_code, reason = "TODO")]
 static REACHABLE: RwLock<HashMap<RootElement<TypeId>, Arc<HashSet<RootElement<TypeId>>>>> =
     RwLock::new(map());
 
@@ -98,6 +87,7 @@ static REACHABLE: RwLock<HashMap<RootElement<TypeId>, Arc<HashSet<RootElement<Ty
 /// This is useful when determining whether some variant could be a leaf:
 /// if any of its fields unavoidably reach `Self`, then it can never be a leaf,
 /// so we should avoid it when we're running out of size remaining to generate.
+#[expect(dead_code, reason = "TODO")]
 static UNAVOIDABLE: RwLock<HashMap<TypeId, Arc<HashSet<TypeId>>>> = RwLock::new(map());
 
 /// The "final boss" of graph analysis, containing
@@ -282,12 +272,24 @@ impl<T> Variant<T> {
     /// Iterate over the types of all fields in this variant,
     /// yielding each type exactly once (skipping duplicates).
     #[inline]
-    #[must_use]
-    pub fn dedup_fields(&self) -> hash_map::Keys<'_, TypeId, NonZero<usize>> {
+    pub fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
         const EMPTY: &HashMap<TypeId, NonZero<usize>> = &map();
         match *self {
             Self::Algebraic { ref fields } => fields.iter_dedup(),
             Self::Literal { .. } => EMPTY.keys(),
+        }
+        .copied()
+    }
+
+    /// Iterate over the types of all fields in this variant,
+    /// yielding each type exactly once (skipping duplicates).
+    #[inline]
+    #[must_use]
+    pub fn fields(&self) -> &Multiset<TypeId> {
+        const EMPTY: &Multiset<TypeId> = &Multiset::new();
+        match *self {
+            Self::Algebraic { ref fields } => fields,
+            Self::Literal { .. } => EMPTY,
         }
     }
 }
@@ -311,12 +313,12 @@ fn constructors_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
         return Arc::clone(cached);
     }
 
-    let mut cache = CACHE
-        .write()
-        .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
     let naive = NAIVE_VARIANTS
         .read()
         .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
+    let mut cache = CACHE
+        .write()
+        .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
     let () = update_instantiability(&naive, &mut cache, &Variant::dedup_fields);
 
     Arc::clone(
@@ -335,9 +337,8 @@ fn constructors<T>() -> Arc<[Variant<T>]>
 where
     T: Pbt,
 {
-    let ty = TypeId::of::<T>();
     let () = register_globally::<T>();
-    let erased = constructors_of(ty);
+    let erased = constructors_of(TypeId::of::<T>());
     // SAFETY: `T` is only ever the codomain of a function pointer.
     unsafe {
         mem::transmute::<
@@ -346,6 +347,49 @@ where
         >(erased)
     }
 }
+
+/// Dependencies of each type: that is,
+/// all types of all fields on all instatiable variants, deduplicated.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+fn dependencies_of(ty: TypeId) -> Arc<HashSet<TypeId>> {
+    static CACHE: RwLock<HashMap<TypeId, Arc<HashSet<TypeId>>>> = RwLock::new(map());
+
+    if let Some(cached) = CACHE
+        .read()
+        .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned")
+        .get(&ty)
+    {
+        return Arc::clone(cached);
+    }
+
+    let deps = constructors_of(ty)
+        .iter()
+        .flat_map(Variant::dedup_fields)
+        .collect();
+
+    let mut cache = CACHE
+        .write()
+        .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
+
+    Arc::clone(cache.entry(ty).or_insert(Arc::new(deps)))
+}
+
+/// Dependencies of each type: that is,
+/// all types of all fields on all instatiable variants, deduplicated.
+#[inline]
+#[expect(dead_code, reason = "TODO")]
+fn dependencies<T>() -> Arc<HashSet<TypeId>>
+where
+    T: Pbt,
+{
+    let () = register_globally::<T>();
+    dependencies_of(TypeId::of::<T>())
+}
+
 /// All variants of a given type,
 /// even uninstantiable variants.
 #[inline]
@@ -374,21 +418,19 @@ fn naive_variants_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
 ///
 /// N.B.: This function locks `REACHABLE` and `QUOTIENT` in that order.
 #[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::missing_panics_doc,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-pub fn reachable(scc_root: RootElement<TypeId>) -> Arc<HashSet<RootElement<TypeId>>> {
-    scc::reachable(
-        &mut REACHABLE
-            .write()
-            .expect("INTERNAL ERROR (`pbt`): graph reachability lock poisoned"),
-        &mut SCC_QUOTIENT
-            .lock()
-            .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned"),
-        scc_root,
-    )
+#[must_use]
+#[expect(clippy::todo, reason = "TODO")]
+pub fn reachable(_scc_root: RootElement<TypeId>) -> Arc<HashSet<RootElement<TypeId>>> {
+    todo!()
+    // scc::reachable(
+    //     &mut REACHABLE
+    //         .write()
+    //         .expect("INTERNAL ERROR (`pbt`): graph reachability lock poisoned"),
+    //     &mut SCC_QUOTIENT
+    //         .lock()
+    //         .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned"),
+    //     scc_root,
+    // )
 }
 
 /// Register the type `T` and its dependencies
@@ -460,6 +502,35 @@ where
     let () = register::<T>(&mut naive_variants, &mut visited);
 }
 
+/// DFS of reachability between *strongly connected components* of the type-dependency graph,
+/// i.e. the graph in which vertices are types and edges represent "has a field of this type."
+///
+/// The key insight is that *strongly connected components define mutually inductive types.*
+///
+/// To test reachability between *types* (not SCCs themselves),
+/// first lift each type to its enclosing SCC, then test SCC reachability.
+/// This is especially nice since this quotient graph is a DAG by construction,
+/// so this reachability logic can safely assume the absence of cycles.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    clippy::missing_panics_doc,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+pub fn scc(ty: TypeId) -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeId>>> {
+    static QUOTIENT: Mutex<UnionFind<TypeId, Arc<scc::QuotientVertex<TypeId>>>> =
+        Mutex::new(UnionFind::new());
+    let mut quotient = QUOTIENT
+        .lock()
+        .expect("INTERNAL ERROR (`pbt`): SCC quotient graph lock poisoned");
+
+    let () = scc::update_quotient_reachable_from(ty, &dependencies_of, &mut quotient);
+
+    quotient
+        .root(ty)
+        .expect("INTERNAL ERROR (`pbt`): unregistered type during SCC quotienting")
+}
+
 /// Compute all raw types unavoidably reached when generating the given raw type.
 ///
 /// A type `U` is unavoidable from `T` iff every constructor path for `T`
@@ -468,35 +539,33 @@ where
 ///
 /// N.B.: This function locks `UNAVOIDABLE`, `QUOTIENT`, and `CONSTRUCTORS` in that order.
 #[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::missing_panics_doc,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
-    let unavoidable = &mut UNAVOIDABLE
-        .write()
-        .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
-    let mut quotient = SCC_QUOTIENT
-        .lock()
-        .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
-    let () = scc::update_unavoidable(
-        ty,
-        unavoidable,
-        &constructors_of,
-        &mut quotient,
-        &|variant: &Variant<Erased>| {
-            const EMPTY: &Multiset<TypeId> = &Multiset::new();
-            match *variant {
-                Variant::Algebraic { ref fields } => fields,
-                Variant::Literal { .. } => EMPTY,
-            }
-        },
-    );
-
-    Arc::clone(
-        unavoidable
-            .get(&ty)
-            .expect("INTERNAL ERROR (`pbt`): missing requested unavoidability result"),
-    )
+#[must_use]
+#[expect(clippy::todo, reason = "TODO")]
+pub fn unavoidable(_ty: TypeId) -> Arc<HashSet<TypeId>> {
+    todo!()
+    // let unavoidable = &mut UNAVOIDABLE
+    //     .write()
+    //     .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
+    // let mut quotient = SCC_QUOTIENT
+    //     .lock()
+    //     .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
+    // let () = scc::update_unavoidable(
+    //     ty,
+    //     unavoidable,
+    //     &constructors_of,
+    //     &mut quotient,
+    //     &|variant: &Variant<Erased>| {
+    //         const EMPTY: &Multiset<TypeId> = &Multiset::new();
+    //         match *variant {
+    //             Variant::Algebraic { ref fields } => fields,
+    //             Variant::Literal { .. } => EMPTY,
+    //         }
+    //     },
+    // );
+    //
+    // Arc::clone(
+    //     unavoidable
+    //         .get(&ty)
+    //         .expect("INTERNAL ERROR (`pbt`): missing requested unavoidability result"),
+    // )
 }
