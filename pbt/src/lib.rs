@@ -15,4 +15,5 @@ pub mod reflection;
 pub mod scc;
 pub mod size;
 pub mod swarm;
+pub mod unavoidability;
 pub mod union_find;

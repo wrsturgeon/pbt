@@ -3,7 +3,6 @@
 use {
     crate::{
         hash::{map, set},
-        multiset::Multiset,
         union_find::{RootElement, UnionFind},
     },
     ahash::{HashMap, HashSet},
@@ -77,11 +76,11 @@ pub fn update<OutgoingEdges, Vertex>(
 #[inline]
 #[expect(
     clippy::expect_used,
-    clippy::implicit_hasher,
     clippy::iter_over_hash_type,
     clippy::panic,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
+#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 pub fn reachable<Vertex>(
     cache: &mut HashMap<RootElement<Vertex>, Arc<HashSet<RootElement<Vertex>>>>,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
@@ -112,137 +111,6 @@ where
         panic!("INTERNAL ERROR (`pbt`): SCC quotient graph is cyclic")
     }
     to_return
-}
-
-/// Compute and cache unavoidability sets for the SCC containing `vertex`.
-///
-/// The caller supplies the ordinary vertex metadata map and two projections:
-/// one from metadata to variants, and one from variants to field multisets.
-/// This keeps the fixed-point algorithm generic over the reflection format.
-///
-/// # Panics
-///
-/// If the quotient graph does not contain a needed vertex,
-/// or if the ordinary vertex metadata map is missing that vertex's metadata.
-#[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::implicit_hasher,
-    clippy::iter_over_hash_type,
-    clippy::panic,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-pub fn update_unavoidable<Vertex, Variant, Constructors, FieldsOf>(
-    vertex: Vertex,
-    cache: &mut HashMap<Vertex, Arc<HashSet<Vertex>>>,
-    constructors: &Constructors,
-    quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
-    fields_of: &FieldsOf,
-) where
-    Constructors: Fn(Vertex) -> Arc<[Variant]>,
-    FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
-    Vertex: Copy + Eq + Hash,
-{
-    if cache.contains_key(&vertex) {
-        return;
-    }
-
-    let scc_elements = quotient
-        .root(vertex)
-        .expect("INTERNAL ERROR (`pbt`): unregistered type during unavoidability analysis")
-        .metadata
-        .elements
-        .clone();
-
-    for &scc_element in &scc_elements {
-        let variants: &[Variant] = &constructors(scc_element);
-        for variant in variants {
-            for field in fields_of(variant).counts.keys() {
-                if !scc_elements.contains(field) {
-                    let () = update_unavoidable(*field, cache, constructors, quotient, fields_of);
-                }
-            }
-        }
-    }
-
-    for (fixed_vertex, unavoidables) in
-        fixed_point_unavoidable(constructors, cache, &scc_elements, fields_of)
-    {
-        let arc = Arc::new(unavoidables);
-        if let Some(_dup) = cache.insert(fixed_vertex, arc) {
-            panic!("INTERNAL ERROR (`pbt`): duplicate unavoidability result")
-        }
-    }
-}
-
-/// Compute the least fixed point of unavoidability for one SCC.
-#[inline]
-#[must_use]
-#[expect(
-    clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-fn fixed_point_unavoidable<Vertex, Variant, Constructors, FieldsOf>(
-    constructors: &Constructors,
-    cached: &HashMap<Vertex, Arc<HashSet<Vertex>>>,
-    scc_elements: &HashSet<Vertex>,
-    fields_of: &FieldsOf,
-) -> HashMap<Vertex, HashSet<Vertex>>
-where
-    Constructors: Fn(Vertex) -> Arc<[Variant]>,
-    FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
-    Vertex: Copy + Eq + Hash,
-{
-    let mut scc_acc = map();
-
-    #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-    for &scc_vertex in scc_elements {
-        let mut just_self = set();
-        let newly_inserted = just_self.insert(scc_vertex);
-        debug_assert!(newly_inserted, "INTERNAL ERROR (`pbt`): witchcraft");
-        assert!(
-            scc_acc.insert(scc_vertex, just_self).is_none(),
-            "INTERNAL ERROR (`pbt`): duplicate unavoidability entry",
-        );
-    }
-
-    // Currently, this iteratively scans until a least fixed point is reached.
-    // Other approaches may be more efficient as SCCs grow asymptotically large,
-    // but mutually inductive groups of types in Rust are almost always tiny,
-    // so readability and auditability are most important here. May change later.
-    loop {
-        let mut changed = false;
-
-        #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-        for &scc_vertex in scc_elements {
-            let variant_slice: &[Variant] = &constructors(scc_vertex);
-            let mut variants = variant_slice.iter();
-            let mut next = match variants.next() {
-                Some(variant) => variant_unavoidable::<Vertex, Variant, FieldsOf>(
-                    variant, cached, &scc_acc, fields_of,
-                ),
-                None => set(),
-            };
-            for variant in variants {
-                let variant_unavoidables = variant_unavoidable::<Vertex, Variant, FieldsOf>(
-                    variant, cached, &scc_acc, fields_of,
-                );
-                next.retain(|candidate| variant_unavoidables.contains(candidate));
-            }
-            let _: bool = next.insert(scc_vertex);
-
-            let slot = scc_acc
-                .get_mut(&scc_vertex)
-                .expect("INTERNAL ERROR (`pbt`): missing unavoidability entry");
-            if *slot != next {
-                *slot = next;
-                changed = true;
-            }
-        }
-        if !changed {
-            return scc_acc;
-        }
-    }
 }
 
 /// Run Tarjan's strongly connected components algorithm from the selected vertex.
@@ -398,67 +266,13 @@ fn tarjan<OutgoingEdges, Vertex>(
     }
 }
 
-/// Compute the unavoidable vertices forced by a single variant.
-#[inline]
-#[must_use]
-#[expect(
-    clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-fn variant_unavoidable<Vertex, Variant, FieldsOf>(
-    variant: &Variant,
-    cached: &HashMap<Vertex, Arc<HashSet<Vertex>>>,
-    scc_acc: &HashMap<Vertex, HashSet<Vertex>>,
-    fields_of: &FieldsOf,
-) -> HashSet<Vertex>
-where
-    Vertex: Copy + Eq + Hash,
-    FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
-{
-    let mut union = set();
-
-    #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-    for field in fields_of(variant).counts.keys() {
-        if let Some(local_unavoidables) = scc_acc.get(field) {
-            let () = union.extend(local_unavoidables.iter().copied());
-        } else {
-            let cached_unavoidables = cached
-                .get(field)
-                .expect("INTERNAL ERROR (`pbt`): missing unavoidability entry");
-            let () = union.extend(cached_unavoidables.iter().copied());
-        }
-    }
-    union
-}
-
 #[cfg(test)]
 mod tests {
     #![expect(clippy::unwrap_used, reason = "Failing tests ought to panic.")]
 
     use {super::*, crate::hash::set, pretty_assertions::assert_eq};
 
-    type AdtGraph = HashMap<u8, Arc<[Multiset<u8>]>>;
     type Graph = HashMap<u8, Arc<HashSet<u8>>>;
-
-    fn adt(variants: &[&[u8]]) -> Arc<[Multiset<u8>]> {
-        variants
-            .iter()
-            .copied()
-            .map(|fields| fields.iter().copied().collect())
-            .collect()
-    }
-
-    fn adt_graph<const N: usize>(entries: [(u8, Arc<[Multiset<u8>]>); N]) -> AdtGraph {
-        let mut graph = map();
-        for (vertex, adt) in entries {
-            assert_eq!(
-                graph.insert(vertex, adt),
-                None,
-                "test ADT graph has a duplicate vertex",
-            );
-        }
-        graph
-    }
 
     fn graph(edges: &[(u8, &[u8])]) -> Graph {
         let mut graph = map();
@@ -472,50 +286,8 @@ mod tests {
         graph
     }
 
-    fn graph_from_adts(vertices: &AdtGraph) -> Graph {
-        let mut graph = map();
-        #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-        for (vertex, adt) in vertices {
-            let mut destinations = set();
-            for variant in &**adt {
-                destinations.extend(variant.counts.keys().copied());
-            }
-            assert_eq!(
-                graph.insert(*vertex, Arc::new(destinations)),
-                None,
-                "test ADT graph has a duplicate vertex",
-            );
-        }
-        graph
-    }
-
-    fn cached_unavoidables(cache: &HashMap<u8, Arc<HashSet<u8>>>, vertex: u8) -> HashSet<u8> {
-        cache.get(&vertex).unwrap().as_ref().clone()
-    }
-
-    fn fields_of_multiset(variant: &Multiset<u8>) -> &Multiset<u8> {
-        variant
-    }
-
     fn outgoing_edges(graph: &Graph) -> impl Fn(u8) -> Arc<HashSet<u8>> {
         move |vertex| Arc::clone(&graph[&vertex])
-    }
-
-    fn update_unavoidables_from(vertices: &AdtGraph, root: u8) -> HashMap<u8, Arc<HashSet<u8>>> {
-        let graph = graph_from_adts(vertices);
-        let edges = outgoing_edges(&graph);
-        let mut quotient = UnionFind::new();
-        update(root, &edges, &mut quotient);
-
-        let mut cache = map();
-        update_unavoidable(
-            root,
-            &mut cache,
-            &|i| Arc::clone(vertices.get(&i).unwrap()),
-            &mut quotient,
-            &fields_of_multiset,
-        );
-        cache
     }
 
     fn immediate_roots(
@@ -694,69 +466,6 @@ mod tests {
             reachable_roots(&mut quotient, 1),
             root_set(&mut quotient, &[1, 3])
         );
-    }
-
-    #[test]
-    fn unavoidability_diamond_keeps_only_common_branch_dependencies() {
-        // 1 = 2 | 3; 2 = 4; 3 = 4; 4 = leaf.
-        let vertices = adt_graph([
-            (1, adt(&[&[2], &[3]])),
-            (2, adt(&[&[4]])),
-            (3, adt(&[&[4]])),
-            (4, adt(&[&[]])),
-        ]);
-
-        let cache = update_unavoidables_from(&vertices, 1);
-
-        assert_eq!(cached_unavoidables(&cache, 1), vertex_set(&[1, 4]));
-        assert_eq!(cached_unavoidables(&cache, 2), vertex_set(&[2, 4]));
-        assert_eq!(cached_unavoidables(&cache, 3), vertex_set(&[3, 4]));
-        assert_eq!(cached_unavoidables(&cache, 4), vertex_set(&[4]));
-    }
-
-    #[test]
-    fn unavoidability_leaf_variant_escapes_recursive_field() {
-        // 1 = leaf | 2; 2 = leaf.
-        let vertices = adt_graph([(1, adt(&[&[], &[2]])), (2, adt(&[&[]]))]);
-
-        let cache = update_unavoidables_from(&vertices, 1);
-
-        assert_eq!(cached_unavoidables(&cache, 1), vertex_set(&[1]));
-        assert_eq!(cached_unavoidables(&cache, 2), vertex_set(&[2]));
-    }
-
-    #[test]
-    fn unavoidability_mutual_recursion_with_escape_is_asymmetric() {
-        // 1 = 2; 2 = leaf | 1.
-        let vertices = adt_graph([(1, adt(&[&[2]])), (2, adt(&[&[], &[1]]))]);
-
-        let cache = update_unavoidables_from(&vertices, 1);
-
-        assert_eq!(cached_unavoidables(&cache, 1), vertex_set(&[1, 2]));
-        assert_eq!(cached_unavoidables(&cache, 2), vertex_set(&[2]));
-    }
-
-    #[test]
-    fn unavoidability_mutual_recursion_without_escape_is_symmetric() {
-        // 1 = 2; 2 = 1.
-        let vertices = adt_graph([(1, adt(&[&[2]])), (2, adt(&[&[1]]))]);
-
-        let cache = update_unavoidables_from(&vertices, 1);
-
-        assert_eq!(cached_unavoidables(&cache, 1), vertex_set(&[1, 2]));
-        assert_eq!(cached_unavoidables(&cache, 2), vertex_set(&[1, 2]));
-    }
-
-    #[test]
-    fn unavoidability_forced_external_dependency_propagates_around_cycle() {
-        // 1 = (2, 3); 2 = 1; 3 = leaf.
-        let vertices = adt_graph([(1, adt(&[&[2, 3]])), (2, adt(&[&[1]])), (3, adt(&[&[]]))]);
-
-        let cache = update_unavoidables_from(&vertices, 1);
-
-        assert_eq!(cached_unavoidables(&cache, 1), vertex_set(&[1, 2, 3]));
-        assert_eq!(cached_unavoidables(&cache, 2), vertex_set(&[1, 2, 3]));
-        assert_eq!(cached_unavoidables(&cache, 3), vertex_set(&[3]));
     }
 
     fn vertex_set(vertices: &[u8]) -> HashSet<u8> {

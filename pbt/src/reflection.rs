@@ -18,7 +18,7 @@ use {
         memoize::memoize,
         multiset::Multiset,
         pbt::Pbt,
-        scc,
+        scc, unavoidability,
         union_find::{self, RootElement, UnionFind},
     },
     ahash::{HashMap, HashSet},
@@ -375,6 +375,8 @@ pub fn reachable(ty: TypeId) -> Arc<HashSet<RootElement<TypeId>>> {
             let _dup: bool = acc.insert(root.element);
             #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
             for dst in &root.metadata.outgoing_edges {
+                // The SCC quotient graph is a DAG by construction,
+                // so we don't need to worry about cycles.
                 acc.extend(reachable(**dst).iter());
             }
             Arc::new(acc)
@@ -485,36 +487,38 @@ pub fn scc(ty: TypeId) -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeI
 /// A type `U` is unavoidable from `T` iff every constructor path for `T`
 /// eventually requires a field whose type unavoidably reaches `U`.
 /// Unavoidability is reflexive by convention: every type unavoidably reaches itself.
-///
-/// N.B.: This function locks `UNAVOIDABLE`, `QUOTIENT`, and `CONSTRUCTORS` in that order.
 #[inline]
 #[must_use]
-#[expect(clippy::todo, reason = "TODO")]
-pub fn unavoidable(_ty: TypeId) -> Arc<HashSet<TypeId>> {
-    todo!()
-    // let unavoidable = &mut UNAVOIDABLE
-    //     .write()
-    //     .expect("INTERNAL ERROR (`pbt`): graph unavoidability lock poisoned");
-    // let mut quotient = SCC_QUOTIENT
-    //     .lock()
-    //     .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned");
-    // let () = scc::update_unavoidable(
-    //     ty,
-    //     unavoidable,
-    //     &constructors_of,
-    //     &mut quotient,
-    //     &|variant: &Variant<Erased>| {
-    //         const EMPTY: &Multiset<TypeId> = &Multiset::new();
-    //         match *variant {
-    //             Variant::Algebraic { ref fields } => fields,
-    //             Variant::Literal { .. } => EMPTY,
-    //         }
-    //     },
-    // );
-    //
-    // Arc::clone(
-    //     unavoidable
-    //         .get(&ty)
-    //         .expect("INTERNAL ERROR (`pbt`): missing requested unavoidability result"),
-    // )
+#[expect(
+    clippy::expect_used,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+fn unavoidable_of(ty: TypeId) -> Arc<HashSet<TypeId>> {
+    let cache = &mut UNAVOIDABLE
+        .write()
+        .expect("INTERNAL ERROR (`pbt`): unavoidability lock poisoned");
+
+    let () = unavoidability::update(ty, cache, &constructors_of, &Variant::fields);
+
+    Arc::clone(
+        cache
+            .get(&ty)
+            .expect("INTERNAL ERROR (`pbt`): missing unavoidability result"),
+    )
+}
+
+/// Compute all raw types unavoidably reached when generating the given type.
+///
+/// A type `U` is unavoidable from `T` iff every constructor path for `T`
+/// eventually requires a field whose type unavoidably reaches `U`.
+/// Unavoidability is reflexive by convention: every type unavoidably reaches itself.
+#[inline]
+#[must_use]
+#[expect(dead_code, reason = "TODO")]
+fn unavoidable<T>() -> Arc<HashSet<TypeId>>
+where
+    T: Pbt,
+{
+    let () = register_globally::<T>();
+    unavoidable_of(TypeId::of::<T>())
 }
