@@ -524,7 +524,7 @@ pub fn scc(ty: TypeId) -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeI
         .lock()
         .expect("INTERNAL ERROR (`pbt`): SCC quotient graph lock poisoned");
 
-    let () = scc::update_quotient_reachable_from(ty, &dependencies_of, &mut quotient);
+    let () = scc::update(ty, &dependencies_of, &mut quotient);
 
     quotient
         .root(ty)

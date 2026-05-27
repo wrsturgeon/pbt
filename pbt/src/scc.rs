@@ -44,7 +44,7 @@ pub struct VertexBookkeeping {
 ///
 /// See <https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm#The_algorithm_in_pseudocode>.
 #[inline]
-pub fn update_quotient_reachable_from<OutgoingEdges, Vertex>(
+pub fn update<OutgoingEdges, Vertex>(
     vertex: Vertex,
     outgoing_edges: &OutgoingEdges,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
@@ -506,7 +506,7 @@ mod tests {
         let graph = graph_from_adts(vertices);
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
-        update_quotient_reachable_from(root, &edges, &mut quotient);
+        update(root, &edges, &mut quotient);
 
         let mut cache = map();
         update_unavoidable(
@@ -557,7 +557,7 @@ mod tests {
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
-        update_quotient_reachable_from(1, &edges, &mut quotient);
+        update(1, &edges, &mut quotient);
 
         assert_eq!(
             immediate_roots(&mut quotient, 1),
@@ -571,7 +571,7 @@ mod tests {
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
-        update_quotient_reachable_from(1, &edges, &mut quotient);
+        update(1, &edges, &mut quotient);
 
         assert_eq!(
             immediate_roots(&mut quotient, 1),
@@ -585,7 +585,7 @@ mod tests {
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
-        update_quotient_reachable_from(1, &edges, &mut quotient);
+        update(1, &edges, &mut quotient);
 
         assert_eq!(
             quotient.root(1).unwrap().element,
@@ -603,7 +603,7 @@ mod tests {
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
-        update_quotient_reachable_from(1, &edges, &mut quotient);
+        update(1, &edges, &mut quotient);
 
         assert_eq!(
             quotient.root(1).unwrap().element,
@@ -629,11 +629,11 @@ mod tests {
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
-        update_quotient_reachable_from(2, &edges, &mut quotient);
+        update(2, &edges, &mut quotient);
         let recursive_child_root = quotient.root(2).unwrap().element;
         let leaf_root = quotient.root(4).unwrap().element;
 
-        update_quotient_reachable_from(1, &edges, &mut quotient);
+        update(1, &edges, &mut quotient);
 
         assert_ne!(quotient.root(1).unwrap().element, recursive_child_root);
         assert_eq!(quotient.root(2).unwrap().element, recursive_child_root);
@@ -655,7 +655,7 @@ mod tests {
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
-        update_quotient_reachable_from(1, &edges, &mut quotient);
+        update(1, &edges, &mut quotient);
 
         assert_eq!(
             reachable_roots(&mut quotient, 1),
@@ -669,7 +669,7 @@ mod tests {
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
-        update_quotient_reachable_from(1, &edges, &mut quotient);
+        update(1, &edges, &mut quotient);
 
         assert_eq!(
             reachable_roots(&mut quotient, 1),
@@ -687,7 +687,7 @@ mod tests {
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
-        update_quotient_reachable_from(1, &edges, &mut quotient);
+        update(1, &edges, &mut quotient);
 
         assert_eq!(
             quotient.root(1).unwrap().element,
