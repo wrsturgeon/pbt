@@ -2,10 +2,20 @@
 //!
 //! Rust types are translated s.t. a `struct` is a singleton degenerate case (one variant).
 
+// Toposort of caching layers (top to bottom, where moving
+// downward means "can access"/"can rely on"), strictly ordered to prevent cycles:
+//
+// - reachability (whether some type can transitively contain a field of some other type)
+// - strongly connected components (precisely identifies mutually inductive types)
+// - dependencies (remove constructors from the graph by flat-mapping over field types)
+// - constructors (least fixed point of removing uninstantiable variants)
+// - naive variants (reading off the def'n, including uninstantiable variants)
+
 use {
     crate::{
         hash::{map, set},
         instantiability,
+        memoize::memoize,
         multiset::Multiset,
         pbt::Pbt,
         scc,
@@ -25,40 +35,6 @@ use {
     wyrand::WyRand,
 };
 
-/// Cache an *idempotent* calculation with an `RwLock<HashMap<K, V>>`.
-#[expect(
-    unused_macros,
-    reason = "TODO: evaluate after reflection caches settle"
-)]
-macro_rules! cache {
-    ($name:literal = |$k:ident: $K:ty| -> $V:ty $b:block) => {{
-        static CACHE: RwLock<HashMap<$K, $V>> = RwLock::new(map());
-
-        // Check if this key already has a cached result:
-        {
-            let read = CACHE.read().expect(concat!(
-                "INTERNAL ERROR (`pbt`): ",
-                $name,
-                " cache lock poisoned",
-            ));
-            if let Some(cached) = read.get(&$k) {
-                return <$V as Clone>::clone(cached);
-            }
-        }
-
-        // Otherwise, compute the result and insert it,
-        // unless there was a race condition (in which case
-        // it's important that this function be idempotent):
-        let v = $b;
-        let mut write = CACHE.write().expect(concat!(
-            "INTERNAL ERROR (`pbt`): ",
-            $name,
-            " cache lock poisoned",
-        ));
-        <$V as Clone>::clone(write.entry($k).or_insert(v))
-    }};
-}
-
 /// All variants of each registered type
 /// (transitively through dependencies),
 /// *including* uninstantiable variants.
@@ -68,18 +44,6 @@ macro_rules! cache {
 /// Each directed edge means "contains," i.e.
 /// "has a field of this type" or "contains this variant."
 static NAIVE_VARIANTS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
-
-/// Transitive reachability between *strongly connected components* of the type-dependency graph,
-/// i.e. the graph in which vertices are types and edges represent "has a field of this type."
-///
-/// The key insight is that *strongly connected components define mutually inductive types.*
-///
-/// This is useful when determining whether some variant is potentially inductive:
-/// if any of its fields can reach `Self`, then it can potentially be inductive,
-/// so we should consider it when we have plenty of size left to generate.
-#[expect(dead_code, reason = "TODO")]
-static REACHABLE: RwLock<HashMap<RootElement<TypeId>, Arc<HashSet<RootElement<TypeId>>>>> =
-    RwLock::new(map());
 
 /// This encodes the notion that "if we start generating a term of type A,
 /// then must unavoidably generate terms of type B, C, ... in the process."
@@ -351,31 +315,17 @@ where
 /// Dependencies of each type: that is,
 /// all types of all fields on all instatiable variants, deduplicated.
 #[inline]
-#[expect(
-    clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
 fn dependencies_of(ty: TypeId) -> Arc<HashSet<TypeId>> {
-    static CACHE: RwLock<HashMap<TypeId, Arc<HashSet<TypeId>>>> = RwLock::new(map());
-
-    if let Some(cached) = CACHE
-        .read()
-        .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned")
-        .get(&ty)
-    {
-        return Arc::clone(cached);
-    }
-
-    let deps = constructors_of(ty)
-        .iter()
-        .flat_map(Variant::dedup_fields)
-        .collect();
-
-    let mut cache = CACHE
-        .write()
-        .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
-
-    Arc::clone(cache.entry(ty).or_insert(Arc::new(deps)))
+    memoize!(
+        "dependency" = |ty: TypeId| -> Arc<HashSet<TypeId>> {
+            Arc::new(
+                constructors_of(ty)
+                    .iter()
+                    .flat_map(Variant::dedup_fields)
+                    .collect(),
+            )
+        }
+    )
 }
 
 /// Dependencies of each type: that is,
@@ -415,22 +365,21 @@ fn naive_variants_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
 /// we arbitrarily consider reachability to be reflexive w.l.o.g.
 /// (i.e. all SCCs can reach themselves)
 /// to simplify downstream reachability checks.
-///
-/// N.B.: This function locks `REACHABLE` and `QUOTIENT` in that order.
 #[inline]
 #[must_use]
-#[expect(clippy::todo, reason = "TODO")]
-pub fn reachable(_scc_root: RootElement<TypeId>) -> Arc<HashSet<RootElement<TypeId>>> {
-    todo!()
-    // scc::reachable(
-    //     &mut REACHABLE
-    //         .write()
-    //         .expect("INTERNAL ERROR (`pbt`): graph reachability lock poisoned"),
-    //     &mut SCC_QUOTIENT
-    //         .lock()
-    //         .expect("INTERNAL ERROR (`pbt`): quotient graph lock poisoned"),
-    //     scc_root,
-    // )
+pub fn reachable(ty: TypeId) -> Arc<HashSet<RootElement<TypeId>>> {
+    memoize!(
+        "reachability" = |ty: TypeId| -> Arc<HashSet<RootElement<TypeId>>> {
+            let root = scc(ty);
+            let mut acc = set();
+            let _dup: bool = acc.insert(root.element);
+            #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
+            for dst in &root.metadata.outgoing_edges {
+                acc.extend(reachable(**dst).iter());
+            }
+            Arc::new(acc)
+        }
+    )
 }
 
 /// Register the type `T` and its dependencies

@@ -8,6 +8,7 @@ pub mod fields;
 pub mod hash;
 pub mod impls;
 pub mod instantiability;
+pub mod memoize;
 pub mod multiset;
 pub mod pbt;
 pub mod reflection;

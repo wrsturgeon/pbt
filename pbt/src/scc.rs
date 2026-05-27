@@ -24,7 +24,7 @@ pub struct QuotientVertex<Vertex> {
     /// so directed edges out of an SCC are not a very well-defined concept,
     /// but they could be seen as representing "optional dependencies,"
     /// i.e. that there exists a generator path that contains a term of this type.
-    pub immediately_reachable: HashSet<RootElement<Vertex>>,
+    pub outgoing_edges: HashSet<RootElement<Vertex>>,
 }
 
 /// Per-vertex bookkeeping for Tarjan's SCC algorithm.
@@ -85,31 +85,30 @@ pub fn update<OutgoingEdges, Vertex>(
 pub fn reachable<Vertex>(
     cache: &mut HashMap<RootElement<Vertex>, Arc<HashSet<RootElement<Vertex>>>>,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
-    root: RootElement<Vertex>,
+    element: Vertex,
 ) -> Arc<HashSet<RootElement<Vertex>>>
 where
     Vertex: Copy + Eq + Hash,
 {
-    if let Some(cached) = cache.get(&root) {
+    let root = quotient
+        .root(element)
+        .expect("INTERNAL ERROR (`pbt`): unregistered type during reachability analysis");
+
+    if let Some(cached) = cache.get(&root.element) {
         return Arc::clone(cached);
     }
 
     let mut union = set();
-    let newly_inserted = union.insert(root);
+    let newly_inserted = union.insert(root.element);
     debug_assert!(newly_inserted, "INTERNAL ERROR (`pbt`): witchcraft");
 
-    for &child in &quotient
-        .root(*root)
-        .expect("INTERNAL ERROR (`pbt`): unregistered type during reachability analysis")
-        .metadata
-        .immediately_reachable
-    {
-        let () = union.extend(reachable(cache, quotient, child).iter());
+    for &child in &root.metadata.outgoing_edges {
+        let () = union.extend(reachable(cache, quotient, *child).iter());
     }
 
     let arc = Arc::new(union);
     let to_return = Arc::clone(&arc);
-    if let Some(_dup) = cache.insert(root, arc) {
+    if let Some(_dup) = cache.insert(root.element, arc) {
         panic!("INTERNAL ERROR (`pbt`): SCC quotient graph is cyclic")
     }
     to_return
@@ -361,7 +360,7 @@ fn tarjan<OutgoingEdges, Vertex>(
             .get(n_before_stack..)
             .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery")
         {
-            let immediately_reachable = outgoing_edges(popped)
+            let outgoing_edges_of_popped = outgoing_edges(popped)
                 .iter()
                 .copied()
                 .filter(|dst| !bookkeeping.get(dst).is_some_and(|books| books.on_stack))
@@ -369,19 +368,19 @@ fn tarjan<OutgoingEdges, Vertex>(
                 .collect();
             let mut elements = set();
             let _: bool = elements.insert(popped);
-            quotient.insert_singleton(
+            let () = quotient.insert_singleton(
                 popped,
                 Arc::new(QuotientVertex {
                     elements,
-                    immediately_reachable,
+                    outgoing_edges: outgoing_edges_of_popped,
                 }),
             );
             let () = quotient.merge(vertex, popped, |lhs, rhs| {
                 Arc::new(QuotientVertex {
                     elements: lhs.elements.union(&rhs.elements).copied().collect(),
-                    immediately_reachable: lhs
-                        .immediately_reachable
-                        .union(&rhs.immediately_reachable)
+                    outgoing_edges: lhs
+                        .outgoing_edges
+                        .union(&rhs.outgoing_edges)
                         .copied()
                         .collect(),
                 })
@@ -527,7 +526,7 @@ mod tests {
             .root(vertex)
             .unwrap()
             .metadata
-            .immediately_reachable
+            .outgoing_edges
             .clone()
     }
 
@@ -535,9 +534,7 @@ mod tests {
         quotient: &mut UnionFind<u8, Arc<QuotientVertex<u8>>>,
         vertex: u8,
     ) -> HashSet<RootElement<u8>> {
-        let root = quotient.root(vertex).unwrap().element;
-        let mut cache = map();
-        reachable(&mut cache, quotient, root).as_ref().clone()
+        reachable(&mut map(), quotient, vertex).as_ref().clone()
     }
 
     fn root_set(
