@@ -298,10 +298,9 @@ impl<T> Variant<T> {
 #[inline]
 #[expect(
     clippy::expect_used,
-    clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-pub fn constructors(ty: TypeId) -> Arc<[Variant<Erased>]> {
+fn constructors_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
     static CACHE: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
 
     if let Some(cached) = CACHE
@@ -325,6 +324,27 @@ pub fn constructors(ty: TypeId) -> Arc<[Variant<Erased>]> {
             .get(&ty)
             .expect("INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis"),
     )
+}
+
+/// Instantiable constructors for each type.
+///
+/// N.B.: A type's instantiability is as simple as `!constructors.is_empty()`.
+#[inline]
+#[expect(dead_code, reason = "TODO")]
+fn constructors<T>() -> Arc<[Variant<T>]>
+where
+    T: Pbt,
+{
+    let ty = TypeId::of::<T>();
+    let () = register_globally::<T>();
+    let erased = constructors_of(ty);
+    // SAFETY: `T` is only ever the codomain of a function pointer.
+    unsafe {
+        mem::transmute::<
+            Arc<[Variant<Erased>]>, //
+            Arc<[Variant<T>]>,
+        >(erased)
+    }
 }
 
 /// Compute all reachable SCCs from the given SCC,
@@ -377,7 +397,7 @@ pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
     let () = scc::update_unavoidable(
         ty,
         unavoidable,
-        &constructors,
+        &constructors_of,
         &mut quotient,
         &|variant: &Variant<Erased>| {
             const EMPTY: &Multiset<TypeId> = &Multiset::new();
@@ -392,6 +412,24 @@ pub fn unavoidable(ty: TypeId) -> Arc<HashSet<TypeId>> {
         unavoidable
             .get(&ty)
             .expect("INTERNAL ERROR (`pbt`): missing requested unavoidability result"),
+    )
+}
+
+/// All variants of a given type,
+/// even uninstantiable variants.
+#[inline]
+#[expect(dead_code, reason = "TODO")]
+#[expect(
+    clippy::expect_used,
+    reason = "For internal use only: invariant violations should fail loudly."
+)]
+fn naive_variants_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
+    Arc::clone(
+        NAIVE_VARIANTS
+            .read()
+            .expect("INTERNAL ERROR (`pbt`): variants lock poisoned")
+            .get(&ty)
+            .expect("INTERNAL ERROR (`pbt`): unregistered type"),
     )
 }
 
@@ -417,26 +455,27 @@ pub fn register<T>(
     }
 
     // Recurse, i.e. run depth-first search:
-    let variants = T::variants(vertices, visited);
+    let naive_variants = T::variants(vertices, visited);
 
     // SAFETY: `T` is only ever the codomain of a function pointer.
     let erased = unsafe {
         mem::transmute::<
             Arc<[Variant<T>]>, //
             Arc<[Variant<Erased>]>,
-        >(variants)
+        >(naive_variants)
     };
 
-    // Insert the recursive result:
     let dup: Option<_> = vertices.insert(ty, erased);
-    assert!(dup.is_none(), "INTERNAL ERROR (`pbt`): TOCTOU during DFS");
+    assert!(
+        dup.is_none(),
+        "INTERNAL ERROR (`pbt`): TOCTOU despite `&mut` (witchcraft)",
+    );
 }
 
 /// Register the type `T` and its dependencies
-/// in the global naive type reflection graph,
+/// in a naive type reflection graph,
 /// including any uninstantiable variants.
 #[inline]
-#[expect(dead_code, reason = "TODO")]
 #[expect(
     clippy::expect_used,
     reason = "For internal use only: invariant violations should fail loudly."
@@ -445,9 +484,20 @@ fn register_globally<T>()
 where
     T: Pbt,
 {
-    let mut vertices = NAIVE_VARIANTS
+    if NAIVE_VARIANTS
+        .read()
+        .expect("INTERNAL ERROR (`pbt`): variants lock poisoned")
+        .contains_key(&TypeId::of::<T>())
+    {
+        return;
+    }
+
+    // It's fine if there's TOCTOU, since this is
+    // cheap, cached, incremental, and idempotent.
+    let mut naive_variants = NAIVE_VARIANTS
         .write()
         .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
+
     let mut visited = set();
-    let () = register::<T>(&mut vertices, &mut visited);
+    let () = register::<T>(&mut naive_variants, &mut visited);
 }
