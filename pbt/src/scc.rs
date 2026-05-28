@@ -43,12 +43,13 @@ pub struct VertexBookkeeping {
 ///
 /// See <https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm#The_algorithm_in_pseudocode>.
 #[inline]
-pub fn update<OutgoingEdges, Vertex>(
+pub fn update<Destinations, OutgoingEdges, Vertex>(
     vertex: Vertex,
     outgoing_edges: &OutgoingEdges,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
 ) where
-    OutgoingEdges: Fn(Vertex) -> Arc<HashSet<Vertex>>,
+    Destinations: Iterator<Item = Vertex>,
+    OutgoingEdges: Fn(Vertex) -> Destinations,
     Vertex: Copy + Eq + Hash,
 {
     if quotient.root(vertex).is_some() {
@@ -76,7 +77,7 @@ pub fn update<OutgoingEdges, Vertex>(
     reason = "For internal use only: invariant violations should fail loudly."
 )]
 #[expect(clippy::too_many_lines, reason = "take it up with Tarjan")]
-fn tarjan<OutgoingEdges, Vertex>(
+fn tarjan<Destinations, OutgoingEdges, Vertex>(
     vertex: Vertex,
     outgoing_edges: &OutgoingEdges,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
@@ -84,7 +85,8 @@ fn tarjan<OutgoingEdges, Vertex>(
     bookkeeping: &mut HashMap<Vertex, VertexBookkeeping>,
     stack: &mut Vec<Vertex>,
 ) where
-    OutgoingEdges: Fn(Vertex) -> Arc<HashSet<Vertex>>,
+    Destinations: Iterator<Item = Vertex>,
+    OutgoingEdges: Fn(Vertex) -> Destinations,
     Vertex: Copy + Eq + Hash,
 {
     macro_rules! get {
@@ -128,13 +130,12 @@ fn tarjan<OutgoingEdges, Vertex>(
     *global_visit_index += 1;
     stack.push(vertex);
 
-    #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-    for child in &*outgoing_edges(vertex) {
-        if quotient.root(*child).is_some() {
+    for child in outgoing_edges(vertex) {
+        if quotient.root(child).is_some() {
             continue; // SCC already discovered from some other type
         }
 
-        if let Some(child_books) = bookkeeping.get(child) {
+        if let Some(child_books) = bookkeeping.get(&child) {
             if child_books.on_stack {
                 let child_index = child_books.global_visit_index;
                 let v_books = get_mut!(&vertex);
@@ -143,15 +144,15 @@ fn tarjan<OutgoingEdges, Vertex>(
                 }
             }
         } else {
-            let () = tarjan::<OutgoingEdges, Vertex>(
-                *child,
+            let () = tarjan::<Destinations, OutgoingEdges, Vertex>(
+                child,
                 outgoing_edges,
                 quotient,
                 global_visit_index,
                 bookkeeping,
                 stack,
             );
-            let child_low_link = get!(child).low_link;
+            let child_low_link = get!(&child).low_link;
             let v_books = get_mut!(&vertex);
             if child_low_link < v_books.low_link {
                 v_books.low_link = child_low_link;
@@ -181,8 +182,6 @@ fn tarjan<OutgoingEdges, Vertex>(
             .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery")
         {
             let outgoing_edges_of_popped = outgoing_edges(popped)
-                .iter()
-                .copied()
                 .filter(|dst| !bookkeeping.get(dst).is_some_and(|books| books.on_stack))
                 .map(|dst| root!(dst))
                 .collect();
@@ -222,7 +221,10 @@ fn tarjan<OutgoingEdges, Vertex>(
 mod tests {
     #![expect(clippy::unwrap_used, reason = "Failing tests ought to panic.")]
 
-    use {super::*, crate::hash::set, pretty_assertions::assert_eq};
+    use {
+        super::*, crate::hash::set, core::iter, pretty_assertions::assert_eq,
+        std::collections::hash_set,
+    };
 
     type Graph = HashMap<u8, Arc<HashSet<u8>>>;
 
@@ -238,8 +240,8 @@ mod tests {
         graph
     }
 
-    fn outgoing_edges(graph: &Graph) -> impl Fn(u8) -> Arc<HashSet<u8>> {
-        move |vertex| Arc::clone(&graph[&vertex])
+    fn outgoing_edges<'g>(graph: &'g Graph) -> impl Fn(u8) -> iter::Copied<hash_set::Iter<'g, u8>> {
+        move |vertex| graph[&vertex].iter().copied()
     }
 
     fn immediate_roots(

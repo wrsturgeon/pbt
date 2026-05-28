@@ -5,7 +5,7 @@ use {
     crate::{
         pbt::Pbt,
         size::{self, Size},
-        swarm::{self, Swarm},
+        swarm::Swarm,
     },
     wyrand::WyRand,
 };
@@ -26,18 +26,19 @@ pub trait Fields {
 /// Fields are not stored ahead of time;
 /// instead, their sizes are stored in an iterator,
 /// and all fields are produced just in time.
-pub struct Lazy<'prng, 'swarm> {
+#[expect(clippy::field_scoped_visibility_modifiers, reason = "fine")]
+pub(crate) struct Lazy<'prng, 'swarm> {
     /// Pseudorandom number generator.
     ///
     /// This is inside `Lazy` and not a function argument
     /// because shrinking (existing fields) doesn't need a PRNG.
-    prng: &'prng mut WyRand,
+    pub(crate) prng: &'prng mut WyRand,
     /// A lazy partition over sizes, tuned to match
     /// the number of inductive types among the fields to generate.
-    sizes: size::Partition,
+    pub(crate) sizes: size::Partition,
     /// A masked view into this type's constructors,
     /// partitioned into potential leaves and loops.
-    swarm: &'swarm mut Swarm,
+    pub(crate) swarm: &'swarm mut Swarm,
 }
 
 /// Fields are known and returned if present;
@@ -50,17 +51,23 @@ pub struct Eager {
 
 impl Fields for Lazy<'_, '_> {
     #[inline(always)]
+    #[expect(
+        clippy::expect_used,
+        reason = "For internal use only: invariant violations should fail loudly."
+    )]
     fn field<T>(&mut self) -> T
     where
         T: Pbt,
     {
-        let size = if self.swarm.affordances::<T>(self.prng).is_inductive() {
+        let size = if self.swarm.is_inductive::<T>() {
             // SAFETY: `Partition::next` always returns `Some(_)`,
             // since it returns endless zeros after its assigned cardinality.
             unsafe { self.sizes.next().unwrap_unchecked() }
         } else {
             Size::zero()
         };
-        swarm::arbitrary(self.swarm, size, self.prng)
+        self.swarm
+            .arbitrary(size, self.prng)
+            .expect("INTERNAL ERROR (`pbt`): uninstantiable field")
     }
 }

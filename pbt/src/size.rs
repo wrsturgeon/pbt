@@ -81,11 +81,39 @@ impl Size {
         }
     }
 
+    /// Based on the size we have left, should we
+    /// head toward a leaf or recurse again?
+    #[inline]
+    #[expect(
+        clippy::as_conversions,
+        clippy::cast_possible_truncation,
+        reason = "OK: `u64` is already huge"
+    )]
+    pub fn should_recurse(&self, prng: &mut WyRand) -> bool {
+        let Some(denominator) = NonZero::new(self.total) else {
+            return false;
+        };
+        (prng.rand() as usize % denominator) != 0
+    }
+
     /// A total size of zero.
     #[inline]
     #[must_use]
     pub const fn zero() -> Self {
         Self { total: 0 }
+    }
+}
+
+impl Partition {
+    /// A partition of zero size into zero parts.
+    #[inline]
+    #[must_use]
+    pub const fn empty() -> Self {
+        Self {
+            separators: None,
+            total: 0,
+            used: 0,
+        }
     }
 }
 

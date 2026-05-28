@@ -3,7 +3,7 @@
 use {
     crate::{
         fields::Fields,
-        reflection::{Erased, Variant},
+        reflection::{Constructor, Erased, Variant},
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
@@ -41,7 +41,7 @@ pub trait Pbt: 'static {
     /// // ... return this type's variants ...
     /// ```
     fn variants(
-        variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+        variants: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
         visited: &mut HashSet<TypeId>,
-    ) -> Arc<[Variant<Self>]>;
+    ) -> Vec<Variant<Self>>;
 }

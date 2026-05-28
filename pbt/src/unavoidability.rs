@@ -6,7 +6,7 @@
 //! contains a subvalue of that type.
 
 use {
-    crate::{hash::set, multiset::Multiset},
+    crate::hash::set,
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
     core::hash::Hash,
@@ -15,15 +15,17 @@ use {
 
 /// Collect all reachable vertices not already in `cache`.
 #[inline]
-fn collect_uncached<Vertex, Variant, Constructors, FieldsOf>(
+fn collect_uncached<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
     vertex: Vertex,
     cache: &HashMap<Vertex, Arc<HashSet<Vertex>>>,
     constructors: &Constructors,
     fields_of: &FieldsOf,
     acc: &mut HashSet<Vertex>,
 ) where
-    Constructors: Fn(Vertex) -> Arc<[Variant]>,
-    FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
+    Constructors: Fn(Vertex) -> &'ctors [Variant],
+    Fields: Iterator<Item = Vertex>,
+    FieldsOf: Fn(&'ctors Variant) -> Fields,
+    Variant: 'ctors,
     Vertex: Copy + Eq + Hash,
 {
     if cache.contains_key(&vertex) || !acc.insert(vertex) {
@@ -31,10 +33,9 @@ fn collect_uncached<Vertex, Variant, Constructors, FieldsOf>(
     }
 
     let variants = constructors(vertex);
-    for variant in &*variants {
-        #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-        for field in fields_of(variant).counts.keys() {
-            let () = collect_uncached(*field, cache, constructors, fields_of, acc);
+    for variant in variants {
+        for field in fields_of(variant) {
+            let () = collect_uncached(field, cache, constructors, fields_of, acc);
         }
     }
 }
@@ -64,14 +65,16 @@ fn collect_uncached<Vertex, Variant, Constructors, FieldsOf>(
     reason = "For internal use only: invariant violations should fail loudly."
 )]
 #[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
-pub fn update<Vertex, Variant, Constructors, FieldsOf>(
+pub fn update<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
     root: Vertex,
     cache: &mut HashMap<Vertex, Arc<HashSet<Vertex>>>,
     constructors: &Constructors,
     fields_of: &FieldsOf,
 ) where
-    Constructors: Fn(Vertex) -> Arc<[Variant]>,
-    FieldsOf: Fn(&Variant) -> &Multiset<Vertex>,
+    Constructors: Fn(Vertex) -> &'ctors [Variant],
+    Fields: Iterator<Item = Vertex>,
+    FieldsOf: Fn(&'ctors Variant) -> Fields,
+    Variant: 'ctors,
     Vertex: Copy + Eq + Hash,
 {
     if cache.contains_key(&root) {
@@ -92,15 +95,15 @@ pub fn update<Vertex, Variant, Constructors, FieldsOf>(
         for &vertex in &domain {
             let intersection = {
                 let mut intersection: Option<HashSet<Vertex>> = None;
-                for variant in &*constructors(vertex) {
+                for variant in constructors(vertex) {
                     let mut union = set::<Vertex>();
-                    for dst in fields_of(variant).iter_dedup() {
-                        if let Some(unavoidable) = cache.get(dst) {
+                    for dst in fields_of(variant) {
+                        if let Some(unavoidable) = cache.get(&dst) {
                             let () = union.extend(&**unavoidable);
                         } else {
                             let () = union.extend(
                                 solving
-                                    .get(dst)
+                                    .get(&dst)
                                     .expect("INTERNAL ERROR (`pbt`): unregistered type"),
                             );
                         }
@@ -145,7 +148,11 @@ mod tests {
     #![expect(clippy::expect_used, reason = "Failing tests ought to panic.")]
     #![expect(clippy::unwrap_used, reason = "Failing tests ought to panic.")]
 
-    use {super::*, crate::hash::map, pretty_assertions::assert_eq};
+    use {
+        super::*,
+        crate::{hash::map, multiset::Multiset},
+        pretty_assertions::assert_eq,
+    };
 
     type AdtGraph = HashMap<u8, Arc<[Multiset<u8>]>>;
 
@@ -173,8 +180,8 @@ mod tests {
         cache.get(&vertex).unwrap().as_ref().clone()
     }
 
-    fn fields_of_multiset(variant: &Multiset<u8>) -> &Multiset<u8> {
-        variant
+    fn fields_of_multiset(variant: &Multiset<u8>) -> impl Iterator<Item = u8> {
+        variant.iter_dedup().copied()
     }
 
     fn update_unavoidables_from(vertices: &AdtGraph, root: u8) -> HashMap<u8, Arc<HashSet<u8>>> {
@@ -183,11 +190,9 @@ mod tests {
             root,
             &mut cache,
             &|i| {
-                Arc::clone(
-                    vertices
-                        .get(&i)
-                        .expect("test graph should contain requested constructors"),
-                )
+                &**vertices
+                    .get(&i)
+                    .expect("test graph should contain requested constructors")
             },
             &fields_of_multiset,
         );
@@ -276,11 +281,9 @@ mod tests {
             1,
             &mut cache,
             &|i| {
-                Arc::clone(
-                    vertices
-                        .get(&i)
-                        .expect("test graph should contain requested constructors"),
-                )
+                vertices
+                    .get(&i)
+                    .expect("test graph should contain requested constructors")
             },
             &fields_of_multiset,
         );

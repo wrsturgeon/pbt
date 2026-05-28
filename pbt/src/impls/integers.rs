@@ -4,7 +4,7 @@ use {
     crate::{
         fields::Fields,
         pbt::Pbt,
-        reflection::{Erased, Variant},
+        reflection::{Constructor, Erased, Variant},
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
@@ -23,14 +23,14 @@ impl Pbt for usize {
 
     #[inline]
     fn variants(
-        _variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+        _variants: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
         visited: &mut HashSet<TypeId>,
-    ) -> Arc<[Variant<Self>]> {
+    ) -> Vec<Variant<Self>> {
         let ty = TypeId::of::<Self>();
         if visited.insert(ty) {
             // here's where we'd run DFS iff not already in `visited`
         }
-        Arc::new([
+        vec![
             Variant::Literal {
                 generator: |prng| {
                     if const { usize::BITS <= 64 } {
@@ -88,6 +88,6 @@ impl Pbt for usize {
                     acc
                 },
             },
-        ])
+        ]
     }
 }

@@ -57,8 +57,8 @@ where
 
     /// Iterate over each distinct element and its count.
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = (&T, &NonZero<usize>)> {
-        self.counts.iter()
+    pub fn iter(&self) -> impl Iterator<Item = (&T, NonZero<usize>)> {
+        self.counts.iter().map(|(k, &v)| (k, v))
     }
 
     /// Iterate over each distinct element, ignoring duplicate counts.
