@@ -70,6 +70,10 @@ pub trait Pbt: 'static {
     clippy::missing_panics_doc,
     reason = "Internal invariants: violations should fail loudly."
 )]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "The hardware will die before batch size overflows."
+)]
 pub fn arbitrary<T>(
     prng: &mut wyrand::WyRand,
 ) -> Result<impl Iterator<Item = T>, reflection::Uninstantiable>
@@ -77,10 +81,18 @@ where
     T: Pbt,
 {
     let mut swarm_cache = hash::map();
-    let _check_instantiability_and_warm_cache = swarm::Swarm::new::<T>(prng, &mut swarm_cache)?;
+    let mut swarm = swarm::Swarm::new::<T>(prng, &mut swarm_cache)?;
+    let mut batch_size = 1_usize; // Increases over time.
+    let mut remaining_in_batch = batch_size;
     Ok(size::Size::increasing().map(move |size| {
-        swarm::Swarm::new::<T>(prng, &mut swarm_cache)
-            .expect("INTERNAL ERROR (`pbt`): instantiability mismatch")
-            .arbitrary(size, prng)
+        if let Some(decremented) = remaining_in_batch.checked_sub(1) {
+            remaining_in_batch = decremented;
+        } else {
+            remaining_in_batch = batch_size;
+            batch_size += 1;
+            swarm = swarm::Swarm::new::<T>(prng, &mut swarm_cache)
+                .expect("INTERNAL ERROR (`pbt`): instantiability changed mid-generation");
+        }
+        swarm.arbitrary(size, prng)
     }))
 }
