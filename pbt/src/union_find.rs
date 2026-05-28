@@ -84,7 +84,7 @@ impl<Element> UnionFind<Element> {
     clippy::expect_used,
     clippy::panic,
     clippy::unwrap_in_result,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
 impl<Element> UnionFind<Element>
 where

@@ -8,6 +8,7 @@
 use {
     crate::hash::map,
     ahash::HashMap,
+    alloc::collections::BTreeMap,
     alloc::sync::Arc,
     core::{hash::Hash, iter},
 };
@@ -17,18 +18,18 @@ use {
 #[inline]
 #[expect(
     clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
 fn mask_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
     root: Vertex,
-    naive: &'naive HashMap<Vertex, Arc<[Variant]>>,
+    naive: &'naive BTreeMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
     fields_of_variant: &FieldsOfVariant,
     masks: &mut HashMap<Vertex, (bool, Box<[bool]>)>,
 ) where
     Fields: Iterator<Item = Vertex>,
     FieldsOfVariant: Fn(&'naive Variant) -> Fields,
-    Vertex: Eq + Hash,
+    Vertex: Eq + Hash + Ord,
 {
     if constructors.contains_key(&root) || masks.contains_key(&root) {
         return;
@@ -52,11 +53,11 @@ fn mask_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
 #[inline]
 #[expect(
     clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
 fn finalize_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
     root: Vertex,
-    naive: &'naive HashMap<Vertex, Arc<[Variant]>>,
+    naive: &'naive BTreeMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
     fields_of_variant: &FieldsOfVariant,
     masks: &HashMap<Vertex, (bool, Box<[bool]>)>,
@@ -64,7 +65,7 @@ fn finalize_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
     Fields: Iterator<Item = Vertex>,
     FieldsOfVariant: Fn(&'naive Variant) -> Fields,
     Variant: Clone,
-    Vertex: Clone + Eq + Hash,
+    Vertex: Clone + Eq + Hash + Ord,
 {
     if constructors.contains_key(&root) {
         return;
@@ -121,19 +122,18 @@ fn finalize_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
 #[inline]
 #[expect(
     clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
-#[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
 pub(crate) fn update<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
     root: Vertex,
-    naive: &'naive HashMap<Vertex, Arc<[Variant]>>,
+    naive: &'naive BTreeMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
     fields_of_variant: &FieldsOfVariant,
 ) where
     Fields: Iterator<Item = Vertex>,
     FieldsOfVariant: Fn(&'naive Variant) -> Fields,
     Variant: Clone,
-    Vertex: Copy + Eq + Hash,
+    Vertex: Copy + Eq + Hash + Ord,
 {
     let mut masks: HashMap<Vertex, (bool, Box<[bool]>)> = map();
     let () = mask_all_reachable(root, naive, constructors, fields_of_variant, &mut masks);

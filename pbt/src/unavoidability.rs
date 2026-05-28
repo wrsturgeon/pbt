@@ -61,7 +61,7 @@ fn collect_uncached<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
 #[inline]
 #[expect(
     clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
 pub(crate) fn update<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
     root: Vertex,

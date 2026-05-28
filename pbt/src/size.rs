@@ -29,7 +29,7 @@ pub(crate) struct Partition {
 /// among fields of a chosen variant,
 /// all the way down to leaves (forced when size runs out).
 #[derive(Default)]
-pub struct Size {
+pub(crate) struct Size {
     /// Approximate AST size of a value to be generated,
     /// counting only inductive types and ignoring leaves.
     ///
@@ -45,7 +45,7 @@ impl Size {
     /// An infinite iterator of increasing sizes,
     /// starting from zero.
     #[inline]
-    pub fn increasing() -> impl Iterator<Item = Self> {
+    pub(crate) fn increasing() -> impl Iterator<Item = Self> {
         (0..).map(|total| Self { total })
     }
 
@@ -60,7 +60,7 @@ impl Size {
     #[inline]
     #[expect(
         clippy::expect_used,
-        reason = "For internal use only: invariant violations should fail loudly."
+        reason = "Internal invariants: violations should fail loudly."
     )]
     pub(crate) fn partition(mut self, into_how_many: usize, prng: &mut WyRand) -> Partition {
         let Some(branching_factor) = NonZero::new(into_how_many) else {
@@ -108,7 +108,7 @@ impl Size {
     )]
     #[expect(
         clippy::expect_used,
-        reason = "For internal use only: invariant violations should fail loudly."
+        reason = "Internal invariants: violations should fail loudly."
     )]
     pub(crate) fn should_recurse(&self, prng: &mut WyRand) -> bool {
         // SAFETY: Incremented and didn't overflow.
@@ -150,7 +150,7 @@ impl Iterator for Partition {
     #[expect(
         clippy::expect_used,
         clippy::unwrap_in_result,
-        reason = "For internal use only: invariant violations should fail loudly."
+        reason = "Internal invariants: violations should fail loudly."
     )]
     fn next(&mut self) -> Option<Self::Item> {
         let separators = self

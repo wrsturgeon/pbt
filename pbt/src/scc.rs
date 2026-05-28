@@ -54,7 +54,7 @@ pub(crate) fn update<Destinations, OutgoingEdges, Vertex>(
     clippy::arithmetic_side_effects,
     clippy::expect_used,
     clippy::panic,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
 fn tarjan<Destinations, OutgoingEdges, Vertex>(
     vertex: Vertex,

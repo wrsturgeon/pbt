@@ -17,7 +17,7 @@ use {
         union_find::UnionFind,
     },
     ahash::HashMap,
-    alloc::sync::Arc,
+    alloc::{collections::BTreeMap, sync::Arc},
     core::{any::TypeId, num::NonZero, ptr},
     wyrand::WyRand,
 };
@@ -52,7 +52,7 @@ impl Swarm {
     #[inline]
     #[expect(
         clippy::expect_used,
-        reason = "For internal use only: invariant violations should fail loudly."
+        reason = "Internal invariants: violations should fail loudly."
     )]
     fn affordances_of(&self, ty: TypeId) -> &Affordances<Erased> {
         self.affordances
@@ -62,11 +62,11 @@ impl Swarm {
 
     /// Generate an arbitrary term of some type.
     #[inline]
-    pub(crate) fn arbitrary<T>(
-        &mut self,
-        size: Size,
-        prng: &mut WyRand,
-    ) -> Result<T, Uninstantiable>
+    #[expect(
+        clippy::panic,
+        reason = "Internal invariants: violations should fail loudly."
+    )]
+    pub(crate) fn arbitrary<T>(&self, size: Size, prng: &mut WyRand) -> T
     where
         T: Pbt,
     {
@@ -78,7 +78,7 @@ impl Swarm {
         } else if let Some(n_leaves) = NonZero::new(affordances.potential_leaves.len()) {
             (&*affordances.potential_leaves, n_leaves)
         } else {
-            return Err(Uninstantiable);
+            panic!("INTERNAL ERROR (`pbt`): swarm created for an uninstantiable type")
         };
 
         #[expect(
@@ -92,19 +92,19 @@ impl Swarm {
 
         let field_types = match ctor.variant {
             Variant::Algebraic { ref field_types } => field_types,
-            Variant::Literal { generator } => return Ok(generator(prng)),
+            Variant::Literal { generator } => return generator(prng),
         };
 
         let n_ind = self.count_inductive_fields(field_types);
         let sizes = size.partition(n_ind, prng);
-        Ok(T::instantiate_variant(
+        T::instantiate_variant(
             ctor.index,
             fields::Lazy {
                 prng,
                 sizes,
                 swarm: self,
             },
-        ))
+        )
     }
 
     /// How many fields on this variant have inductive types?
@@ -146,9 +146,12 @@ impl Swarm {
     #[inline]
     #[expect(
         clippy::expect_used,
-        reason = "For internal use only: invariant violations should fail loudly."
+        reason = "Internal invariants: violations should fail loudly."
     )]
-    pub(crate) fn new<T>(prng: &mut WyRand) -> Result<Self, Uninstantiable>
+    pub(crate) fn new<T>(
+        prng: &mut WyRand,
+        cache: &mut HashMap<BTreeMap<TypeId, Arc<[Constructor<Erased>]>>, Option<Arc<Self>>>,
+    ) -> Result<Arc<Self>, Uninstantiable>
     where
         T: Pbt,
     {
@@ -161,28 +164,31 @@ impl Swarm {
         }
 
         'rejection_sampling: loop {
-            let masked_constructors = {
-                // Mask constructors at random (though preferring more variants over fewer variants):
-                let mut naive_masked_constructors = map();
-                let () =
-                    mask_all_constructors_reachable_from(ty, &mut naive_masked_constructors, prng);
+            // Mask constructors at random (though preferring more variants over fewer variants):
+            let mut naive_masked_constructors = BTreeMap::new();
+            let () = mask_all_constructors_reachable_from(ty, &mut naive_masked_constructors, prng);
+            if let Some(cached) = cache.get(&naive_masked_constructors) {
+                match *cached {
+                    None => continue 'rejection_sampling, // uninstantiable
+                    Some(ref swarm) => return Ok(Arc::clone(swarm)),
+                }
+            }
 
-                // Remove all uninstantiable variants:
-                let mut instantiable = map();
-                let () = instantiability::update(
-                    ty,
-                    &naive_masked_constructors,
-                    &mut instantiable,
-                    &Constructor::dedup_fields,
-                );
-                instantiable
-            };
+            // Remove all uninstantiable variants:
+            let mut masked_constructors = map();
+            let () = instantiability::update(
+                ty,
+                &naive_masked_constructors,
+                &mut masked_constructors,
+                &Constructor::dedup_fields,
+            );
 
             // If the original type is uninstantiable with these masks, try again:
             if masked_constructors
                 .get(&ty)
                 .is_none_or(|ctors| ctors.is_empty())
             {
+                let _: &mut _ = cache.entry(naive_masked_constructors).or_insert(None);
                 continue 'rejection_sampling;
             }
 
@@ -212,58 +218,63 @@ impl Swarm {
                 &|ctor| ctor.dedup_fields(),
             );
 
-            return Ok(Self {
-                affordances: masked_constructors
-                    .into_iter()
-                    .map(|(t, ctors)| {
-                        let self_scc = scc_quotient_graph
-                            .root(t)
-                            .expect("INTERNAL ERROR (`pbt`): SCC missing");
+            let affordances = masked_constructors
+                .into_iter()
+                .map(|(t, ctors)| {
+                    let self_scc = scc_quotient_graph
+                        .root(t)
+                        .expect("INTERNAL ERROR (`pbt`): SCC missing");
 
-                        let mut potential_leaves = vec![];
-                        let mut potential_loops = vec![];
-                        for ctor in &*ctors {
-                            let mut potential_leaf = true;
-                            let mut potential_loop = false;
-                            for field in ctor.dedup_fields() {
-                                if unavoidable
-                                    .get(&field)
-                                    .expect("INTERNAL ERROR (`pbt`): unavoidability missing")
-                                    .contains(&t)
-                                {
-                                    potential_leaf = false;
-                                }
-                                if scc_quotient_graph
-                                    .root(field)
-                                    .expect("INTERNAL ERROR (`pbt`): SCC missing")
-                                    == self_scc
-                                {
-                                    potential_loop = true;
-                                }
+                    let mut potential_leaves = vec![];
+                    let mut potential_loops = vec![];
+                    for ctor in &*ctors {
+                        let mut potential_leaf = true;
+                        let mut potential_loop = false;
+                        for field in ctor.dedup_fields() {
+                            if unavoidable
+                                .get(&field)
+                                .expect("INTERNAL ERROR (`pbt`): unavoidability missing")
+                                .contains(&t)
+                            {
+                                potential_leaf = false;
                             }
-                            if potential_leaf {
-                                let () = potential_leaves.push(ctor.clone());
+                            if scc_quotient_graph
+                                .root(field)
+                                .expect("INTERNAL ERROR (`pbt`): SCC missing")
+                                == self_scc
+                            {
+                                potential_loop = true;
                             }
-                            // Both can coexist!
-                            if potential_loop {
-                                let () = potential_loops.push(ctor.clone());
-                            }
-                            debug_assert!(
-                                potential_leaf || potential_loop,
-                                "INTERNAL ERROR (`pbt`): constructor is neither a leaf nor a loop",
-                            );
                         }
+                        if potential_leaf {
+                            let () = potential_leaves.push(ctor.clone());
+                        }
+                        // Both can coexist!
+                        if potential_loop {
+                            let () = potential_loops.push(ctor.clone());
+                        }
+                        debug_assert!(
+                            potential_leaf || potential_loop,
+                            "INTERNAL ERROR (`pbt`): constructor is neither a leaf nor a loop",
+                        );
+                    }
 
-                        (
-                            t,
-                            Affordances {
-                                potential_leaves: potential_leaves.into_boxed_slice(),
-                                potential_loops: potential_loops.into_boxed_slice(),
-                            },
-                        )
-                    })
-                    .collect(),
-            });
+                    (
+                        t,
+                        Affordances {
+                            potential_leaves: potential_leaves.into_boxed_slice(),
+                            potential_loops: potential_loops.into_boxed_slice(),
+                        },
+                    )
+                })
+                .collect();
+
+            let arc = Arc::new(Self { affordances });
+            let _: &mut _ = cache
+                .entry(naive_masked_constructors)
+                .or_insert(Some(Arc::clone(&arc)));
+
+            return Ok(arc);
         }
     }
 }
@@ -318,7 +329,7 @@ fn how_many_features_to_mask_out_of(n_total: usize, prng: &mut WyRand) -> usize 
 )]
 fn mask_all_constructors_reachable_from(
     ty: TypeId,
-    masked_constructors: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
+    masked_constructors: &mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
     prng: &mut WyRand,
 ) {
     if masked_constructors.contains_key(&ty) {

@@ -19,8 +19,14 @@ use {
         multiset::Multiset,
     },
     ahash::{HashMap, HashSet},
-    alloc::sync::Arc,
-    core::{any::TypeId, iter, mem, num::NonZero},
+    alloc::{collections::BTreeMap, sync::Arc},
+    core::{
+        any::TypeId,
+        cmp,
+        hash::{Hash, Hasher},
+        iter, mem,
+        num::NonZero,
+    },
     std::{collections::hash_map, sync::RwLock},
     wyrand::WyRand,
 };
@@ -33,7 +39,8 @@ use {
 /// types point to constructors and constructors point to types.
 /// Each directed edge means "contains," i.e.
 /// "has a field of this type" or "contains this variant."
-static NAIVE_VARIANTS: RwLock<HashMap<TypeId, Arc<[Constructor<Erased>]>>> = RwLock::new(map());
+static NAIVE_VARIANTS: RwLock<BTreeMap<TypeId, Arc<[Constructor<Erased>]>>> =
+    RwLock::new(BTreeMap::new());
 
 /// A type's constructors, partitioned into potential leaves and loops,
 /// i.e. whether a sub-term of type `Self` is *avoidable* or *reachable*.
@@ -139,6 +146,39 @@ impl<T> Clone for Constructor<T> {
     }
 }
 
+impl<T> Eq for Constructor<T> {}
+
+impl<T> Hash for Constructor<T> {
+    #[inline]
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
+        let () = <usize as Hash>::hash(&self.index, state);
+    }
+}
+
+impl<T> Ord for Constructor<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        <usize as Ord>::cmp(&self.index, &other.index)
+    }
+}
+
+impl<T> PartialEq for Constructor<T> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        <usize as PartialEq>::eq(&self.index, &other.index)
+    }
+}
+
+impl<T> PartialOrd for Constructor<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(<Self as Ord>::cmp(self, other))
+    }
+}
+
 impl<T> Variant<T> {
     /// Iterate over the types of all fields in this variant,
     /// yielding each type exactly once (skipping duplicates).
@@ -171,7 +211,7 @@ impl<T> Clone for Variant<T> {
 #[inline]
 #[expect(
     clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
 pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
     static CACHE: RwLock<HashMap<TypeId, Arc<[Constructor<Erased>]>>> = RwLock::new(map());
@@ -206,10 +246,10 @@ pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
 #[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 #[expect(
     clippy::missing_panics_doc,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
 pub fn register<T>(
-    variants: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
+    variants: &mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
     visited: &mut HashSet<TypeId>,
 ) where
     T: Pbt,
@@ -249,7 +289,7 @@ pub fn register<T>(
 #[inline]
 #[expect(
     clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
+    reason = "Internal invariants: violations should fail loudly."
 )]
 pub(crate) fn register_globally<T>()
 where

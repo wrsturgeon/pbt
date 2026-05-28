@@ -4,12 +4,12 @@ use {
     crate::{
         Pbt,
         fields::Fields,
-        hash::{map, set},
+        hash::set,
         multiset::Multiset,
         reflection::{Constructor, Erased, Variant},
     },
-    ahash::{HashMap, HashSet},
-    alloc::sync::Arc,
+    ahash::HashSet,
+    alloc::{collections::BTreeMap, sync::Arc},
     core::any::TypeId,
 };
 
@@ -26,14 +26,14 @@ impl Pbt for bool {
             _ => panic!(
                 "can't instantiate variant #{} of `bool`, since there are only {} variants",
                 variant_index,
-                Self::variants(&mut map(), &mut set()).len(),
+                Self::variants(&mut BTreeMap::new(), &mut set()).len(),
             ),
         }
     }
 
     #[inline]
     fn variants(
-        _variants: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
+        _variants: &mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
         _visited: &mut HashSet<TypeId>,
     ) -> Vec<Variant<Self>> {
         vec![
@@ -51,19 +51,12 @@ impl Pbt for bool {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
-    use {
-        crate::{arbitrary, size::Size},
-        pretty_assertions::assert_eq,
-        wyrand::WyRand,
-    };
+    use {crate::arbitrary, pretty_assertions::assert_eq, wyrand::WyRand};
 
     #[test]
     fn deterministic() {
         let mut prng = WyRand::new(42);
-        let generated: Vec<bool> = Size::increasing()
-            .take(10)
-            .map(|size| arbitrary(size, &mut prng).unwrap())
-            .collect();
+        let generated: Vec<bool> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected = vec![
             true, false, false, true, false, false, false, false, true, true,
         ];

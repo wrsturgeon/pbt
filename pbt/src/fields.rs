@@ -37,7 +37,7 @@ pub(crate) struct Lazy<'prng, 'swarm> {
     pub(crate) sizes: size::Partition,
     /// A masked view into this type's constructors,
     /// partitioned into potential leaves and loops.
-    pub(crate) swarm: &'swarm mut Swarm,
+    pub(crate) swarm: &'swarm Swarm,
 }
 
 /// Fields are known and returned if present;
@@ -51,10 +51,6 @@ struct Eager {
 
 impl Fields for Lazy<'_, '_> {
     #[inline(always)]
-    #[expect(
-        clippy::expect_used,
-        reason = "For internal use only: invariant violations should fail loudly."
-    )]
     fn field<T>(&mut self) -> T
     where
         T: Pbt,
@@ -66,8 +62,6 @@ impl Fields for Lazy<'_, '_> {
         } else {
             Size::zero()
         };
-        self.swarm
-            .arbitrary(size, self.prng)
-            .expect("INTERNAL ERROR (`pbt`): uninstantiable field")
+        self.swarm.arbitrary(size, self.prng)
     }
 }

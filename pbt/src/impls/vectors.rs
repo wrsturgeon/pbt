@@ -4,12 +4,12 @@ use {
     crate::{
         Pbt,
         fields::Fields,
-        hash::{map, set},
+        hash::set,
         multiset::Multiset,
         reflection::{Constructor, Erased, Variant, register},
     },
-    ahash::{HashMap, HashSet},
-    alloc::sync::Arc,
+    ahash::HashSet,
+    alloc::{collections::BTreeMap, sync::Arc},
     core::any::TypeId,
 };
 
@@ -33,14 +33,14 @@ where
             _ => panic!(
                 "can't instantiate variant #{} of `bool`, since there are only {} variants",
                 variant_index,
-                Self::variants(&mut map(), &mut set()).len(),
+                Self::variants(&mut BTreeMap::new(), &mut set()).len(),
             ),
         }
     }
 
     #[inline]
     fn variants(
-        variants: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
+        variants: &mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
         visited: &mut HashSet<TypeId>,
     ) -> Vec<Variant<Self>> {
         let () = register::<T>(variants, visited);
@@ -61,49 +61,35 @@ where
 mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
-    use {
-        crate::{arbitrary, size::Size},
-        pretty_assertions::assert_eq,
-        wyrand::WyRand,
-    };
+    use {crate::arbitrary, pretty_assertions::assert_eq, wyrand::WyRand};
 
     #[test]
     fn deterministic() {
         let mut prng = WyRand::new(42);
-        let generated: Vec<Vec<usize>> = Size::increasing()
-            .skip(10)
-            .take(10)
-            .map(|size| arbitrary(size, &mut prng).unwrap())
-            .collect();
+        let generated: Vec<Vec<usize>> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected: Vec<Vec<usize>> = vec![
-            vec![0, 0],
             vec![],
-            vec![
-                15_312_978_602_927_583_178,
-                0,
-                0,
-                4_942_278_377_568_497_097,
-                12_203_955_863_004_621_295,
-                2,
-                3,
-                0,
-            ],
+            vec![],
             vec![],
             vec![],
             vec![
-                13_318_571_059_701_913_151,
-                16_579_479_697_546_634_183,
-                587_989_459_796_176_642,
-                18_020_319_373_362_271_627,
-                0,
-                5_718_636_053_636_895_365,
-                0,
-                5_199_299_979_368_977_360,
+                3_641_599_152_564_394_457,
+                8_131_263_138_448_082_739,
+                10_118_079_673_692_791_035,
             ],
+            vec![
+                1,
+                0,
+                12_263_291_316_824_364_412,
+                12_102_167_028_877_106_995,
+                5_323_362_331_968_575_596,
+                6,
+                1,
+            ],
+            vec![13, 1],
             vec![],
-            vec![0],
-            vec![0, 0, 1, 0],
-            vec![0, 15_514_403_627_301_449_867, 0],
+            vec![],
+            vec![],
         ];
         assert_eq!(generated, expected);
     }

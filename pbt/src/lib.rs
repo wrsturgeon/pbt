@@ -15,12 +15,6 @@ mod swarm;
 mod unavoidability;
 mod union_find;
 
-use {
-    fields::Fields,
-    reflection::{Constructor, Erased, Uninstantiable, Variant},
-    size::Size,
-};
-
 /// The main property-based testing trait.
 #[expect(
     clippy::absolute_paths,
@@ -35,7 +29,7 @@ pub trait Pbt: 'static {
     /// not through this function, since they don't require fields.
     fn instantiate_variant<F>(variant_index: usize, fields: F) -> Self
     where
-        F: Fields;
+        F: fields::Fields;
 
     /// Enumerate the logical structure of all variants of this type.
     ///
@@ -43,10 +37,11 @@ pub trait Pbt: 'static {
     /// For example, if this type  contains fields of types
     /// `A`, `B`, and `C`,  we'd write the following:
     /// ```rust
+    /// # extern crate alloc;
     /// # type A = bool;
     /// # type B = usize;
     /// # type C = usize;
-    /// # let mut variants_map = pbt::hash::map();
+    /// # let mut variants_map = alloc::collections::BTreeMap::new();
     /// # let mut visited_map = pbt::hash::set();
     /// # let variants = &mut variants_map;
     /// # let visited = &mut visited_map;
@@ -56,9 +51,12 @@ pub trait Pbt: 'static {
     /// // ... return this type's variants ...
     /// ```
     fn variants(
-        variants: &mut ahash::HashMap<core::any::TypeId, alloc::sync::Arc<[Constructor<Erased>]>>,
+        variants: &mut alloc::collections::BTreeMap<
+            core::any::TypeId,
+            alloc::sync::Arc<[reflection::Constructor<reflection::Erased>]>,
+        >,
         visited: &mut ahash::HashSet<core::any::TypeId>,
-    ) -> Vec<Variant<Self>>;
+    ) -> Vec<reflection::Variant<Self>>;
 }
 
 /// Generate an arbitrary term of any type `T`.
@@ -67,9 +65,22 @@ pub trait Pbt: 'static {
 ///
 /// If `T` is uninstantiable.
 #[inline]
-pub fn arbitrary<T>(size: Size, prng: &mut wyrand::WyRand) -> Result<T, Uninstantiable>
+#[expect(
+    clippy::expect_used,
+    clippy::missing_panics_doc,
+    reason = "Internal invariants: violations should fail loudly."
+)]
+pub fn arbitrary<T>(
+    prng: &mut wyrand::WyRand,
+) -> Result<impl Iterator<Item = T>, reflection::Uninstantiable>
 where
     T: Pbt,
 {
-    swarm::Swarm::new::<T>(prng)?.arbitrary(size, prng)
+    let mut swarm_cache = hash::map();
+    let _check_instantiability_and_warm_cache = swarm::Swarm::new::<T>(prng, &mut swarm_cache)?;
+    Ok(size::Size::increasing().map(move |size| {
+        swarm::Swarm::new::<T>(prng, &mut swarm_cache)
+            .expect("INTERNAL ERROR (`pbt`): instantiability mismatch")
+            .arbitrary(size, prng)
+    }))
 }

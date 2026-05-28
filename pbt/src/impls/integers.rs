@@ -6,8 +6,8 @@ use {
         fields::Fields,
         reflection::{Constructor, Erased, Variant},
     },
-    ahash::{HashMap, HashSet},
-    alloc::sync::Arc,
+    ahash::HashSet,
+    alloc::{collections::BTreeMap, sync::Arc},
     core::any::TypeId,
 };
 
@@ -23,7 +23,7 @@ impl Pbt for usize {
 
     #[inline]
     fn variants(
-        _variants: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
+        _variants: &mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
         _visited: &mut HashSet<TypeId>,
     ) -> Vec<Variant<Self>> {
         vec![
@@ -92,23 +92,15 @@ impl Pbt for usize {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
-    use {
-        crate::{arbitrary, size::Size},
-        pretty_assertions::assert_eq,
-        wyrand::WyRand,
-    };
+    use {crate::arbitrary, pretty_assertions::assert_eq, wyrand::WyRand};
 
     #[test]
     fn deterministic() {
         let mut prng = WyRand::new(42);
-        let generated: Vec<usize> = Size::increasing()
-            .take(10)
-            .map(|size| arbitrary(size, &mut prng).unwrap())
-            .collect();
+        let generated: Vec<usize> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected = vec![
             9,
-            6,
-            10_465_773_274_321_242_342,
+            16_765_436_141_649_825_700,
             3,
             16_408_427_057_051_397_861,
             1,
@@ -116,6 +108,7 @@ mod tests {
             640_263_349_979_361_758,
             1,
             5_223_346_169_474_403_420,
+            4,
         ];
         assert_eq!(generated, expected);
     }
