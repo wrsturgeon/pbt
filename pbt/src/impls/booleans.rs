@@ -23,12 +23,10 @@ impl Pbt for bool {
         }
         Arc::new([
             Variant::Algebraic {
-                fields: Multiset::new(),
-                // TODO
+                field_types: Multiset::new(),
             },
             Variant::Algebraic {
-                fields: Multiset::new(),
-                // TODO
+                field_types: Multiset::new(),
             },
         ])
     }

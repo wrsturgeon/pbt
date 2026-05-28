@@ -52,7 +52,7 @@ fn collect_uncached<Vertex, Variant, Constructors, FieldsOf>(
 /// unavoidable(T) = {T} union the following:
 ///     intersection over constructors C of T:
 ///         union over fields F of C:
-///             {type of F}
+///             unavoidable(type of F)
 /// ```
 ///
 /// Solving the whole uncached reachable region at once handles cycles without needing an SCC

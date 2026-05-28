@@ -41,39 +41,16 @@ use {
 /// "has a field of this type" or "contains this variant."
 static NAIVE_VARIANTS: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
 
-/// An erased type.
-///
-/// This type itself is uninstantiable (it's an `enum` without variants):
-/// do not use it directly. Instead, `mem::transmute` and be very, very careful.
-#[non_exhaustive]
-#[derive(Clone, Copy, Debug)]
-pub enum Erased {}
-
-/// A type's constructors,
-/// partitioned into potential leaves and loops.
+/// A type's constructors, partitioned into potential leaves and loops,
+/// i.e. whether a sub-term of type `Self` is *avoidable* or *reachable*.
 #[non_exhaustive]
 pub(crate) struct Affordances<SelfType> {
-    /// All constructors of this type in source order.
-    ///
-    /// DO NOT sample over `constructors` directly.
-    /// Instead, sample `potential_loops` or `potential_leaves`,
-    /// then use that index here to query the associated constructor.
-    pub constructors: Arc<[Variant<SelfType>]>,
-    /// Sorted lists of indices of instantiable constructors for which
-    /// a sub-term of type `Self` is either *avoidable* or *reachable*.
-    pub leaves_and_loops: LeavesAndLoops,
-}
-
-/// Sorted lists of constructor indices for which
-/// a sub-term of type `Self` is *avoidable* or *reachable*.
-#[non_exhaustive]
-pub(crate) struct LeavesAndLoops {
     /// Sorted list of indices of instantiable constructors
     /// for which a sub-term of type `Self` is *avoidable*.
-    pub potential_leaves: Box<[usize]>,
+    pub potential_leaves: Box<[Constructor<SelfType>]>,
     /// Sorted list of indices of instantiable constructors
     /// for which a sub-term of type `Self` is *reachable*.
-    pub potential_loops: Box<[usize]>,
+    pub potential_loops: Box<[Constructor<SelfType>]>,
 }
 
 /// Each variant of some type in source order.
@@ -86,15 +63,43 @@ pub(crate) struct LeavesAndLoops {
 ///   Swarm testing will pick *either* one *or* the other about half the time
 ///   and enable both the other half of the time, so this works elegantly
 ///   no matter which "flavor" of `usize` we want.
+#[derive(Debug)]
 #[non_exhaustive]
-#[derive(Clone, Debug)]
+pub struct Constructor<SelfType: ?Sized> {
+    /// The index of this variant under the original source ordering.
+    pub index: usize,
+    /// Reflection about this constructor
+    /// in terms of its original source-code variant.
+    pub variant: Variant<SelfType>,
+}
+
+/// An erased type.
+///
+/// This type itself is uninstantiable (it's an `enum` without variants):
+/// do not use it directly. Instead, `mem::transmute` and be very, very careful.
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug)]
+pub enum Erased {}
+
+/// Each variant of some type in source order.
+///
+/// - If this is an `enum`, each variant is one `enum` variant.
+/// - if this is a `struct`, there's exactly one variant with all fields.
+/// - If this is a literal type, each variant is an opaque generator.
+///   For example, `usize` might have two generators:
+///   *small* `usize`s (for indices) and *uniform* `usize`s.
+///   Swarm testing will pick *either* one *or* the other about half the time
+///   and enable both the other half of the time, so this works elegantly
+///   no matter which "flavor" of `usize` we want.
+#[derive(Debug)]
+#[non_exhaustive]
 pub enum Variant<SelfType: ?Sized> {
     /// The type of each field in this variant.
     /// Order does not matter, but total count does.
     Algebraic {
         /// The type of each field in this variant.
         /// Order does not matter, but total count does.
-        fields: Multiset<TypeId>,
+        field_types: Multiset<TypeId>,
     },
     /// An opaque function pointer that generates values of this type.
     Literal {
@@ -116,24 +121,35 @@ impl<SelfType> Affordances<SelfType> {
     #[inline]
     #[must_use]
     pub const fn is_inductive(&self) -> bool {
-        self.leaves_and_loops.is_inductive()
+        !self.potential_loops.is_empty()
     }
 }
 
-impl LeavesAndLoops {
-    /// Whether this type can transitively
-    /// contain a field of its own type.
-    ///
-    /// Equivalently, whether this type can be arbitrarily large.
-    ///
-    /// The reason this is computed instead of cached
-    /// is that swarm testing may mask some constructors,
-    /// and if all inductive constructors are masked,
-    /// then a masked inductive type becomes non-inductive.
+impl<T> Constructor<T> {
+    /// Iterate over the types of all fields in this variant,
+    /// yielding each type exactly once (skipping duplicates).
+    #[inline]
+    fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
+        self.variant.dedup_fields()
+    }
+
+    /// Iterate over the types of all fields in this variant,
+    /// yielding each type exactly once (skipping duplicates).
     #[inline]
     #[must_use]
-    pub const fn is_inductive(&self) -> bool {
-        !self.potential_loops.is_empty()
+    fn fields(&self) -> &Multiset<TypeId> {
+        self.variant.fields()
+    }
+}
+
+impl<T> Clone for Constructor<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        let Self { index, ref variant } = *self;
+        Self {
+            index,
+            variant: variant.clone(),
+        }
     }
 }
 
@@ -144,7 +160,7 @@ impl<T> Variant<T> {
     fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
         const EMPTY: &HashMap<TypeId, NonZero<usize>> = &map();
         match *self {
-            Self::Algebraic { ref fields } => fields.iter_dedup(),
+            Self::Algebraic { ref field_types } => field_types.iter_dedup(),
             Self::Literal { .. } => EMPTY.keys(),
         }
         .copied()
@@ -157,10 +173,80 @@ impl<T> Variant<T> {
     fn fields(&self) -> &Multiset<TypeId> {
         const EMPTY: &Multiset<TypeId> = &Multiset::new();
         match *self {
-            Self::Algebraic { ref fields } => fields,
+            Self::Algebraic { ref field_types } => field_types,
             Self::Literal { .. } => EMPTY,
         }
     }
+}
+
+impl<T> Clone for Variant<T> {
+    #[inline]
+    fn clone(&self) -> Self {
+        match *self {
+            Self::Algebraic { ref field_types } => Self::Algebraic {
+                field_types: field_types.clone(),
+            },
+            Self::Literal { generator } => Self::Literal { generator },
+        }
+    }
+}
+
+/// A type's constructors, partitioned into potential leaves and loops,
+/// i.e. whether a sub-term of type `Self` is *avoidable* or *reachable*.
+#[inline]
+pub(crate) fn affordances<T>() -> Arc<Affordances<T>>
+where
+    T: Pbt,
+{
+    let () = register_globally::<T>();
+    let erased = affordances_of(TypeId::of::<T>());
+    // SAFETY: `T` is only ever the codomain of a function pointer.
+    unsafe {
+        mem::transmute::<
+            Arc<Affordances<Erased>>, //
+            Arc<Affordances<T>>,
+        >(erased)
+    }
+}
+
+/// A type's constructors, partitioned into potential leaves and loops,
+/// i.e. whether a sub-term of type `Self` is *avoidable* or *reachable*.
+#[inline]
+fn affordances_of(ty: TypeId) -> Arc<Affordances<Erased>> {
+    memoize!(
+        "affordance" = |ty: TypeId| -> Arc<Affordances<Erased>> {
+            let self_scc = scc_of(ty);
+            let mut potential_leaves = vec![];
+            let mut potential_loops = vec![];
+            for ctor in &*constructors_of(ty) {
+                let mut potential_leaf = true;
+                let mut potential_loop = false;
+                for field in ctor.dedup_fields() {
+                    if unavoidable_of(field).contains(&ty) {
+                        potential_leaf = false;
+                    }
+                    if scc_of(field) == self_scc {
+                        potential_loop = true;
+                    }
+                }
+                if potential_leaf {
+                    let () = potential_leaves.push(ctor.clone());
+                }
+                // Both can coexist!
+                if potential_loop {
+                    let () = potential_loops.push(ctor.clone());
+                }
+                debug_assert!(
+                    potential_leaf || potential_loop,
+                    "INTERNAL ERROR (`pbt`): constructor is neither a leaf nor a loop",
+                );
+            }
+            Arc::new(Affordances {
+                potential_leaves: potential_leaves.into_boxed_slice(),
+                potential_loops: potential_loops.into_boxed_slice(),
+            })
+        }
+    )
 }
 
 /// Instantiable constructors for each type.
@@ -171,8 +257,8 @@ impl<T> Variant<T> {
     clippy::expect_used,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-fn constructors_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
-    static CACHE: RwLock<HashMap<TypeId, Arc<[Variant<Erased>]>>> = RwLock::new(map());
+pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
+    static CACHE: RwLock<HashMap<TypeId, Arc<[Constructor<Erased>]>>> = RwLock::new(map());
 
     if let Some(cached) = CACHE
         .read()
@@ -188,7 +274,12 @@ fn constructors_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
     let mut cache = CACHE
         .write()
         .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
-    let () = instantiability::update(&naive, &mut cache, &Variant::dedup_fields);
+    let () = instantiability::update(
+        &naive,
+        &mut cache,
+        &Variant::dedup_fields,
+        |index, variant| Constructor { index, variant },
+    );
 
     Arc::clone(
         cache
@@ -202,7 +293,7 @@ fn constructors_of(ty: TypeId) -> Arc<[Variant<Erased>]> {
 /// N.B.: A type's instantiability is as simple as `!constructors.is_empty()`.
 #[inline]
 #[expect(dead_code, reason = "TODO")]
-fn constructors<T>() -> Arc<[Variant<T>]>
+fn constructors<T>() -> Arc<[Constructor<T>]>
 where
     T: Pbt,
 {
@@ -211,8 +302,8 @@ where
     // SAFETY: `T` is only ever the codomain of a function pointer.
     unsafe {
         mem::transmute::<
-            Arc<[Variant<Erased>]>, //
-            Arc<[Variant<T>]>,
+            Arc<[Constructor<Erased>]>, //
+            Arc<[Constructor<T>]>,
         >(erased)
     }
 }
@@ -226,7 +317,7 @@ fn dependencies_of(ty: TypeId) -> Arc<HashSet<TypeId>> {
             Arc::new(
                 constructors_of(ty)
                     .iter()
-                    .flat_map(Variant::dedup_fields)
+                    .flat_map(Constructor::dedup_fields)
                     .collect(),
             )
         }
@@ -342,12 +433,30 @@ where
 /// This is especially nice since this quotient graph is a DAG by construction,
 /// so this reachability logic can safely assume the absence of cycles.
 #[inline]
+#[expect(dead_code, reason = "TODO")]
+fn scc<T>() -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeId>>>
+where
+    T: Pbt,
+{
+    let () = register_globally::<T>();
+    scc_of(TypeId::of::<T>())
+}
+
+/// DFS of reachability between *strongly connected components* of the type-dependency graph,
+/// i.e. the graph in which vertices are types and edges represent "has a field of this type."
+///
+/// The key insight is that *strongly connected components define mutually inductive types.*
+///
+/// To test reachability between *types* (not SCCs themselves),
+/// first lift each type to its enclosing SCC, then test SCC reachability.
+/// This is especially nice since this quotient graph is a DAG by construction,
+/// so this reachability logic can safely assume the absence of cycles.
+#[inline]
 #[expect(
     clippy::expect_used,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-#[expect(dead_code, reason = "TODO")]
-fn scc(ty: TypeId) -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeId>>> {
+fn scc_of(ty: TypeId) -> union_find::Root<TypeId, Arc<scc::QuotientVertex<TypeId>>> {
     static QUOTIENT: Mutex<UnionFind<TypeId, Arc<scc::QuotientVertex<TypeId>>>> =
         Mutex::new(UnionFind::new());
     let mut quotient = QUOTIENT
@@ -387,7 +496,7 @@ fn unavoidable_of(ty: TypeId) -> Arc<HashSet<TypeId>> {
         .write()
         .expect("INTERNAL ERROR (`pbt`): unavoidability lock poisoned");
 
-    let () = unavoidability::update(ty, cache, &constructors_of, &Variant::fields);
+    let () = unavoidability::update(ty, cache, &constructors_of, &Constructor::fields);
 
     Arc::clone(
         cache

@@ -65,54 +65,6 @@ pub fn update<OutgoingEdges, Vertex>(
     );
 }
 
-/// Compute all quotient roots reachable from `root`, including `root` itself.
-///
-/// The SCC quotient graph is a DAG by construction, and reachability is
-/// reflexive by convention to simplify downstream reachability checks.
-///
-/// # Panics
-///
-/// If the quotient graph does not contain `root` or one of its reachable children.
-#[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::iter_over_hash_type,
-    clippy::panic,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
-pub fn reachable<Vertex>(
-    cache: &mut HashMap<RootElement<Vertex>, Arc<HashSet<RootElement<Vertex>>>>,
-    quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
-    element: Vertex,
-) -> Arc<HashSet<RootElement<Vertex>>>
-where
-    Vertex: Copy + Eq + Hash,
-{
-    let root = quotient
-        .root(element)
-        .expect("INTERNAL ERROR (`pbt`): unregistered type during reachability analysis");
-
-    if let Some(cached) = cache.get(&root.element) {
-        return Arc::clone(cached);
-    }
-
-    let mut union = set();
-    let newly_inserted = union.insert(root.element);
-    debug_assert!(newly_inserted, "INTERNAL ERROR (`pbt`): witchcraft");
-
-    for &child in &root.metadata.outgoing_edges {
-        let () = union.extend(reachable(cache, quotient, *child).iter());
-    }
-
-    let arc = Arc::new(union);
-    let to_return = Arc::clone(&arc);
-    if let Some(_dup) = cache.insert(root.element, arc) {
-        panic!("INTERNAL ERROR (`pbt`): SCC quotient graph is cyclic")
-    }
-    to_return
-}
-
 /// Run Tarjan's strongly connected components algorithm from the selected vertex.
 ///
 /// See <https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm#The_algorithm_in_pseudocode>.
@@ -302,13 +254,6 @@ mod tests {
             .clone()
     }
 
-    fn reachable_roots(
-        quotient: &mut UnionFind<u8, Arc<QuotientVertex<u8>>>,
-        vertex: u8,
-    ) -> HashSet<RootElement<u8>> {
-        reachable(&mut map(), quotient, vertex).as_ref().clone()
-    }
-
     fn root_set(
         quotient: &mut UnionFind<u8, Arc<QuotientVertex<u8>>>,
         vertices: &[u8],
@@ -415,56 +360,6 @@ mod tests {
         assert_eq!(
             immediate_roots(&mut quotient, 2),
             root_set(&mut quotient, &[4])
-        );
-    }
-
-    #[test]
-    fn quotient_reachability_is_reflexive_for_leaf_sccs() {
-        let graph = graph(&[(1, &[])]);
-        let edges = outgoing_edges(&graph);
-        let mut quotient = UnionFind::new();
-
-        update(1, &edges, &mut quotient);
-
-        assert_eq!(
-            reachable_roots(&mut quotient, 1),
-            root_set(&mut quotient, &[1])
-        );
-    }
-
-    #[test]
-    fn quotient_reachability_follows_diamond_to_common_leaf() {
-        let graph = graph(&[(1, &[2, 3]), (2, &[4]), (3, &[4]), (4, &[])]);
-        let edges = outgoing_edges(&graph);
-        let mut quotient = UnionFind::new();
-
-        update(1, &edges, &mut quotient);
-
-        assert_eq!(
-            reachable_roots(&mut quotient, 1),
-            root_set(&mut quotient, &[1, 2, 3, 4])
-        );
-        assert_eq!(
-            reachable_roots(&mut quotient, 2),
-            root_set(&mut quotient, &[2, 4])
-        );
-    }
-
-    #[test]
-    fn quotient_reachability_uses_collapsed_scc_roots() {
-        let graph = graph(&[(1, &[2]), (2, &[1, 3]), (3, &[])]);
-        let edges = outgoing_edges(&graph);
-        let mut quotient = UnionFind::new();
-
-        update(1, &edges, &mut quotient);
-
-        assert_eq!(
-            quotient.root(1).unwrap().element,
-            quotient.root(2).unwrap().element
-        );
-        assert_eq!(
-            reachable_roots(&mut quotient, 1),
-            root_set(&mut quotient, &[1, 3])
         );
     }
 

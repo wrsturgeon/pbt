@@ -30,15 +30,17 @@ use {
 )]
 #[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-pub fn update<'naive, Vertex, Variant, Fields, FieldsOfVariant>(
+pub fn update<'naive, Constructor, CtorOfVariant, Vertex, Variant, Fields, FieldsOfVariant>(
     naive: &'naive HashMap<Vertex, Arc<[Variant]>>,
-    constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
+    constructors: &mut HashMap<Vertex, Arc<[Constructor]>>,
     fields_of_variant: &FieldsOfVariant,
+    ctor_of_variant: CtorOfVariant,
 ) where
-    Variant: Clone,
-    Vertex: Copy + Eq + Hash,
+    CtorOfVariant: Fn(usize, Variant) -> Constructor,
     Fields: Iterator<Item = Vertex>,
     FieldsOfVariant: Fn(&'naive Variant) -> Fields,
+    Variant: Clone,
+    Vertex: Copy + Eq + Hash,
 {
     let mut masks: HashMap<Vertex, (bool, Box<[bool]>)> = map();
     for (&ty, variants) in naive {
@@ -114,23 +116,28 @@ pub fn update<'naive, Vertex, Variant, Fields, FieldsOfVariant>(
     }
 
     for (&ty, variants) in naive {
-        let _: &mut _ = constructors.entry(ty).or_insert_with(|| -> Arc<[Variant]> {
-            let variant_mask: &[bool] = &masks
-                .get(&ty)
-                .expect("INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis")
-                .1;
-            debug_assert_eq!(
-                variant_mask.len(),
-                variants.len(),
-                "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
-            );
-            variants
-                .iter()
-                .zip(variant_mask)
-                .filter_map(|(variant, &enabled)| enabled.then_some(variant))
-                .cloned()
-                .collect()
-        });
+        let _: &mut _ = constructors
+            .entry(ty)
+            .or_insert_with(|| -> Arc<[Constructor]> {
+                let variant_mask: &[bool] = &masks
+                    .get(&ty)
+                    .expect(
+                        "INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis",
+                    )
+                    .1;
+                debug_assert_eq!(
+                    variant_mask.len(),
+                    variants.len(),
+                    "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
+                );
+                variants
+                    .iter()
+                    .enumerate()
+                    .zip(variant_mask)
+                    .filter_map(|(variant, &enabled)| enabled.then_some(variant))
+                    .map(|(i, v)| ctor_of_variant(i, v.clone()))
+                    .collect()
+            });
     }
 }
 
@@ -147,14 +154,14 @@ mod tests {
     }
 
     fn constructor_names(
-        constructors: &HashMap<u8, Arc<[TestVariant]>>,
+        constructors: &HashMap<u8, Arc<[(usize, TestVariant)]>>,
         ty: u8,
     ) -> Vec<&'static str> {
         constructors
             .get(&ty)
             .expect("test should have registered this type")
             .iter()
-            .map(|variant| variant.name)
+            .map(|&(_, ref variant)| variant.name)
             .collect()
     }
 
@@ -164,14 +171,33 @@ mod tests {
 
     fn instantiable_constructors<const N: usize>(
         entries: [(u8, Arc<[TestVariant]>); N],
-    ) -> HashMap<u8, Arc<[TestVariant]>> {
-        let naive = test_graph(entries);
+    ) -> HashMap<u8, Arc<[(usize, TestVariant)]>> {
+        let naive = test_naive_graph(entries);
         let mut constructors = map();
-        let () = update(&naive, &mut constructors, &fields_of_variant);
+        let () = update::<(usize, TestVariant), _, u8, TestVariant, _, _>(
+            &naive,
+            &mut constructors,
+            &fields_of_variant,
+            &|i: usize, v: TestVariant| (i, v),
+        );
         constructors
     }
 
     fn test_graph<const N: usize>(
+        entries: [(u8, Arc<[(usize, TestVariant)]>); N],
+    ) -> HashMap<u8, Arc<[(usize, TestVariant)]>> {
+        let mut graph = map();
+        for (ty, variants) in entries {
+            assert_eq!(
+                graph.insert(ty, variants),
+                None,
+                "test graph has a duplicate type",
+            );
+        }
+        graph
+    }
+
+    fn test_naive_graph<const N: usize>(
         entries: [(u8, Arc<[TestVariant]>); N],
     ) -> HashMap<u8, Arc<[TestVariant]>> {
         let mut graph = map();
@@ -185,11 +211,29 @@ mod tests {
         graph
     }
 
+    fn ctor<const N: usize>(
+        index: usize,
+        name: &'static str,
+        fields: [u8; N],
+    ) -> (usize, TestVariant) {
+        (
+            index,
+            TestVariant {
+                fields: Arc::from(fields),
+                name,
+            },
+        )
+    }
+
     fn variant<const N: usize>(name: &'static str, fields: [u8; N]) -> TestVariant {
         TestVariant {
             fields: Arc::from(fields),
             name,
         }
+    }
+
+    fn ctors<const N: usize>(variants: [(usize, TestVariant); N]) -> Arc<[(usize, TestVariant)]> {
+        Arc::from(variants)
     }
 
     fn variants<const N: usize>(variants: [TestVariant; N]) -> Arc<[TestVariant]> {
@@ -272,10 +316,10 @@ mod tests {
     #[test]
     fn cached_empty_constructors_are_not_instantiable() {
         // 1 = needs_cached_void(2), while a previous pass proved 2 = !.
-        let naive = test_graph([(1, variants([variant("one::NeedsCachedVoid", [2])]))]);
-        let mut constructors = test_graph([(2, variants([]))]);
+        let naive = test_naive_graph([(1, variants([variant("one::NeedsCachedVoid", [2])]))]);
+        let mut constructors = test_graph([(2, ctors([]))]);
 
-        let () = update(&naive, &mut constructors, &fields_of_variant);
+        let () = update(&naive, &mut constructors, &fields_of_variant, |i, v| (i, v));
 
         assert_eq!(
             constructor_names(&constructors, 1),
@@ -290,10 +334,10 @@ mod tests {
     #[test]
     fn cached_nonempty_constructors_are_instantiable() {
         // 1 = needs_cached_leaf(2), while a previous pass proved 2 = leaf.
-        let naive = test_graph([(1, variants([variant("one::NeedsCachedLeaf", [2])]))]);
-        let mut constructors = test_graph([(2, variants([variant("two::Leaf", [])]))]);
+        let naive = test_naive_graph([(1, variants([variant("one::NeedsCachedLeaf", [2])]))]);
+        let mut constructors = test_graph([(2, ctors([ctor(0, "two::Leaf", [])]))]);
 
-        let () = update(&naive, &mut constructors, &fields_of_variant);
+        let () = update(&naive, &mut constructors, &fields_of_variant, |i, v| (i, v));
 
         assert_eq!(
             constructor_names(&constructors, 1),

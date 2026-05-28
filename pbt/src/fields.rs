@@ -7,7 +7,6 @@ use {
         size::{self, Size},
         swarm::{self, Swarm},
     },
-    core::any::TypeId,
     wyrand::WyRand,
 };
 
@@ -27,7 +26,7 @@ pub trait Fields {
 /// Fields are not stored ahead of time;
 /// instead, their sizes are stored in an iterator,
 /// and all fields are produced just in time.
-pub struct Lazy<'full, 'prng, 'swarm> {
+pub struct Lazy<'prng, 'swarm> {
     /// Pseudorandom number generator.
     ///
     /// This is inside `Lazy` and not a function argument
@@ -38,7 +37,7 @@ pub struct Lazy<'full, 'prng, 'swarm> {
     sizes: size::Partition,
     /// A masked view into this type's constructors,
     /// partitioned into potential leaves and loops.
-    swarm: &'swarm mut Swarm<'full>,
+    swarm: &'swarm mut Swarm,
 }
 
 /// Fields are known and returned if present;
@@ -49,14 +48,13 @@ pub struct Eager {
     // TODO: erased bag of type-indexed terms
 }
 
-impl Fields for Lazy<'_, '_, '_> {
+impl Fields for Lazy<'_, '_> {
     #[inline(always)]
     fn field<T>(&mut self) -> T
     where
         T: Pbt,
     {
-        let ty = TypeId::of::<T>();
-        let size = if self.swarm.affordances(ty, self.prng).is_inductive() {
+        let size = if self.swarm.affordances::<T>(self.prng).is_inductive() {
             // SAFETY: `Partition::next` always returns `Some(_)`,
             // since it returns endless zeros after its assigned cardinality.
             unsafe { self.sizes.next().unwrap_unchecked() }

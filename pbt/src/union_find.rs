@@ -15,7 +15,7 @@ pub struct RootElement<K>(K);
 
 /// The result of querying the root of a given element's set.
 #[non_exhaustive]
-#[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
+#[derive(Clone, Debug)]
 pub struct Root<K, V> {
     /// The total number of elements in this set.
     pub cardinality: NonZero<usize>,
@@ -52,6 +52,15 @@ pub enum Upward<K, V> {
         metadata: V,
     },
 }
+
+impl<K: PartialEq, V> PartialEq for Root<K, V> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        self.element == other.element
+    }
+}
+
+impl<K: Eq, V> Eq for Root<K, V> {}
 
 impl<K> Deref for RootElement<K> {
     type Target = K;
