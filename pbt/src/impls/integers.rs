@@ -94,17 +94,17 @@ mod tests {
 
     use {
         crate::{arbitrary, size::Size},
-        core::iter,
+        pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
 
     #[test]
     fn deterministic() {
         let mut prng = WyRand::new(42);
-        let generated: Vec<usize> =
-            iter::repeat_with(|| arbitrary(Size::zero(), &mut prng).unwrap())
-                .take(10)
-                .collect();
+        let generated: Vec<usize> = Size::increasing()
+            .take(10)
+            .map(|size| arbitrary(size, &mut prng).unwrap())
+            .collect();
         let expected = vec![
             9,
             6,

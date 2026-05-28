@@ -62,10 +62,11 @@ impl Size {
         clippy::expect_used,
         reason = "For internal use only: invariant violations should fail loudly."
     )]
-    pub fn partition(self, into_how_many: usize, prng: &mut WyRand) -> Partition {
-        let Some(n_separators) = into_how_many.checked_sub(1) else {
+    pub fn partition(mut self, into_how_many: usize, prng: &mut WyRand) -> Partition {
+        let Some(branching_factor) = NonZero::new(into_how_many) else {
             return Partition::empty();
         };
+        self.total /= branching_factor;
 
         // TODO: switch algorithm if `into_how_many < self.total`
 
@@ -77,6 +78,8 @@ impl Size {
         // so the result must be at least 1.
         let modulo = unsafe { NonZero::new_unchecked(incremented) };
 
+        // SAFETY: Nonzero. Checked above.
+        let n_separators = unsafe { into_how_many.unchecked_sub(1) };
         #[expect(
             clippy::as_conversions,
             clippy::cast_possible_truncation,
@@ -103,11 +106,21 @@ impl Size {
         clippy::cast_possible_truncation,
         reason = "OK: `u64` is already huge"
     )]
+    #[expect(
+        clippy::expect_used,
+        clippy::missing_panics_doc,
+        reason = "For internal use only: invariant violations should fail loudly."
+    )]
     pub fn should_recurse(&self, prng: &mut WyRand) -> bool {
-        let Some(denominator) = NonZero::new(self.total) else {
-            return false;
-        };
-        (prng.rand() as usize % denominator) != 0
+        // SAFETY: Incremented and didn't overflow.
+        let incremented =
+            unsafe {
+                NonZero::new_unchecked(self.total.checked_add(1).expect(
+                    "PSA from `pbt`: your memory will not hold a term of size `usize::MAX`.",
+                ))
+            };
+
+        (prng.rand() as usize % incremented) != 0
     }
 
     /// A total size of zero.
@@ -179,7 +192,7 @@ mod test {
                 .take(3)
                 .map(|Size { total }| total)
                 .collect::<Vec<usize>>(),
-            vec![1, 8, 1],
+            vec![0, 2, 1],
         );
         assert_eq!(
             Size { total: 10 }
@@ -187,7 +200,7 @@ mod test {
                 .take(3)
                 .map(|Size { total }| total)
                 .collect::<Vec<usize>>(),
-            vec![5, 3, 2],
+            vec![1, 1, 1],
         );
         assert_eq!(
             Size { total: 10 }
@@ -195,7 +208,7 @@ mod test {
                 .take(10)
                 .map(|Size { total }| total)
                 .collect::<Vec<usize>>(),
-            vec![6, 3, 1, 0, 0, 0, 0, 0, 0, 0],
+            vec![0, 2, 1, 0, 0, 0, 0, 0, 0, 0],
         );
     }
 }
