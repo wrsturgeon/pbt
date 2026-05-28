@@ -50,3 +50,27 @@ impl Pbt for bool {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
+
+    use {
+        crate::{arbitrary, size::Size},
+        core::iter,
+        wyrand::WyRand,
+    };
+
+    #[test]
+    fn deterministic() {
+        let mut prng = WyRand::new(42);
+        let generated: Vec<bool> =
+            iter::repeat_with(|| arbitrary(Size::zero(), &mut prng).unwrap())
+                .take(10)
+                .collect();
+        let expected = vec![
+            true, false, false, true, false, false, false, false, true, true,
+        ];
+        assert_eq!(generated, expected);
+    }
+}

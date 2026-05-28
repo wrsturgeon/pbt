@@ -91,3 +91,36 @@ impl Pbt for usize {
         ]
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
+
+    use {
+        crate::{arbitrary, size::Size},
+        core::iter,
+        wyrand::WyRand,
+    };
+
+    #[test]
+    fn deterministic() {
+        let mut prng = WyRand::new(42);
+        let generated: Vec<usize> =
+            iter::repeat_with(|| arbitrary(Size::zero(), &mut prng).unwrap())
+                .take(10)
+                .collect();
+        let expected = vec![
+            9,
+            6,
+            10_465_773_274_321_242_342,
+            3,
+            16_408_427_057_051_397_861,
+            1,
+            0,
+            640_263_349_979_361_758,
+            1,
+            5_223_346_169_474_403_420,
+        ];
+        assert_eq!(generated, expected);
+    }
+}

@@ -31,21 +31,3 @@ where
 {
     swarm::Swarm::new::<T>(prng)?.arbitrary(size, prng)
 }
-
-#[cfg(test)]
-mod tests {
-    #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
-
-    use {super::*, core::iter};
-
-    #[test]
-    fn deterministic() {
-        let mut prng = wyrand::WyRand::new(42);
-        let generated: Vec<bool> =
-            iter::repeat_with(|| arbitrary(size::Size::zero(), &mut prng).unwrap())
-                .take(5)
-                .collect();
-        let expected = vec![true, false, false, true, false];
-        assert_eq!(generated, expected);
-    }
-}
