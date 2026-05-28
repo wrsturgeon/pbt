@@ -520,3 +520,122 @@ where
     let () = register_globally::<T>();
     unavoidable_of(TypeId::of::<T>())
 }
+
+#[cfg(test)]
+mod tests {
+    use {
+        super::*,
+        crate::fields::Fields,
+        ahash::{HashMap, HashSet},
+    };
+
+    fn constructor_indices<T>(constructors: &[Constructor<T>]) -> Vec<usize> {
+        constructors
+            .iter()
+            .map(|constructor| constructor.index)
+            .collect()
+    }
+
+    fn field_types<const N: usize>(types: [TypeId; N]) -> Multiset<TypeId> {
+        types.into_iter().collect()
+    }
+
+    #[test]
+    fn constructor_can_be_both_potential_leaf_and_potential_loop() {
+        struct A;
+        struct B;
+
+        impl Pbt for A {
+            #[inline]
+            fn instantiate_variant<F>(_variant_index: usize, _fields: F) -> Self
+            where
+                F: Fields,
+            {
+                Self
+            }
+
+            #[inline]
+            fn variants(
+                variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+                visited: &mut HashSet<TypeId>,
+            ) -> Arc<[Variant<Self>]> {
+                let () = register::<B>(variants, visited);
+                Arc::new([Variant::Algebraic {
+                    field_types: field_types([TypeId::of::<B>()]),
+                }])
+            }
+        }
+
+        impl Pbt for B {
+            #[inline]
+            fn instantiate_variant<F>(_variant_index: usize, _fields: F) -> Self
+            where
+                F: Fields,
+            {
+                Self
+            }
+
+            #[inline]
+            fn variants(
+                variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+                visited: &mut HashSet<TypeId>,
+            ) -> Arc<[Variant<Self>]> {
+                let () = register::<A>(variants, visited);
+                Arc::new([
+                    Variant::Algebraic {
+                        field_types: Multiset::new(),
+                    },
+                    Variant::Algebraic {
+                        field_types: field_types([TypeId::of::<A>()]),
+                    },
+                ])
+            }
+        }
+
+        let affordances = affordances::<A>();
+
+        assert_eq!(constructor_indices(&affordances.potential_leaves), vec![0]);
+        assert_eq!(constructor_indices(&affordances.potential_loops), vec![0]);
+    }
+
+    #[test]
+    fn literal_variants_are_distinct_leaf_constructors() {
+        struct LiteralAlternatives;
+
+        impl Pbt for LiteralAlternatives {
+            #[inline]
+            fn instantiate_variant<F>(_variant_index: usize, _fields: F) -> Self
+            where
+                F: Fields,
+            {
+                Self
+            }
+
+            #[inline]
+            fn variants(
+                _variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,
+                _visited: &mut HashSet<TypeId>,
+            ) -> Arc<[Variant<Self>]> {
+                Arc::new([
+                    Variant::Literal {
+                        generator: |_| Self,
+                    },
+                    Variant::Literal {
+                        generator: |_| Self,
+                    },
+                ])
+            }
+        }
+
+        let affordances = affordances::<LiteralAlternatives>();
+
+        assert_eq!(
+            constructor_indices(&affordances.potential_leaves),
+            vec![0, 1],
+        );
+        assert_eq!(
+            constructor_indices(&affordances.potential_loops),
+            Vec::<usize>::new(),
+        );
+    }
+}

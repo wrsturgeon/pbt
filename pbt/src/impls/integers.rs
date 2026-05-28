@@ -2,6 +2,7 @@
 
 use {
     crate::{
+        fields::Fields,
         pbt::Pbt,
         reflection::{Erased, Variant},
     },
@@ -11,6 +12,15 @@ use {
 };
 
 impl Pbt for usize {
+    #[inline]
+    #[expect(clippy::panic, reason = "end-users shouldn't be calling this")]
+    fn instantiate_variant<F>(_variant_index: usize, _fields: F) -> Self
+    where
+        F: Fields,
+    {
+        panic!("can't call `usize::instantiate_variant`: `usize` is a literal type")
+    }
+
     #[inline]
     fn variants(
         _variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,

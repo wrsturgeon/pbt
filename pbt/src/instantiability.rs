@@ -165,6 +165,18 @@ mod tests {
             .collect()
     }
 
+    fn constructor_indices(
+        constructors: &HashMap<u8, Arc<[(usize, TestVariant)]>>,
+        ty: u8,
+    ) -> Vec<usize> {
+        constructors
+            .get(&ty)
+            .expect("test should have registered this type")
+            .iter()
+            .map(|&(index, _)| index)
+            .collect()
+    }
+
     fn fields_of_variant(variant: &TestVariant) -> iter::Copied<slice::Iter<'_, u8>> {
         variant.fields.iter().copied()
     }
@@ -344,5 +356,24 @@ mod tests {
             vec!["one::NeedsCachedLeaf"]
         );
         assert_eq!(constructor_names(&constructors, 2), vec!["two::Leaf"]);
+    }
+
+    #[test]
+    fn surviving_constructors_keep_original_source_indices() {
+        // 1 = impossible(2) | leaf | also_impossible(2); 2 = !.
+        let constructors = instantiable_constructors([
+            (
+                1,
+                variants([
+                    variant("one::Impossible", [2]),
+                    variant("one::Leaf", []),
+                    variant("one::AlsoImpossible", [2]),
+                ]),
+            ),
+            (2, variants([])),
+        ]);
+
+        assert_eq!(constructor_names(&constructors, 1), vec!["one::Leaf"]);
+        assert_eq!(constructor_indices(&constructors, 1), vec![1]);
     }
 }

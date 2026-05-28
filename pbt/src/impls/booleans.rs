@@ -2,6 +2,8 @@
 
 use {
     crate::{
+        fields::Fields,
+        hash::{map, set},
         multiset::Multiset,
         pbt::Pbt,
         reflection::{Erased, Variant},
@@ -12,6 +14,23 @@ use {
 };
 
 impl Pbt for bool {
+    #[inline]
+    #[expect(clippy::panic, reason = "end-users shouldn't be calling this")]
+    fn instantiate_variant<F>(variant_index: usize, _fields: F) -> Self
+    where
+        F: Fields,
+    {
+        match variant_index {
+            0 => false,
+            1 => true,
+            _ => panic!(
+                "can't instantiate variant #{} of `bool`, since there are only {} variants",
+                variant_index,
+                Self::variants(&mut map(), &mut set()).len(),
+            ),
+        }
+    }
+
     #[inline]
     fn variants(
         _variants: &mut HashMap<TypeId, Arc<[Variant<Erased>]>>,

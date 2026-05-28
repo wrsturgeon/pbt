@@ -1,7 +1,10 @@
 //! The main property-based testing trait.
 
 use {
-    crate::reflection::{Erased, Variant},
+    crate::{
+        fields::Fields,
+        reflection::{Erased, Variant},
+    },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,
     core::any::TypeId,
@@ -9,6 +12,16 @@ use {
 
 /// The main property-based testing trait.
 pub trait Pbt: 'static {
+    /// Instantiate a specific variant of this type
+    /// by providing its index and its fields.
+    ///
+    /// N.B.: Literal constructors, e.g. on `usize`,
+    /// should be instantiated using their built-in `generator` field,
+    /// not through this function, since they don't require fields.
+    fn instantiate_variant<F>(variant_index: usize, fields: F) -> Self
+    where
+        F: Fields;
+
     /// Enumerate the logical structure of all variants of this type.
     ///
     /// This must *also* register all dependencies of this type.
