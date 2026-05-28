@@ -1,30 +1,10 @@
 //! Tarjan's strongly connected components algorithm.
 
 use {
-    crate::{
-        hash::{map, set},
-        union_find::{RootElement, UnionFind},
-    },
-    ahash::{HashMap, HashSet},
-    alloc::sync::Arc,
+    crate::{hash::map, union_find::UnionFind},
+    ahash::HashMap,
     core::hash::Hash,
 };
-
-/// Metadata associated with one SCC in the quotient graph.
-#[non_exhaustive]
-pub(crate) struct QuotientVertex<Vertex> {
-    /// All vertices in this strongly connected component.
-    elements: HashSet<Vertex>,
-
-    /// All fields of all types within an SCC (i.e. a mutually inductive set of types)
-    /// that do not themselves belong to the SCC.
-    ///
-    /// Recall that fields of each individual type are directed edges,
-    /// so directed edges out of an SCC are not a very well-defined concept,
-    /// but they could be seen as representing "optional dependencies,"
-    /// i.e. that there exists a generator path that contains a term of this type.
-    outgoing_edges: HashSet<RootElement<Vertex>>,
-}
 
 /// Per-vertex bookkeeping for Tarjan's SCC algorithm.
 #[non_exhaustive]
@@ -46,7 +26,7 @@ struct VertexBookkeeping {
 pub(crate) fn update<Destinations, OutgoingEdges, Vertex>(
     vertex: Vertex,
     outgoing_edges: &OutgoingEdges,
-    quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
+    quotient: &mut UnionFind<Vertex>,
 ) where
     Destinations: Iterator<Item = Vertex>,
     OutgoingEdges: Fn(Vertex) -> Destinations,
@@ -76,11 +56,10 @@ pub(crate) fn update<Destinations, OutgoingEdges, Vertex>(
     clippy::panic,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-#[expect(clippy::too_many_lines, reason = "take it up with Tarjan")]
 fn tarjan<Destinations, OutgoingEdges, Vertex>(
     vertex: Vertex,
     outgoing_edges: &OutgoingEdges,
-    quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,
+    quotient: &mut UnionFind<Vertex>,
     global_visit_index: &mut usize,
     bookkeeping: &mut HashMap<Vertex, VertexBookkeeping>,
     stack: &mut Vec<Vertex>,
@@ -102,15 +81,6 @@ fn tarjan<Destinations, OutgoingEdges, Vertex>(
             bookkeeping
                 .get_mut($e)
                 .expect("INTERNAL ERROR (`pbt`): inconsistent SCC bookkeeping")
-        };
-    }
-
-    macro_rules! root {
-        ($e:expr) => {
-            quotient
-                .root($e)
-                .expect("INTERNAL ERROR (`pbt`): unregistered type during SCC discovery")
-                .element
         };
     }
 
@@ -181,29 +151,8 @@ fn tarjan<Destinations, OutgoingEdges, Vertex>(
             .get(n_before_stack..)
             .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery")
         {
-            let outgoing_edges_of_popped = outgoing_edges(popped)
-                .filter(|dst| !bookkeeping.get(dst).is_some_and(|books| books.on_stack))
-                .map(|dst| root!(dst))
-                .collect();
-            let mut elements = set();
-            let _: bool = elements.insert(popped);
-            let () = quotient.insert_singleton(
-                popped,
-                Arc::new(QuotientVertex {
-                    elements,
-                    outgoing_edges: outgoing_edges_of_popped,
-                }),
-            );
-            let () = quotient.merge(vertex, popped, |lhs, rhs| {
-                Arc::new(QuotientVertex {
-                    elements: lhs.elements.union(&rhs.elements).copied().collect(),
-                    outgoing_edges: lhs
-                        .outgoing_edges
-                        .union(&rhs.outgoing_edges)
-                        .copied()
-                        .collect(),
-                })
-            });
+            let () = quotient.insert_singleton(popped);
+            let () = quotient.merge(vertex, popped);
         }
 
         for &popped in stack
@@ -222,8 +171,8 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "Failing tests ought to panic.")]
 
     use {
-        super::*, crate::hash::set, core::iter, pretty_assertions::assert_eq,
-        std::collections::hash_set,
+        super::*, crate::hash::set, ahash::HashSet, alloc::sync::Arc, core::iter,
+        pretty_assertions::assert_eq, std::collections::hash_set,
     };
 
     type Graph = HashMap<u8, Arc<HashSet<u8>>>;
@@ -244,59 +193,30 @@ mod tests {
         move |vertex| graph[&vertex].iter().copied()
     }
 
-    fn immediate_roots(
-        quotient: &mut UnionFind<u8, Arc<QuotientVertex<u8>>>,
-        vertex: u8,
-    ) -> HashSet<RootElement<u8>> {
-        quotient
-            .root(vertex)
-            .unwrap()
-            .metadata
-            .outgoing_edges
-            .clone()
-    }
-
-    fn root_set(
-        quotient: &mut UnionFind<u8, Arc<QuotientVertex<u8>>>,
-        vertices: &[u8],
-    ) -> HashSet<RootElement<u8>> {
-        let mut roots = set();
-        for vertex in vertices {
-            let _: bool = roots.insert(quotient.root(*vertex).unwrap().element);
-        }
-        roots
-    }
-
     #[test]
-    fn singleton_without_edges_has_empty_quotient_edges() {
+    fn singleton_without_edges_gets_singleton_root() {
         let graph = graph(&[(1, &[])]);
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
         update(1, &edges, &mut quotient);
 
-        assert_eq!(
-            immediate_roots(&mut quotient, 1),
-            root_set(&mut quotient, &[])
-        );
+        assert_eq!(quotient.root(1).unwrap().cardinality.get(), 1);
     }
 
     #[test]
-    fn self_loop_does_not_create_a_quotient_self_edge() {
+    fn self_loop_gets_singleton_root() {
         let graph = graph(&[(1, &[1])]);
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
 
         update(1, &edges, &mut quotient);
 
-        assert_eq!(
-            immediate_roots(&mut quotient, 1),
-            root_set(&mut quotient, &[])
-        );
+        assert_eq!(quotient.root(1).unwrap().cardinality.get(), 1);
     }
 
     #[test]
-    fn two_vertex_cycle_becomes_one_quotient_vertex_without_self_edges() {
+    fn two_vertex_cycle_becomes_one_quotient_vertex() {
         let graph = graph(&[(1, &[2]), (2, &[1])]);
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
@@ -307,14 +227,11 @@ mod tests {
             quotient.root(1).unwrap().element,
             quotient.root(2).unwrap().element
         );
-        assert_eq!(
-            immediate_roots(&mut quotient, 1),
-            root_set(&mut quotient, &[])
-        );
+        assert_eq!(quotient.root(1).unwrap().cardinality.get(), 2);
     }
 
     #[test]
-    fn mutually_inductive_component_keeps_only_external_quotient_edges() {
+    fn mutually_inductive_component_merges_only_cycle() {
         let graph = graph(&[(1, &[2, 3]), (2, &[1, 3]), (3, &[])]);
         let edges = outgoing_edges(&graph);
         let mut quotient = UnionFind::new();
@@ -329,14 +246,8 @@ mod tests {
             quotient.root(1).unwrap().element,
             quotient.root(3).unwrap().element
         );
-        assert_eq!(
-            immediate_roots(&mut quotient, 1),
-            root_set(&mut quotient, &[3])
-        );
-        assert_eq!(
-            immediate_roots(&mut quotient, 3),
-            root_set(&mut quotient, &[])
-        );
+        assert_eq!(quotient.root(1).unwrap().cardinality.get(), 2);
+        assert_eq!(quotient.root(3).unwrap().cardinality.get(), 1);
     }
 
     #[test]
@@ -355,14 +266,9 @@ mod tests {
         assert_eq!(quotient.root(2).unwrap().element, recursive_child_root);
         assert_eq!(quotient.root(3).unwrap().element, recursive_child_root);
         assert_eq!(quotient.root(4).unwrap().element, leaf_root);
-        assert_eq!(
-            immediate_roots(&mut quotient, 1),
-            root_set(&mut quotient, &[2, 4])
-        );
-        assert_eq!(
-            immediate_roots(&mut quotient, 2),
-            root_set(&mut quotient, &[4])
-        );
+        assert_eq!(quotient.root(1).unwrap().cardinality.get(), 1);
+        assert_eq!(quotient.root(2).unwrap().cardinality.get(), 2);
+        assert_eq!(quotient.root(4).unwrap().cardinality.get(), 1);
     }
 
     fn vertex_set(vertices: &[u8]) -> HashSet<u8> {

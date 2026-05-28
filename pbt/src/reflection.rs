@@ -199,44 +199,6 @@ pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
     )
 }
 
-/// Instantiable constructors for each type.
-///
-/// N.B.: A type's instantiability is as simple as `!constructors.is_empty()`.
-#[inline]
-#[expect(dead_code, reason = "TODO")]
-fn constructors<T>() -> Arc<[Constructor<T>]>
-where
-    T: Pbt,
-{
-    let () = register_globally::<T>();
-    let erased = constructors_of(TypeId::of::<T>());
-    // SAFETY: `T` is only ever the codomain of a function pointer.
-    unsafe {
-        mem::transmute::<
-            Arc<[Constructor<Erased>]>, //
-            Arc<[Constructor<T>]>,
-        >(erased)
-    }
-}
-
-/// All variants of a given type,
-/// even uninstantiable variants.
-#[inline]
-#[expect(dead_code, reason = "TODO")]
-#[expect(
-    clippy::expect_used,
-    reason = "For internal use only: invariant violations should fail loudly."
-)]
-fn naive_variants_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
-    Arc::clone(
-        NAIVE_VARIANTS
-            .read()
-            .expect("INTERNAL ERROR (`pbt`): variants lock poisoned")
-            .get(&ty)
-            .expect("INTERNAL ERROR (`pbt`): unregistered type"),
-    )
-}
-
 /// Register the type `T` and its dependencies
 /// in a naive type reflection graph,
 /// including any uninstantiable variants.

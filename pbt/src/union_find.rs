@@ -1,5 +1,4 @@
-//! The standard disjoint-set data structure
-//! with metadata assigned to each set.
+//! The standard disjoint-set data structure.
 
 use {
     crate::hash::map,
@@ -7,63 +6,57 @@ use {
     core::{hash::Hash, mem, num::NonZero, ops::Deref},
 };
 
-/// The result of querying the root of a given element's set,
-/// wihout any metadata.
+/// The distinguished element returned when querying a set's root.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-pub(crate) struct RootElement<K>(K);
+pub(crate) struct RootElement<Element>(Element);
 
 /// The result of querying the root of a given element's set.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
-pub(crate) struct Root<K, V> {
+pub(crate) struct Root<Element> {
     /// The total number of elements in this set.
     pub(crate) cardinality: NonZero<usize>,
     /// The arbitrary distinguished element that represents this entire set.
-    pub(crate) element: RootElement<K>,
-    /// User-defined metadata associated with this set as a whole.
-    pub(crate) metadata: V,
+    pub(crate) element: RootElement<Element>,
 }
 
-/// The standard disjoint-set data structure
-/// with metadata assigned to each set.
+/// The standard disjoint-set data structure.
 #[non_exhaustive]
-pub(crate) struct UnionFind<K, V> {
-    /// Either a parent or root metadata.
-    upward: HashMap<K, Upward<K, V>>,
+pub(crate) struct UnionFind<Element> {
+    /// Either a parent or root cardinality.
+    upward: HashMap<Element, Upward<Element>>,
 }
 
-/// Either a parent or root metadata.
+/// Either a parent or root cardinality.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-enum Upward<K, V> {
+enum Upward<Element> {
     /// This element is part of a larger set,
     /// and this parent is closer to its root.
     Parent {
         /// Another element in the same set, closer to its root.
-        parent: K,
+        parent: Element,
     },
     /// This element has been arbitrarily chosen
     /// as the distinguished element of this set.
     Root {
         /// The total number of elements in this set.
         cardinality: NonZero<usize>,
-        /// User-defined metadata associated with this set as a whole.
-        metadata: V,
     },
 }
 
-impl<K: PartialEq, V> PartialEq for Root<K, V> {
+impl<Element: PartialEq> PartialEq for Root<Element> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         self.element == other.element
     }
 }
 
-impl<K: Eq, V> Eq for Root<K, V> {}
+impl<Element: Eq> Eq for Root<Element> {}
 
-impl<K> Deref for RootElement<K> {
-    type Target = K;
+impl<Element> Deref for RootElement<Element> {
+    type Target = Element;
 
     #[inline]
     fn deref(&self) -> &Self::Target {
@@ -71,14 +64,14 @@ impl<K> Deref for RootElement<K> {
     }
 }
 
-impl<K, V> Default for UnionFind<K, V> {
+impl<Element> Default for UnionFind<Element> {
     #[inline]
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<K, V> UnionFind<K, V> {
+impl<Element> UnionFind<Element> {
     /// Initialize an empty set of disjoint sets.
     #[inline]
     #[must_use]
@@ -93,10 +86,9 @@ impl<K, V> UnionFind<K, V> {
     clippy::unwrap_in_result,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-impl<K, V> UnionFind<K, V>
+impl<Element> UnionFind<Element>
 where
-    K: Copy + Eq + Hash,
-    V: Clone,
+    Element: Copy + Eq + Hash,
 {
     /// Insert a new element in a set of its own.
     ///
@@ -104,14 +96,13 @@ where
     ///
     /// If `k` is already present.
     #[inline]
-    pub(crate) fn insert_singleton(&mut self, element: K, metadata: V) {
+    pub(crate) fn insert_singleton(&mut self, element: Element) {
         if self
             .upward
             .insert(
                 element,
                 Upward::Root {
                     cardinality: const { NonZero::new(1).unwrap() },
-                    metadata,
                 },
             )
             .is_some()
@@ -125,17 +116,11 @@ where
     /// Each set is identified by an arbitrary member,
     /// not necessarily the root.
     ///
-    /// `merge_metadata` should be commutative,
-    /// since order is determined by pre-merge set cardinality.
-    ///
     /// # Panics
     ///
     /// If either `lhs` or `rhs` is unregistered.
     #[inline]
-    pub(crate) fn merge<MergeMetadata>(&mut self, lhs: K, rhs: K, merge_metadata: MergeMetadata)
-    where
-        MergeMetadata: FnOnce(V, V) -> V,
-    {
+    pub(crate) fn merge(&mut self, lhs: Element, rhs: Element) {
         let mut lhs_root = self
             .root(lhs)
             .expect("INTERNAL ERROR (`pbt`): merging unregistered Union-Find entry");
@@ -178,7 +163,6 @@ where
                         .unchecked_add(rhs_root.cardinality.get()),
                 )
             },
-            metadata: merge_metadata(lhs_root.metadata, rhs_root.metadata),
         };
     }
 
@@ -189,15 +173,11 @@ where
     ///
     /// If and only if internal invariants have already been violated.
     #[inline]
-    pub(crate) fn root(&mut self, element: K) -> Option<Root<K, V>> {
+    pub(crate) fn root(&mut self, element: Element) -> Option<Root<Element>> {
         Some(match *self.upward.get(&element)? {
-            Upward::Root {
-                cardinality,
-                ref metadata,
-            } => Root {
+            Upward::Root { cardinality } => Root {
                 element: RootElement(element),
                 cardinality,
-                metadata: metadata.clone(),
             },
             Upward::Parent { parent } => {
                 let root = self
@@ -228,16 +208,15 @@ mod tests {
         reason = "[don draper voice] that's what the comments are for!"
     )]
     fn union_find_12345() {
-        const SINGLETON: Upward<u8, ()> = Upward::Root {
+        const SINGLETON: Upward<u8> = Upward::Root {
             cardinality: NonZero::new(1).unwrap(),
-            metadata: (),
         };
 
         let mut uf = UnionFind::new();
 
         // Start with {{1}, {2}, {3}, {4}, {5}}:
         for i in 1..=5_u8 {
-            uf.insert_singleton(i, ());
+            uf.insert_singleton(i);
         }
         assert_eq!(uf.upward.get(&1), Some(&SINGLETON));
         assert_eq!(uf.upward.get(&2), Some(&SINGLETON));
@@ -246,13 +225,12 @@ mod tests {
         assert_eq!(uf.upward.get(&5), Some(&SINGLETON));
 
         // Merge 2 and 3 into {{1}, {2, 3}, {4}, {5}}:
-        uf.merge(2, 3, |(), ()| ());
+        uf.merge(2, 3);
         assert_eq!(uf.upward.get(&1), Some(&SINGLETON));
         assert_eq!(
             uf.upward.get(&2),
             Some(&Upward::Root {
                 cardinality: NonZero::new(2).unwrap(),
-                metadata: ()
             })
         );
         assert_eq!(uf.upward.get(&3), Some(&Upward::Parent { parent: 2 }));
@@ -260,13 +238,12 @@ mod tests {
         assert_eq!(uf.upward.get(&5), Some(&SINGLETON));
 
         // Merge 4 and 5 into {{1}, {2, 3}, {4, 5}}:
-        uf.merge(4, 5, |(), ()| ());
+        uf.merge(4, 5);
         assert_eq!(uf.upward.get(&1), Some(&SINGLETON));
         assert_eq!(
             uf.upward.get(&2),
             Some(&Upward::Root {
                 cardinality: NonZero::new(2).unwrap(),
-                metadata: ()
             })
         );
         assert_eq!(uf.upward.get(&3), Some(&Upward::Parent { parent: 2 }));
@@ -274,19 +251,17 @@ mod tests {
             uf.upward.get(&4),
             Some(&Upward::Root {
                 cardinality: NonZero::new(2).unwrap(),
-                metadata: ()
             })
         );
         assert_eq!(uf.upward.get(&5), Some(&Upward::Parent { parent: 4 }));
 
         // Merge 3 and 5 into {{1}, {2, 3, 4, 5}}:
-        uf.merge(3, 5, |(), ()| ());
+        uf.merge(3, 5);
         assert_eq!(uf.upward.get(&1), Some(&SINGLETON));
         assert_eq!(
             uf.upward.get(&2),
             Some(&Upward::Root {
                 cardinality: NonZero::new(4).unwrap(),
-                metadata: ()
             })
         );
         assert_eq!(uf.upward.get(&3), Some(&Upward::Parent { parent: 2 }));
@@ -299,7 +274,6 @@ mod tests {
             Some(Root {
                 cardinality: NonZero::new(4).unwrap(),
                 element: RootElement(2),
-                metadata: (),
             })
         );
         assert_eq!(uf.upward.get(&1), Some(&SINGLETON));
@@ -307,7 +281,6 @@ mod tests {
             uf.upward.get(&2),
             Some(&Upward::Root {
                 cardinality: NonZero::new(4).unwrap(),
-                metadata: ()
             })
         );
         assert_eq!(uf.upward.get(&3), Some(&Upward::Parent { parent: 2 }));
