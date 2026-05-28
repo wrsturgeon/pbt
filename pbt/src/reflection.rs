@@ -41,10 +41,10 @@ static NAIVE_VARIANTS: RwLock<HashMap<TypeId, Arc<[Constructor<Erased>]>>> = RwL
 pub(crate) struct Affordances<SelfType> {
     /// Sorted list of indices of instantiable constructors
     /// for which a sub-term of type `Self` is *avoidable*.
-    pub potential_leaves: Box<[Constructor<SelfType>]>,
+    pub(crate) potential_leaves: Box<[Constructor<SelfType>]>,
     /// Sorted list of indices of instantiable constructors
     /// for which a sub-term of type `Self` is *reachable*.
-    pub potential_loops: Box<[Constructor<SelfType>]>,
+    pub(crate) potential_loops: Box<[Constructor<SelfType>]>,
 }
 
 /// Each variant of some type in source order.
@@ -61,10 +61,10 @@ pub(crate) struct Affordances<SelfType> {
 #[non_exhaustive]
 pub struct Constructor<SelfType: ?Sized> {
     /// The index of this variant under the original source ordering.
-    pub index: usize,
+    pub(crate) index: usize,
     /// Reflection about this constructor
     /// in terms of its original source-code variant.
-    pub variant: Variant<SelfType>,
+    pub(crate) variant: Variant<SelfType>,
 }
 
 /// An erased type.
@@ -114,7 +114,7 @@ impl<SelfType> Affordances<SelfType> {
     /// Equivalently, whether this type can be arbitrarily large.
     #[inline]
     #[must_use]
-    pub const fn is_inductive(&self) -> bool {
+    pub(crate) const fn is_inductive(&self) -> bool {
         !self.potential_loops.is_empty()
     }
 }
@@ -143,7 +143,7 @@ impl<T> Variant<T> {
     /// Iterate over the types of all fields in this variant,
     /// yielding each type exactly once (skipping duplicates).
     #[inline]
-    pub(crate) fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
+    fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
         const EMPTY: &HashMap<TypeId, NonZero<usize>> = &map();
         match *self {
             Self::Algebraic { ref field_types } => field_types.iter_dedup(),
@@ -204,7 +204,7 @@ pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
 /// N.B.: A type's instantiability is as simple as `!constructors.is_empty()`.
 #[inline]
 #[expect(dead_code, reason = "TODO")]
-pub(crate) fn constructors<T>() -> Arc<[Constructor<T>]>
+fn constructors<T>() -> Arc<[Constructor<T>]>
 where
     T: Pbt,
 {

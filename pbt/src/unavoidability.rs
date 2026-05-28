@@ -61,11 +61,9 @@ fn collect_uncached<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
 #[inline]
 #[expect(
     clippy::expect_used,
-    clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
-pub fn update<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
+pub(crate) fn update<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
     root: Vertex,
     cache: &mut HashMap<Vertex, Arc<HashSet<Vertex>>>,
     constructors: &Constructors,

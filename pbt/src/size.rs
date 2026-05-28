@@ -9,7 +9,7 @@ use {
 
 /// Partition this size into a known number of sizes
 /// which add up to the same size we started with.
-pub struct Partition {
+pub(crate) struct Partition {
     /// The "bars" in "stars and bars."
     /// (The *combinatorics* "stars and bars," not the confederate flag.)
     separators: Option<BinaryHeap<cmp::Reverse<usize>>>,
@@ -62,7 +62,7 @@ impl Size {
         clippy::expect_used,
         reason = "For internal use only: invariant violations should fail loudly."
     )]
-    pub fn partition(mut self, into_how_many: usize, prng: &mut WyRand) -> Partition {
+    pub(crate) fn partition(mut self, into_how_many: usize, prng: &mut WyRand) -> Partition {
         let Some(branching_factor) = NonZero::new(into_how_many) else {
             return Partition::empty();
         };
@@ -108,10 +108,9 @@ impl Size {
     )]
     #[expect(
         clippy::expect_used,
-        clippy::missing_panics_doc,
         reason = "For internal use only: invariant violations should fail loudly."
     )]
-    pub fn should_recurse(&self, prng: &mut WyRand) -> bool {
+    pub(crate) fn should_recurse(&self, prng: &mut WyRand) -> bool {
         // SAFETY: Incremented and didn't overflow.
         let incremented =
             unsafe {
@@ -126,7 +125,7 @@ impl Size {
     /// A total size of zero.
     #[inline]
     #[must_use]
-    pub const fn zero() -> Self {
+    pub(crate) const fn zero() -> Self {
         Self { total: 0 }
     }
 }
@@ -135,7 +134,7 @@ impl Partition {
     /// A partition of zero size into zero parts.
     #[inline]
     #[must_use]
-    pub const fn empty() -> Self {
+    const fn empty() -> Self {
         Self {
             separators: None,
             total: 0,

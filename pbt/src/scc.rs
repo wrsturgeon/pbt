@@ -12,9 +12,9 @@ use {
 
 /// Metadata associated with one SCC in the quotient graph.
 #[non_exhaustive]
-pub struct QuotientVertex<Vertex> {
+pub(crate) struct QuotientVertex<Vertex> {
     /// All vertices in this strongly connected component.
-    pub elements: HashSet<Vertex>,
+    elements: HashSet<Vertex>,
 
     /// All fields of all types within an SCC (i.e. a mutually inductive set of types)
     /// that do not themselves belong to the SCC.
@@ -23,12 +23,12 @@ pub struct QuotientVertex<Vertex> {
     /// so directed edges out of an SCC are not a very well-defined concept,
     /// but they could be seen as representing "optional dependencies,"
     /// i.e. that there exists a generator path that contains a term of this type.
-    pub outgoing_edges: HashSet<RootElement<Vertex>>,
+    outgoing_edges: HashSet<RootElement<Vertex>>,
 }
 
 /// Per-vertex bookkeeping for Tarjan's SCC algorithm.
 #[non_exhaustive]
-pub struct VertexBookkeeping {
+struct VertexBookkeeping {
     /// The arbitrary global DFS timestamp at which we visited this vertex.
     global_visit_index: usize,
     /// The smallest index of any node on the stack known to be
@@ -43,7 +43,7 @@ pub struct VertexBookkeeping {
 ///
 /// See <https://en.wikipedia.org/wiki/Tarjan%27s_strongly_connected_components_algorithm#The_algorithm_in_pseudocode>.
 #[inline]
-pub fn update<Destinations, OutgoingEdges, Vertex>(
+pub(crate) fn update<Destinations, OutgoingEdges, Vertex>(
     vertex: Vertex,
     outgoing_edges: &OutgoingEdges,
     quotient: &mut UnionFind<Vertex, Arc<QuotientVertex<Vertex>>>,

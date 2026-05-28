@@ -20,7 +20,7 @@ where
     ///
     /// Note that the codomain is `NonZero<_>`, so
     /// `self.count.keys()` recovers the behavior of an ordinary set.
-    pub counts: HashMap<T, NonZero<usize>>,
+    counts: HashMap<T, NonZero<usize>>,
 }
 
 impl<T> Default for Multiset<T>
@@ -39,7 +39,7 @@ where
 {
     /// Insert one copy of `value` into this multiset.
     #[inline]
-    pub fn insert(&mut self, value: T) {
+    fn insert(&mut self, value: T) {
         self.counts
             .entry(value)
             .and_modify(|count: &mut NonZero<usize>| {
@@ -57,21 +57,21 @@ where
 
     /// Iterate over each distinct element and its count.
     #[inline]
-    pub fn iter(&self) -> impl Iterator<Item = (&T, NonZero<usize>)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&T, NonZero<usize>)> {
         self.counts.iter().map(|(k, &v)| (k, v))
     }
 
     /// Iterate over each distinct element, ignoring duplicate counts.
     #[inline]
     #[must_use]
-    pub fn iter_dedup(&self) -> hash_map::Keys<'_, T, NonZero<usize>> {
+    pub(crate) fn iter_dedup(&self) -> hash_map::Keys<'_, T, NonZero<usize>> {
         self.counts.keys()
     }
 
     /// Initialize an empty multiset.
     #[inline]
     #[must_use]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { counts: map() }
     }
 }

@@ -11,24 +11,24 @@ use {
 /// wihout any metadata.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-pub struct RootElement<K>(K);
+pub(crate) struct RootElement<K>(K);
 
 /// The result of querying the root of a given element's set.
 #[non_exhaustive]
 #[derive(Clone, Debug)]
-pub struct Root<K, V> {
+pub(crate) struct Root<K, V> {
     /// The total number of elements in this set.
-    pub cardinality: NonZero<usize>,
+    pub(crate) cardinality: NonZero<usize>,
     /// The arbitrary distinguished element that represents this entire set.
-    pub element: RootElement<K>,
+    pub(crate) element: RootElement<K>,
     /// User-defined metadata associated with this set as a whole.
-    pub metadata: V,
+    pub(crate) metadata: V,
 }
 
 /// The standard disjoint-set data structure
 /// with metadata assigned to each set.
 #[non_exhaustive]
-pub struct UnionFind<K, V> {
+pub(crate) struct UnionFind<K, V> {
     /// Either a parent or root metadata.
     upward: HashMap<K, Upward<K, V>>,
 }
@@ -36,7 +36,7 @@ pub struct UnionFind<K, V> {
 /// Either a parent or root metadata.
 #[non_exhaustive]
 #[derive(Clone, Debug, Eq, Ord, Hash, PartialEq, PartialOrd)]
-pub enum Upward<K, V> {
+enum Upward<K, V> {
     /// This element is part of a larger set,
     /// and this parent is closer to its root.
     Parent {
@@ -82,7 +82,7 @@ impl<K, V> UnionFind<K, V> {
     /// Initialize an empty set of disjoint sets.
     #[inline]
     #[must_use]
-    pub const fn new() -> Self {
+    pub(crate) const fn new() -> Self {
         Self { upward: map() }
     }
 }
@@ -104,7 +104,7 @@ where
     ///
     /// If `k` is already present.
     #[inline]
-    pub fn insert_singleton(&mut self, element: K, metadata: V) {
+    pub(crate) fn insert_singleton(&mut self, element: K, metadata: V) {
         if self
             .upward
             .insert(
@@ -132,7 +132,7 @@ where
     ///
     /// If either `lhs` or `rhs` is unregistered.
     #[inline]
-    pub fn merge<MergeMetadata>(&mut self, lhs: K, rhs: K, merge_metadata: MergeMetadata)
+    pub(crate) fn merge<MergeMetadata>(&mut self, lhs: K, rhs: K, merge_metadata: MergeMetadata)
     where
         MergeMetadata: FnOnce(V, V) -> V,
     {
@@ -189,7 +189,7 @@ where
     ///
     /// If and only if internal invariants have already been violated.
     #[inline]
-    pub fn root(&mut self, element: K) -> Option<Root<K, V>> {
+    pub(crate) fn root(&mut self, element: K) -> Option<Root<K, V>> {
         Some(match *self.upward.get(&element)? {
             Upward::Root {
                 cardinality,

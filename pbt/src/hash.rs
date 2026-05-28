@@ -8,7 +8,7 @@ use ahash::{HashMap, HashSet, RandomState};
 /// without e.g. `getrandom` or any other external source of seeds.
 #[inline]
 #[must_use]
-pub const fn random_state() -> RandomState {
+const fn random_state() -> RandomState {
     // Determinism is more important than cryptographic quality;
     // after all, this is merely a testing library, not a DOS target.
     #[expect(clippy::unusual_byte_groupings, reason = "readability")]

@@ -3,17 +3,23 @@
 
 extern crate alloc;
 
-pub mod fields;
+mod fields;
 pub mod hash;
-pub mod impls;
-pub mod instantiability;
-pub mod multiset;
+mod impls;
+mod instantiability;
+mod multiset;
 pub mod reflection;
-pub mod scc;
-pub mod size;
-pub mod swarm;
-pub mod unavoidability;
-pub mod union_find;
+mod scc;
+mod size;
+mod swarm;
+mod unavoidability;
+mod union_find;
+
+use {
+    fields::Fields,
+    reflection::{Constructor, Erased, Uninstantiable, Variant},
+    size::Size,
+};
 
 /// The main property-based testing trait.
 #[expect(
@@ -29,7 +35,7 @@ pub trait Pbt: 'static {
     /// not through this function, since they don't require fields.
     fn instantiate_variant<F>(variant_index: usize, fields: F) -> Self
     where
-        F: fields::Fields;
+        F: Fields;
 
     /// Enumerate the logical structure of all variants of this type.
     ///
@@ -50,12 +56,9 @@ pub trait Pbt: 'static {
     /// // ... return this type's variants ...
     /// ```
     fn variants(
-        variants: &mut ahash::HashMap<
-            core::any::TypeId,
-            alloc::sync::Arc<[reflection::Constructor<reflection::Erased>]>,
-        >,
+        variants: &mut ahash::HashMap<core::any::TypeId, alloc::sync::Arc<[Constructor<Erased>]>>,
         visited: &mut ahash::HashSet<core::any::TypeId>,
-    ) -> Vec<reflection::Variant<Self>>;
+    ) -> Vec<Variant<Self>>;
 }
 
 /// Generate an arbitrary term of any type `T`.
@@ -64,10 +67,7 @@ pub trait Pbt: 'static {
 ///
 /// If `T` is uninstantiable.
 #[inline]
-pub fn arbitrary<T>(
-    size: size::Size,
-    prng: &mut wyrand::WyRand,
-) -> Result<T, reflection::Uninstantiable>
+pub fn arbitrary<T>(size: Size, prng: &mut wyrand::WyRand) -> Result<T, Uninstantiable>
 where
     T: Pbt,
 {

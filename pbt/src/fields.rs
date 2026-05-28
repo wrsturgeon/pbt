@@ -26,7 +26,6 @@ pub trait Fields {
 /// Fields are not stored ahead of time;
 /// instead, their sizes are stored in an iterator,
 /// and all fields are produced just in time.
-#[expect(clippy::field_scoped_visibility_modifiers, reason = "fine")]
 pub(crate) struct Lazy<'prng, 'swarm> {
     /// Pseudorandom number generator.
     ///
@@ -45,7 +44,8 @@ pub(crate) struct Lazy<'prng, 'swarm> {
 /// unknown fields are newly generated leaves.
 #[non_exhaustive]
 #[expect(clippy::empty_structs_with_brackets, reason = "TODO")]
-pub struct Eager {
+#[expect(dead_code, reason = "TODO")]
+struct Eager {
     // TODO: erased bag of type-indexed terms
 }
 

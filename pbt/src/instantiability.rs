@@ -121,12 +121,10 @@ fn finalize_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
 #[inline]
 #[expect(
     clippy::expect_used,
-    clippy::missing_panics_doc,
     reason = "For internal use only: invariant violations should fail loudly."
 )]
-#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
 #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-pub fn update<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
+pub(crate) fn update<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
     root: Vertex,
     naive: &'naive HashMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,

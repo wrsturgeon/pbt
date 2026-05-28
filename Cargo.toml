@@ -52,6 +52,7 @@ suspicious = { level = "deny", priority = -1 }
 
 # Then selectively ignore false negatives:
 blanket_clippy_restriction_lints = "allow"
+field_scoped_visibility_modifiers = "allow"
 implicit_return = "allow"
 inline_always = "allow"
 inline_modules = "allow"

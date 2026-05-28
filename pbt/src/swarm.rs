@@ -34,7 +34,7 @@ impl Swarm {
     /// Split this type's (instantiable and unmasked)
     /// constructors into potential leaves and loops.
     #[inline]
-    pub(crate) fn affordances<T>(&self) -> &Affordances<T>
+    fn affordances<T>(&self) -> &Affordances<T>
     where
         T: 'static,
     {
@@ -54,7 +54,7 @@ impl Swarm {
         clippy::expect_used,
         reason = "For internal use only: invariant violations should fail loudly."
     )]
-    pub(crate) fn affordances_of(&self, ty: TypeId) -> &Affordances<Erased> {
+    fn affordances_of(&self, ty: TypeId) -> &Affordances<Erased> {
         self.affordances
             .get(&ty)
             .expect("INTERNAL ERROR (`pbt`): unregistered type")
@@ -148,7 +148,7 @@ impl Swarm {
         clippy::expect_used,
         reason = "For internal use only: invariant violations should fail loudly."
     )]
-    pub fn new<T>(prng: &mut WyRand) -> Result<Self, Uninstantiable>
+    pub(crate) fn new<T>(prng: &mut WyRand) -> Result<Self, Uninstantiable>
     where
         T: Pbt,
     {
