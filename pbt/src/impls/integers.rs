@@ -2,8 +2,8 @@
 
 use {
     crate::{
+        Pbt,
         fields::Fields,
-        pbt::Pbt,
         reflection::{Constructor, Erased, Variant},
     },
     ahash::{HashMap, HashSet},

@@ -3,11 +3,10 @@
 
 use {
     crate::{
-        fields,
+        Pbt, fields,
         hash::map,
         instantiability,
         multiset::Multiset,
-        pbt::Pbt,
         reflection::{
             Affordances, Constructor, Erased, Uninstantiable, Variant, constructors_of,
             register_globally,

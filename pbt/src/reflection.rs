@@ -13,10 +13,10 @@
 
 use {
     crate::{
+        Pbt,
         hash::{map, set},
         instantiability,
         multiset::Multiset,
-        pbt::Pbt,
     },
     ahash::{HashMap, HashSet},
     alloc::sync::Arc,

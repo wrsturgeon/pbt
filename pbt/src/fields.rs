@@ -3,7 +3,7 @@
 
 use {
     crate::{
-        pbt::Pbt,
+        Pbt,
         size::{self, Size},
         swarm::Swarm,
     },

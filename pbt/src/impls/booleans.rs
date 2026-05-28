@@ -2,10 +2,10 @@
 
 use {
     crate::{
+        Pbt,
         fields::Fields,
         hash::{map, set},
         multiset::Multiset,
-        pbt::Pbt,
         reflection::{Constructor, Erased, Variant},
     },
     ahash::{HashMap, HashSet},
