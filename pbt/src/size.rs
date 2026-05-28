@@ -42,6 +42,13 @@ pub struct Size {
 }
 
 impl Size {
+    /// An infinite iterator of increasing sizes,
+    /// starting from zero.
+    #[inline]
+    pub fn increasing() -> impl Iterator<Item = Self> {
+        (0..).map(|total| Self { total })
+    }
+
     /// Partition this size into a known number of sizes
     /// which add up to the same size we started with.
     ///
@@ -51,29 +58,36 @@ impl Size {
     /// This is a bad idea, since your
     /// memory will not hold the generated value.
     #[inline]
+    #[expect(
+        clippy::expect_used,
+        reason = "For internal use only: invariant violations should fail loudly."
+    )]
     pub fn partition(self, into_how_many: usize, prng: &mut WyRand) -> Partition {
+        let Some(n_separators) = into_how_many.checked_sub(1) else {
+            return Partition::empty();
+        };
+
         // TODO: switch algorithm if `into_how_many < self.total`
-        let separators = into_how_many.checked_sub(1).map(|n_separators| {
-            #[expect(
-                clippy::expect_used,
-                reason = "genuinely cataclysmic state, should panic"
-            )]
-            let incremented = self
-                .total
-                .checked_add(1)
-                .expect("PSA from `pbt`: your memory will not hold a term of size `usize::MAX`.");
-            // SAFETY: Incremented above, starting from at least zero,
-            // so the result must be at least 1.
-            let modulo = unsafe { NonZero::new_unchecked(incremented) };
-            #[expect(
-                clippy::as_conversions,
-                clippy::cast_possible_truncation,
-                reason = "intentional"
-            )]
+
+        let incremented = self
+            .total
+            .checked_add(1)
+            .expect("PSA from `pbt`: your memory will not hold a term of size `usize::MAX`.");
+        // SAFETY: Incremented above, starting from at least zero,
+        // so the result must be at least 1.
+        let modulo = unsafe { NonZero::new_unchecked(incremented) };
+
+        #[expect(
+            clippy::as_conversions,
+            clippy::cast_possible_truncation,
+            reason = "intentional"
+        )]
+        let separators = Some({
             iter::repeat_with(|| cmp::Reverse(prng.rand() as usize % modulo))
                 .take(n_separators)
                 .collect()
         });
+
         Partition {
             total: self.total,
             used: 0,

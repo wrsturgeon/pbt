@@ -247,19 +247,19 @@ fn naive_variants_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
     reason = "For internal use only: invariant violations should fail loudly."
 )]
 pub fn register<T>(
-    vertices: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
+    variants: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
     visited: &mut HashSet<TypeId>,
 ) where
     T: Pbt,
 {
     // If this type has already been registered, short-circuit:
     let ty = TypeId::of::<T>();
-    if vertices.contains_key(&ty) || !visited.insert(ty) {
+    if variants.contains_key(&ty) || !visited.insert(ty) {
         return;
     }
 
     // Recurse, i.e. run depth-first search:
-    let ordered_naive_variants = T::variants(vertices, visited);
+    let ordered_naive_variants = T::variants(variants, visited);
     let naive_variants = ordered_naive_variants
         .into_iter()
         .enumerate()
@@ -274,7 +274,7 @@ pub fn register<T>(
         >(naive_variants)
     };
 
-    let dup: Option<_> = vertices.insert(ty, erased);
+    let dup: Option<_> = variants.insert(ty, erased);
     assert!(
         dup.is_none(),
         "INTERNAL ERROR (`pbt`): TOCTOU despite `&mut` (witchcraft)",

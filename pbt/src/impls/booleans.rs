@@ -34,12 +34,8 @@ impl Pbt for bool {
     #[inline]
     fn variants(
         _variants: &mut HashMap<TypeId, Arc<[Constructor<Erased>]>>,
-        visited: &mut HashSet<TypeId>,
+        _visited: &mut HashSet<TypeId>,
     ) -> Vec<Variant<Self>> {
-        let ty = TypeId::of::<Self>();
-        if visited.insert(ty) {
-            // here's where we'd run DFS iff not already in `visited`
-        }
         vec![
             Variant::Algebraic {
                 field_types: Multiset::new(),

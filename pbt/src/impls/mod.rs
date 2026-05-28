@@ -3,3 +3,4 @@
 
 pub mod booleans;
 pub mod integers;
+pub mod vectors;
