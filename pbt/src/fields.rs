@@ -4,9 +4,14 @@
 use {
     crate::{
         Pbt,
+        hash::map,
+        reflection::Erased,
         size::{self, Size},
         swarm::Swarm,
     },
+    ahash::HashMap,
+    core::{any::TypeId, mem, ptr},
+    std::collections::hash_map,
     wyrand::WyRand,
 };
 
@@ -23,9 +28,21 @@ pub trait Fields {
         T: Pbt;
 }
 
+/// A collection of fields of arbitrary/mixed types.
+/// Fields are known and returned if present;
+/// unknown fields are newly generated leaves.
+#[non_exhaustive]
+#[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
+pub(crate) struct Eager {
+    /// A map from type IDs to erased vectors
+    /// whose elements match the associated type.
+    store: HashMap<TypeId, Vec<Erased>>,
+}
+
 /// Fields are not stored ahead of time;
 /// instead, their sizes are stored in an iterator,
 /// and all fields are produced just in time.
+#[non_exhaustive]
 pub(crate) struct Lazy<'prng, 'swarm> {
     /// Pseudorandom number generator.
     ///
@@ -40,17 +57,8 @@ pub(crate) struct Lazy<'prng, 'swarm> {
     pub(crate) swarm: &'swarm Swarm,
 }
 
-/// Fields are known and returned if present;
-/// unknown fields are newly generated leaves.
-#[non_exhaustive]
-#[expect(clippy::empty_structs_with_brackets, reason = "TODO")]
-#[expect(dead_code, reason = "TODO")]
-struct Eager {
-    // TODO: erased bag of type-indexed terms
-}
-
 impl Fields for Lazy<'_, '_> {
-    #[inline(always)]
+    #[inline]
     fn field<T>(&mut self) -> T
     where
         T: Pbt,
@@ -63,5 +71,100 @@ impl Fields for Lazy<'_, '_> {
             Size::zero()
         };
         self.swarm.arbitrary(size, self.prng)
+    }
+}
+
+impl Fields for Eager {
+    #[inline]
+    #[expect(
+        clippy::expect_used,
+        reason = "Internal invariants: violations should fail loudly."
+    )]
+    fn field<T>(&mut self) -> T
+    where
+        T: Pbt,
+    {
+        self.pop().expect("INTERNAL ERROR (`pbt`): missing field")
+    }
+}
+
+impl Eager {
+    /// An empty collection of fields of arbitrary/mixed types.
+    #[inline]
+    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
+    pub(crate) const fn new() -> Self {
+        Self { store: map() }
+    }
+
+    /// Pop and return a cached field of this type iff one exists.
+    #[inline]
+    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
+    pub(crate) fn pop<T>(&mut self) -> Option<T>
+    where
+        T: 'static,
+    {
+        let ty = TypeId::of::<T>();
+        let hash_map::Entry::Occupied(mut entry) = self.store.entry(ty) else {
+            return None;
+        };
+        let erased: &mut Vec<Erased> = entry.get_mut();
+        // SAFETY: Invariant. Extremely dangerous.
+        let typed: &mut Vec<T> =
+            unsafe { ptr::from_mut(erased).cast::<Vec<T>>().as_mut_unchecked() };
+        let t = typed.pop()?;
+        if typed.is_empty() {
+            let erased_to_drop: Vec<Erased> = entry.remove();
+            // SAFETY: Invariant. Extremely dangerous.
+            let typed_to_drop: Vec<T> =
+                unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_to_drop) };
+            let () = drop(typed_to_drop);
+        }
+        Some(t)
+    }
+
+    /// Store a field of this type.
+    #[inline]
+    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
+    pub(crate) fn push<T>(&mut self, t: T)
+    where
+        T: 'static,
+    {
+        let ty = TypeId::of::<T>();
+        let erased: &mut Vec<Erased> = self.store.entry(ty).or_default();
+        // SAFETY: Invariant. Extremely dangerous.
+        let typed: &mut Vec<T> =
+            unsafe { ptr::from_mut(erased).cast::<Vec<T>>().as_mut_unchecked() };
+        typed.push(t);
+    }
+}
+
+impl Drop for Eager {
+    #[inline]
+    fn drop(&mut self) {
+        assert!(
+            self.store.is_empty(),
+            "INTERNAL ERROR (`pbt`): unused fields (can't drop while type-erased!)",
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(clippy::unwrap_used, reason = "Failing tests ought to panic.")]
+
+    use {super::*, crate::arbitrary, core::iter, pretty_assertions::assert_eq};
+
+    // TODO: make this a real PBT when macro are ready
+    #[test]
+    fn lossless() {
+        let mut prng = WyRand::new(42);
+        for ints in arbitrary::<Vec<usize>>(&mut prng).unwrap().take(10) {
+            let mut eager = Eager::new();
+            for &int in ints.iter().rev() {
+                let () = eager.push(int);
+            }
+            let reconstructed: Vec<usize> = iter::from_fn(|| eager.pop()).collect();
+            assert_eq!(reconstructed, ints);
+        }
     }
 }
