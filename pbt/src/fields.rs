@@ -28,17 +28,6 @@ pub trait Fields {
         T: Pbt;
 }
 
-/// A collection of fields of arbitrary/mixed types.
-/// Fields are known and returned if present;
-/// unknown fields are newly generated leaves.
-#[non_exhaustive]
-#[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
-pub(crate) struct Eager {
-    /// A map from type IDs to erased vectors
-    /// whose elements match the associated type.
-    store: HashMap<TypeId, Vec<Erased>>,
-}
-
 /// Fields are not stored ahead of time;
 /// instead, their sizes are stored in an iterator,
 /// and all fields are produced just in time.
@@ -55,6 +44,16 @@ pub(crate) struct Lazy<'prng, 'swarm> {
     /// A masked view into this type's constructors,
     /// partitioned into potential leaves and loops.
     pub(crate) swarm: &'swarm Swarm,
+}
+
+/// A collection of fields of arbitrary/mixed types.
+/// Fields are known and returned if present;
+/// unknown fields are newly generated leaves.
+#[non_exhaustive]
+pub struct Store {
+    /// A map from type IDs to erased vectors
+    /// whose elements match the associated type.
+    store: HashMap<TypeId, Vec<Erased>>,
 }
 
 impl Fields for Lazy<'_, '_> {
@@ -74,7 +73,7 @@ impl Fields for Lazy<'_, '_> {
     }
 }
 
-impl Fields for Eager {
+impl Fields for Store {
     #[inline]
     #[expect(
         clippy::expect_used,
@@ -88,17 +87,16 @@ impl Fields for Eager {
     }
 }
 
-impl Eager {
+impl Store {
     /// An empty collection of fields of arbitrary/mixed types.
     #[inline]
-    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
-    pub(crate) const fn new() -> Self {
+    #[must_use]
+    pub const fn new() -> Self {
         Self { store: map() }
     }
 
     /// Pop and return a cached field of this type iff one exists.
     #[inline]
-    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
     pub(crate) fn pop<T>(&mut self) -> Option<T>
     where
         T: 'static,
@@ -124,8 +122,7 @@ impl Eager {
 
     /// Store a field of this type.
     #[inline]
-    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
-    pub(crate) fn push<T>(&mut self, t: T)
+    pub fn push<T>(&mut self, t: T)
     where
         T: 'static,
     {
@@ -138,7 +135,14 @@ impl Eager {
     }
 }
 
-impl Drop for Eager {
+impl Default for Store {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Drop for Store {
     #[inline]
     fn drop(&mut self) {
         assert!(
@@ -159,11 +163,11 @@ mod tests {
     fn lossless() {
         let mut prng = WyRand::new(42);
         for ints in arbitrary::<Vec<usize>>(&mut prng).unwrap().take(10) {
-            let mut eager = Eager::new();
+            let mut store = Store::new();
             for &int in ints.iter().rev() {
-                let () = eager.push(int);
+                let () = store.push(int);
             }
-            let reconstructed: Vec<usize> = iter::from_fn(|| eager.pop()).collect();
+            let reconstructed: Vec<usize> = iter::from_fn(|| store.pop()).collect();
             assert_eq!(reconstructed, ints);
         }
     }
