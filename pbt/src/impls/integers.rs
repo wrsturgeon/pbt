@@ -3,8 +3,8 @@
 use {
     crate::{
         Pbt,
-        fields::Fields,
-        reflection::{Constructor, Erased, Variant},
+        fields::{Fields, Store},
+        reflection::{Constructor, Erased, Parts, Variant},
     },
     ahash::HashSet,
     alloc::{collections::BTreeMap, sync::Arc},
@@ -13,12 +13,21 @@ use {
 
 impl Pbt for usize {
     #[inline]
-    #[expect(clippy::panic, reason = "end-users shouldn't be calling this")]
-    fn instantiate_variant<F>(_variant_index: usize, _fields: F) -> Self
+    fn construct<F>(Parts { mut fields, .. }: Parts<F>) -> Self
     where
         F: Fields,
     {
-        panic!("can't call `usize::instantiate_variant`: `usize` is a literal type")
+        fields.field()
+    }
+
+    #[inline]
+    fn deconstruct(self) -> Parts<Store> {
+        let mut fields = Store::new();
+        let () = fields.push(self);
+        Parts {
+            fields,
+            variant_index: 0,
+        }
     }
 
     #[inline]
@@ -27,6 +36,7 @@ impl Pbt for usize {
         _visited: &mut HashSet<TypeId>,
     ) -> Vec<Variant<Self>> {
         vec![
+            // This generator samples uniformly on [0, usize::MAX]:
             Variant::Literal {
                 generator: |prng| {
                     if const { usize::BITS <= 64 } {
@@ -53,6 +63,7 @@ impl Pbt for usize {
                     }
                 },
             },
+            // This generator samples "small" values with coin flips for each bit:
             Variant::Literal {
                 generator: |prng| {
                     let mut bit_reservoir = prng.rand();
@@ -92,7 +103,11 @@ impl Pbt for usize {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
-    use {crate::arbitrary, pretty_assertions::assert_eq, wyrand::WyRand};
+    use {
+        crate::{arbitrary, check_eta_expansion},
+        pretty_assertions::assert_eq,
+        wyrand::WyRand,
+    };
 
     #[test]
     fn deterministic() {
@@ -111,5 +126,10 @@ mod tests {
             0,
         ];
         assert_eq!(generated, expected);
+    }
+
+    #[test]
+    fn eta_expansion() {
+        let () = check_eta_expansion::<usize>();
     }
 }

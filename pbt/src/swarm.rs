@@ -8,7 +8,7 @@ use {
         instantiability,
         multiset::Multiset,
         reflection::{
-            Affordances, Constructor, Erased, Uninstantiable, Variant, constructors_of,
+            Affordances, Constructor, Erased, Parts, Uninstantiable, Variant, constructors_of,
             register_globally,
         },
         scc,
@@ -97,14 +97,14 @@ impl Swarm {
 
         let n_ind = self.count_inductive_fields(field_types);
         let sizes = size.partition(n_ind, prng);
-        T::instantiate_variant(
-            ctor.index,
-            fields::Lazy {
+        T::construct(Parts {
+            fields: fields::Lazy {
                 prng,
                 sizes,
                 swarm: self,
             },
-        )
+            variant_index: ctor.index,
+        })
     }
 
     /// How many fields on this variant have inductive types?

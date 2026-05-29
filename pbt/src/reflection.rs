@@ -82,6 +82,15 @@ pub struct Constructor<SelfType: ?Sized> {
 #[derive(Clone, Copy, Debug)]
 pub enum Erased {}
 
+/// A deconstruction of a value into its constructor index and its fields.
+#[non_exhaustive]
+pub struct Parts<F> {
+    /// All fields applied to this variant/constructor.
+    pub fields: F,
+    /// The source-ordering index of the variant used to construct this value.
+    pub variant_index: usize,
+}
+
 /// A type was not instantiable, e.g. `enum Bad { /* no variants */ }`.
 #[derive(Debug)]
 #[non_exhaustive]

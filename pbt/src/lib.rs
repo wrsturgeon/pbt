@@ -27,9 +27,12 @@ pub trait Pbt: 'static {
     /// N.B.: Literal constructors, e.g. on `usize`,
     /// should be instantiated using their built-in `generator` field,
     /// not through this function, since they don't require fields.
-    fn instantiate_variant<F>(variant_index: usize, fields: F) -> Self
+    fn construct<F>(parts: reflection::Parts<F>) -> Self
     where
         F: fields::Fields;
+
+    /// Deconstruct a value into its constructor index and its fields.
+    fn deconstruct(self) -> reflection::Parts<fields::Store>;
 
     /// Enumerate the logical structure of all variants of this type.
     ///
@@ -95,4 +98,25 @@ where
         }
         swarm.arbitrary(size, prng)
     }))
+}
+
+/// Check that deconstructing and then immediately reconstructing a value is a no-op.
+#[inline]
+#[expect(
+    clippy::absolute_paths,
+    reason = "to avoid polluting the top-level namespace"
+)]
+pub fn check_eta_expansion<T>()
+where
+    T: Clone + core::fmt::Debug + PartialEq + Pbt,
+{
+    let mut prng = wyrand::WyRand::new(42);
+    let Ok(arbitrary) = arbitrary::<T>(&mut prng) else {
+        return;
+    };
+    for t in arbitrary.take(42) {
+        let parts = t.clone().deconstruct();
+        let reconstructed = T::construct(parts);
+        pretty_assertions::assert_eq!(reconstructed, t);
+    }
 }

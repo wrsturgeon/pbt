@@ -3,10 +3,10 @@
 use {
     crate::{
         Pbt,
-        fields::Fields,
+        fields::{Fields, Store},
         hash::set,
         multiset::Multiset,
-        reflection::{Constructor, Erased, Variant, register},
+        reflection::{Constructor, Erased, Parts, Variant, register},
     },
     ahash::HashSet,
     alloc::{collections::BTreeMap, sync::Arc},
@@ -19,7 +19,12 @@ where
 {
     #[inline]
     #[expect(clippy::panic, reason = "end-users shouldn't be calling this")]
-    fn instantiate_variant<F>(variant_index: usize, mut fields: F) -> Self
+    fn construct<F>(
+        Parts {
+            mut fields,
+            variant_index,
+        }: Parts<F>,
+    ) -> Self
     where
         F: Fields,
     {
@@ -35,6 +40,23 @@ where
                 variant_index,
                 Self::variants(&mut BTreeMap::new(), &mut set()).len(),
             ),
+        }
+    }
+
+    #[inline]
+    fn deconstruct(mut self) -> Parts<Store> {
+        let Some(caboose) = self.pop() else {
+            return Parts {
+                fields: Store::new(),
+                variant_index: 0,
+            };
+        };
+        let mut fields = Store::new();
+        let () = fields.push(caboose);
+        let () = fields.push(self);
+        Parts {
+            fields,
+            variant_index: 1,
         }
     }
 
@@ -61,7 +83,11 @@ where
 mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
-    use {crate::arbitrary, pretty_assertions::assert_eq, wyrand::WyRand};
+    use {
+        crate::{arbitrary, check_eta_expansion},
+        pretty_assertions::assert_eq,
+        wyrand::WyRand,
+    };
 
     #[test]
     fn deterministic() {
@@ -86,5 +112,15 @@ mod tests {
             vec![],
         ];
         assert_eq!(generated, expected);
+    }
+
+    #[test]
+    fn eta_expansion() {
+        let () = check_eta_expansion::<Vec<usize>>();
+    }
+
+    #[test]
+    fn eta_expansion_deep() {
+        let () = check_eta_expansion::<Vec<Vec<usize>>>();
     }
 }

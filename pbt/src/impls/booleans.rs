@@ -3,10 +3,10 @@
 use {
     crate::{
         Pbt,
-        fields::Fields,
+        fields::{Fields, Store},
         hash::set,
         multiset::Multiset,
-        reflection::{Constructor, Erased, Variant},
+        reflection::{Constructor, Erased, Parts, Variant},
     },
     ahash::HashSet,
     alloc::{collections::BTreeMap, sync::Arc},
@@ -16,7 +16,7 @@ use {
 impl Pbt for bool {
     #[inline]
     #[expect(clippy::panic, reason = "end-users shouldn't be calling this")]
-    fn instantiate_variant<F>(variant_index: usize, _fields: F) -> Self
+    fn construct<F>(Parts { variant_index, .. }: Parts<F>) -> Self
     where
         F: Fields,
     {
@@ -28,6 +28,14 @@ impl Pbt for bool {
                 variant_index,
                 Self::variants(&mut BTreeMap::new(), &mut set()).len(),
             ),
+        }
+    }
+
+    #[inline]
+    fn deconstruct(self) -> Parts<Store> {
+        Parts {
+            fields: Store::new(),
+            variant_index: usize::from(self),
         }
     }
 
@@ -51,7 +59,11 @@ impl Pbt for bool {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
-    use {crate::arbitrary, pretty_assertions::assert_eq, wyrand::WyRand};
+    use {
+        crate::{arbitrary, check_eta_expansion},
+        pretty_assertions::assert_eq,
+        wyrand::WyRand,
+    };
 
     #[test]
     fn deterministic() {
@@ -61,5 +73,10 @@ mod tests {
             true, false, false, true, true, true, false, true, true, false,
         ];
         assert_eq!(generated, expected);
+    }
+
+    #[test]
+    fn eta_expansion() {
+        let () = check_eta_expansion::<bool>();
     }
 }
