@@ -17,8 +17,9 @@ use {
         hash::{map, set},
         instantiability,
         multiset::Multiset,
+        registration::Registration,
     },
-    ahash::{HashMap, HashSet},
+    ahash::HashMap,
     alloc::{collections::BTreeMap, sync::Arc},
     core::{
         any::TypeId,
@@ -30,6 +31,9 @@ use {
     std::{collections::hash_map, sync::RwLock},
     wyrand::WyRand,
 };
+
+/// Function pointers performing operations on vectors of some type.
+static BUCKET_OPS: RwLock<HashMap<TypeId, BucketOps<Erased>>> = RwLock::new(map());
 
 /// All variants of each registered type
 /// (transitively through dependencies),
@@ -54,6 +58,16 @@ pub(crate) struct Affordances<SelfType> {
     pub(crate) potential_loops: Box<[Constructor<SelfType>]>,
 }
 
+/// Function pointers performing operations on vectors of some type.
+#[non_exhaustive]
+#[derive(Clone, Copy)]
+pub struct BucketOps<SelfType> {
+    /// Clone a slice into a vector.
+    pub clone: fn(&[SelfType]) -> Vec<SelfType>,
+    /// Remove the `i`th element in O(1) by swapping it with the last element.
+    pub swap_remove: fn(&mut Vec<SelfType>, usize) -> SelfType,
+}
+
 /// Each variant of some type in source order.
 ///
 /// - If this is an `enum`, each variant is one `enum` variant.
@@ -66,7 +80,7 @@ pub(crate) struct Affordances<SelfType> {
 ///   no matter which "flavor" of `usize` we want.
 #[derive(Debug)]
 #[non_exhaustive]
-pub struct Constructor<SelfType: ?Sized> {
+pub(crate) struct Constructor<SelfType: ?Sized> {
     /// The index of this variant under the original source ordering.
     pub(crate) index: usize,
     /// Reflection about this constructor
@@ -89,6 +103,19 @@ pub struct Parts<F> {
     pub fields: F,
     /// The source-ordering index of the variant used to construct this value.
     pub variant_index: usize,
+}
+
+/// All variants of this type.
+///
+/// If this type is an `enum`, this means exactly what it sounds like.
+/// If this type is a `struct`, there's only one variant.
+#[non_exhaustive]
+pub struct Reflection<SelfType> {
+    /// All variants of this type.
+    ///
+    /// If this type is an `enum`, this means exactly what it sounds like.
+    /// If this type is a `struct`, there's only one variant.
+    pub variants: Vec<Variant<SelfType>>,
 }
 
 /// A type was not instantiable, e.g. `enum Bad { /* no variants */ }`.
@@ -132,6 +159,35 @@ impl<SelfType> Affordances<SelfType> {
     #[must_use]
     pub(crate) const fn is_inductive(&self) -> bool {
         !self.potential_loops.is_empty()
+    }
+}
+
+impl<T> BucketOps<T> {
+    /// Erase type data while maintaining exactly the same function pointers.
+    #[inline]
+    #[must_use]
+    pub const fn erase(self) -> BucketOps<Erased> {
+        // SAFETY: Function pointers are the same size no matter the types in these positions.
+        unsafe { mem::transmute::<BucketOps<T>, BucketOps<Erased>>(self) }
+    }
+}
+
+impl<T: Clone> BucketOps<T> {
+    /// Derive operations for a statically known type.
+    #[inline]
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            clone: <[T]>::to_vec,
+            swap_remove: Vec::swap_remove,
+        }
+    }
+}
+
+impl<T: Clone> Default for BucketOps<T> {
+    #[inline]
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -252,50 +308,6 @@ pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
 /// in a naive type reflection graph,
 /// including any uninstantiable variants.
 #[inline]
-#[expect(clippy::implicit_hasher, reason = "all in on `ahash`")]
-#[expect(
-    clippy::missing_panics_doc,
-    reason = "Internal invariants: violations should fail loudly."
-)]
-pub fn register<T>(
-    variants: &mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
-    visited: &mut HashSet<TypeId>,
-) where
-    T: Pbt,
-{
-    // If this type has already been registered, short-circuit:
-    let ty = TypeId::of::<T>();
-    if variants.contains_key(&ty) || !visited.insert(ty) {
-        return;
-    }
-
-    // Recurse, i.e. run depth-first search:
-    let ordered_naive_variants = T::variants(variants, visited);
-    let naive_variants = ordered_naive_variants
-        .into_iter()
-        .enumerate()
-        .map(|(index, variant)| Constructor { index, variant })
-        .collect();
-
-    // SAFETY: `T` is only ever the codomain of a function pointer.
-    let erased = unsafe {
-        mem::transmute::<
-            Arc<[Constructor<T>]>, //
-            Arc<[Constructor<Erased>]>,
-        >(naive_variants)
-    };
-
-    let dup: Option<_> = variants.insert(ty, erased);
-    assert!(
-        dup.is_none(),
-        "INTERNAL ERROR (`pbt`): TOCTOU despite `&mut` (witchcraft)",
-    );
-}
-
-/// Register the type `T` and its dependencies
-/// in a naive type reflection graph,
-/// including any uninstantiable variants.
-#[inline]
 #[expect(
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
@@ -317,7 +329,14 @@ where
     let mut naive_variants = NAIVE_VARIANTS
         .write()
         .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
+    let mut bucket_ops = BUCKET_OPS
+        .write()
+        .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
 
-    let mut visited = set();
-    let () = register::<T>(&mut naive_variants, &mut visited);
+    let mut registration = Registration {
+        bucket_ops: &mut bucket_ops,
+        variants: &mut naive_variants,
+        visited: &mut set(),
+    };
+    let () = registration.register::<T>();
 }

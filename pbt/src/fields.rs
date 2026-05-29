@@ -155,7 +155,7 @@ impl Drop for Store {
     fn drop(&mut self) {
         assert!(
             self.store.is_empty(),
-            "INTERNAL ERROR (`pbt`): unused fields (can't drop while type-erased!)",
+            "INTERNAL ERROR (`pbt`): unused fields",
         );
     }
 }

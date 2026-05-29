@@ -9,6 +9,7 @@ mod impls;
 mod instantiability;
 mod multiset;
 pub mod reflection;
+pub mod registration;
 mod scc;
 mod size;
 mod swarm;
@@ -16,11 +17,7 @@ mod unavoidability;
 mod union_find;
 
 /// The main property-based testing trait.
-#[expect(
-    clippy::absolute_paths,
-    reason = "to avoid polluting the top-level namespace"
-)]
-pub trait Pbt: 'static {
+pub trait Pbt: 'static + Clone {
     /// Instantiate a specific variant of this type
     /// by providing its index and its fields.
     ///
@@ -44,22 +41,14 @@ pub trait Pbt: 'static {
     /// # type A = bool;
     /// # type B = usize;
     /// # type C = usize;
-    /// # let mut variants_map = alloc::collections::BTreeMap::new();
-    /// # let mut visited_map = pbt::hash::set();
-    /// # let variants = &mut variants_map;
-    /// # let visited = &mut visited_map;
-    /// pbt::reflection::register::<A>(variants, visited);
-    /// pbt::reflection::register::<B>(variants, visited);
-    /// pbt::reflection::register::<C>(variants, visited);
+    /// # fn f(registration: &mut pbt::registration::Registration<'_>) {
+    /// registration.register::<A>();
+    /// registration.register::<B>();
+    /// registration.register::<C>();
     /// // ... return this type's variants ...
+    /// # }
     /// ```
-    fn variants(
-        variants: &mut alloc::collections::BTreeMap<
-            core::any::TypeId,
-            alloc::sync::Arc<[reflection::Constructor<reflection::Erased>]>,
-        >,
-        visited: &mut ahash::HashSet<core::any::TypeId>,
-    ) -> Vec<reflection::Variant<Self>>;
+    fn register(registration: &mut registration::Registration<'_>) -> reflection::Reflection<Self>;
 }
 
 /// Generate an arbitrary term of any type `T`.

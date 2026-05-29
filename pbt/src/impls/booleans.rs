@@ -1,16 +1,11 @@
 //! Implementations for `bool`.
 
-use {
-    crate::{
-        Pbt,
-        fields::{Fields, Store},
-        hash::set,
-        multiset::Multiset,
-        reflection::{Constructor, Erased, Parts, Variant},
-    },
-    ahash::HashSet,
-    alloc::{collections::BTreeMap, sync::Arc},
-    core::any::TypeId,
+use crate::{
+    Pbt,
+    fields::{Fields, Store},
+    multiset::Multiset,
+    reflection::{Parts, Reflection, Variant},
+    registration::Registration,
 };
 
 impl Pbt for bool {
@@ -23,11 +18,7 @@ impl Pbt for bool {
         match variant_index {
             0 => false,
             1 => true,
-            _ => panic!(
-                "can't instantiate variant #{} of `bool`, since there are only {} variants",
-                variant_index,
-                Self::variants(&mut BTreeMap::new(), &mut set()).len(),
-            ),
+            _ => panic!("can't instantiate variant #{variant_index} of `bool`"),
         }
     }
 
@@ -40,18 +31,17 @@ impl Pbt for bool {
     }
 
     #[inline]
-    fn variants(
-        _variants: &mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
-        _visited: &mut HashSet<TypeId>,
-    ) -> Vec<Variant<Self>> {
-        vec![
-            Variant::Algebraic {
-                field_types: Multiset::new(),
-            },
-            Variant::Algebraic {
-                field_types: Multiset::new(),
-            },
-        ]
+    fn register(_registration: &mut Registration<'_>) -> Reflection<Self> {
+        Reflection {
+            variants: vec![
+                Variant::Algebraic {
+                    field_types: Multiset::new(),
+                },
+                Variant::Algebraic {
+                    field_types: Multiset::new(),
+                },
+            ],
+        }
     }
 }
 

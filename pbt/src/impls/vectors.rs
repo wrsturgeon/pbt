@@ -4,12 +4,10 @@ use {
     crate::{
         Pbt,
         fields::{Fields, Store},
-        hash::set,
         multiset::Multiset,
-        reflection::{Constructor, Erased, Parts, Variant, register},
+        reflection::{Parts, Reflection, Variant},
+        registration::Registration,
     },
-    ahash::HashSet,
-    alloc::{collections::BTreeMap, sync::Arc},
     core::any::TypeId,
 };
 
@@ -35,11 +33,7 @@ where
                 let () = acc.push(fields.field());
                 acc
             }
-            _ => panic!(
-                "can't instantiate variant #{} of `bool`, since there are only {} variants",
-                variant_index,
-                Self::variants(&mut BTreeMap::new(), &mut set()).len(),
-            ),
+            _ => panic!("can't instantiate variant #{variant_index} of `bool`"),
         }
     }
 
@@ -61,21 +55,20 @@ where
     }
 
     #[inline]
-    fn variants(
-        variants: &mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
-        visited: &mut HashSet<TypeId>,
-    ) -> Vec<Variant<Self>> {
-        let () = register::<T>(variants, visited);
-        vec![
-            Variant::Algebraic {
-                field_types: Multiset::new(),
-            },
-            Variant::Algebraic {
-                field_types: [TypeId::of::<Self>(), TypeId::of::<T>()]
-                    .into_iter()
-                    .collect(),
-            },
-        ]
+    fn register(registration: &mut Registration<'_>) -> Reflection<Self> {
+        let () = registration.register::<T>();
+        Reflection {
+            variants: vec![
+                Variant::Algebraic {
+                    field_types: Multiset::new(),
+                },
+                Variant::Algebraic {
+                    field_types: [TypeId::of::<Self>(), TypeId::of::<T>()]
+                        .into_iter()
+                        .collect(),
+                },
+            ],
+        }
     }
 }
 
