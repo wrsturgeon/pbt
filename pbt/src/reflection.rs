@@ -12,7 +12,10 @@
 // - naive variants (reading off the def'n, including uninstantiable variants)
 
 use {
-    crate::{Pbt, hash::map, instantiability, multiset::Multiset, registration::Registration},
+    crate::{
+        Pbt, fields::Store, hash::map, instantiability, multiset::Multiset,
+        registration::Registration,
+    },
     ahash::HashMap,
     alloc::{collections::BTreeMap, sync::Arc},
     core::{
@@ -33,7 +36,6 @@ use {
 static BUCKET_OPS: RwLock<HashMap<TypeId, BucketOps<Erased>>> = RwLock::new(map());
 
 /// All variants of each registered type
-/// (transitively through dependencies),
 /// *including* uninstantiable variants.
 ///
 /// Graph-theoretically, this is a bipartite graph in which
@@ -67,12 +69,14 @@ pub struct BucketOps<SelfType> {
     pub clone: fn(ptr::NonNull<Erased>) -> ptr::NonNull<Erased>,
     /// Clone a vector of this type.
     pub clone_vec: fn(&Vec<Erased>) -> Vec<Erased>,
+    /// Deconstruct a boxed value into its constructor index and its fields.
+    pub deconstruct: fn(ptr::NonNull<Erased>) -> Parts<Store>,
     /// Drop a boxed term of this type.
     pub drop: fn(ptr::NonNull<Erased>),
     /// Drop a vector of this type.
     pub drop_vec: fn(Vec<Erased>),
-    /// Initialize an empty vector of this type.
-    pub empty: fn() -> Vec<Erased>,
+    /// Pop an element and box it.
+    pub pop: fn(&mut Vec<Erased>) -> Option<ptr::NonNull<Erased>>,
     /// Clone an element and push it onto a vector.
     pub push_clone: fn(&mut Vec<Erased>, ptr::NonNull<Erased>),
     /// Remove the `i`th element in O(1) by swapping it with the last element.
@@ -183,7 +187,7 @@ impl<T> BucketOps<T> {
     }
 }
 
-impl<T: Clone> BucketOps<T> {
+impl<T: Pbt> BucketOps<T> {
     /// Derive operations for a statically known type.
     #[inline]
     #[must_use]
@@ -203,6 +207,11 @@ impl<T: Clone> BucketOps<T> {
                 // SAFETY: Invariant. Extremely dangerous.
                 unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(cloned) }
             },
+            deconstruct: |erased_boxed| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
+                T::deconstruct(*boxed)
+            },
             drop: |erased_boxed: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
                 let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
@@ -210,12 +219,15 @@ impl<T: Clone> BucketOps<T> {
             },
             drop_vec: |erased_v: Vec<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
-                let typed: Vec<T> = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_v) };
-                let () = drop(typed);
+                let v: Vec<T> = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_v) };
+                let () = drop(v);
             },
-            empty: || {
+            pop: |erased_v| {
                 // SAFETY: Invariant. Extremely dangerous.
-                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(vec![]) }
+                let v: &mut Vec<T> =
+                    unsafe { ptr::from_mut(erased_v).cast::<Vec<T>>().as_mut_unchecked() };
+                let boxed = Box::new(v.pop()?);
+                Some(ptr::NonNull::from_mut(Box::leak(boxed)).cast())
             },
             push_clone: |erased_v: &mut Vec<Erased>, erased_t: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
@@ -237,7 +249,7 @@ impl<T: Clone> BucketOps<T> {
     }
 }
 
-impl<T: Clone> Default for BucketOps<T> {
+impl<T: Pbt> Default for BucketOps<T> {
     #[inline]
     fn default() -> Self {
         Self::derive()
@@ -368,6 +380,25 @@ pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
         cache
             .get(&ty)
             .expect("INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis"),
+    )
+}
+
+/// All variants of a registered type
+/// *including* uninstantiable variants.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    reason = "Internal invariants: violations should fail loudly."
+)]
+#[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
+pub(crate) fn naive_variants_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
+    let naive = NAIVE_VARIANTS
+        .read()
+        .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
+    Arc::clone(
+        naive
+            .get(&ty)
+            .expect("INTERNAL ERROR (`pbt`): unregistered type during naive variants lookup"),
     )
 }
 

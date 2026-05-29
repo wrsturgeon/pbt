@@ -6,7 +6,9 @@ use {
         Pbt,
         hash::map,
         multiset::Multiset,
-        reflection::{self, Erased, bucket_ops_of, register_globally},
+        reflection::{
+            BucketOps, Erased, Parts, Variant, bucket_ops_of, naive_variants_of, register_globally,
+        },
         size::{self, Size},
         swarm::Swarm,
     },
@@ -76,6 +78,24 @@ pub struct Store {
     store: HashMap<TypeId, Vec<Erased>>,
 }
 
+/// Visit all sub-terms of an arbitrary type within a `Store`.
+#[non_exhaustive]
+#[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
+struct Visitor<T> {
+    /// Function pointers performing operations on vectors of `self.ty`.
+    bucket_ops: BucketOps<Erased>,
+    /// All immediate sub-terms of type `T`.
+    matches: Vec<T>,
+    /// All immediate sub-terms of type `self.ty`.
+    queue: Option<Vec<Erased>>,
+    /// Recurse on each field.
+    recurse: Option<Box<Self>>,
+    /// The original store we're visiting.
+    store: Store,
+    /// The type on which we're currently recursing.
+    ty: TypeId,
+}
+
 impl Fields for Lazy<'_, '_> {
     #[inline]
     fn field<T>(&mut self) -> T
@@ -139,11 +159,11 @@ impl Iterator for Sections {
                 self.requirements = None; // <-- "don't return another after this" (see above)
                 return Some(Store::new());
             };
-            let bucket_ops = reflection::bucket_ops_of(ty);
+            let bucket_ops = bucket_ops_of(ty);
 
             if let Some((ref head, ref mut recurse)) = self.recurse {
                 if let Some(mut tail) = recurse.next() {
-                    let v: &mut Vec<Erased> = tail.store.entry(ty).or_insert_with(bucket_ops.empty);
+                    let v: &mut Vec<Erased> = tail.store.entry(ty).or_default();
                     let () = (bucket_ops.push_clone)(v, *head);
                     return Some(tail);
                 }
@@ -270,6 +290,16 @@ impl Store {
     pub(crate) fn sections(self, requirements: Multiset<TypeId>) -> impl Iterator<Item = Self> {
         Sections::new(self, requirements)
     }
+
+    /// Visit all sub-terms of an arbitrary type within a `Store`.
+    #[inline]
+    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
+    pub(crate) fn visit<T>(self) -> impl Iterator<Item = T>
+    where
+        T: Pbt,
+    {
+        Visitor::<T>::new(self)
+    }
 }
 
 impl Clone for Store {
@@ -279,7 +309,7 @@ impl Clone for Store {
             store: self
                 .store
                 .iter()
-                .map(|(&k, v)| (k, (reflection::bucket_ops_of(k).clone_vec)(v)))
+                .map(|(&k, v)| (k, (bucket_ops_of(k).clone_vec)(v)))
                 .collect(),
         }
     }
@@ -299,6 +329,92 @@ impl Drop for Store {
             self.store.is_empty(),
             "INTERNAL ERROR (`pbt`): unused fields",
         );
+    }
+}
+
+impl<T> Visitor<T>
+where
+    T: Pbt,
+{
+    /// Visit all sub-terms of an arbitrary type within a `Store`.
+    #[inline]
+    fn new(store: Store) -> Self {
+        let ty = TypeId::of::<T>();
+        Self {
+            bucket_ops: bucket_ops_of(ty),
+            matches: vec![],
+            queue: None,
+            recurse: None,
+            store,
+            ty,
+        }
+    }
+}
+
+impl<T> Iterator for Visitor<T>
+where
+    T: Pbt,
+{
+    type Item = T;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        'restart: loop {
+            if let Some(t) = self.matches.pop() {
+                return Some(t);
+            }
+
+            if let Some(ref mut recurse) = self.recurse {
+                if let Some(next) = recurse.next() {
+                    return Some(next);
+                }
+                self.recurse = None;
+            }
+
+            while let Some(ref mut queue) = self.queue
+                && let Some(boxed_erased) = (self.bucket_ops.pop)(queue)
+            {
+                let Parts {
+                    mut fields,
+                    variant_index,
+                } = (self.bucket_ops.deconstruct)(boxed_erased);
+                if naive_variants_of(self.ty)
+                    .get(variant_index)
+                    .is_some_and(|ctor| matches!(ctor.variant, Variant::Algebraic { .. }))
+                {
+                    self.recurse = Some(Box::new(Self::new(fields)));
+                    continue 'restart;
+                }
+                let () = fields.drop_unused();
+            }
+
+            if let Some(queue) = self.queue.take() {
+                let () = (self.bucket_ops.drop_vec)(queue);
+            }
+
+            self.ty = *self.store.store.keys().next()?;
+            self.bucket_ops = bucket_ops_of(self.ty);
+            self.queue = self.store.store.remove(&self.ty);
+
+            if self.ty == TypeId::of::<T>()
+                && let Some(ref queue) = self.queue
+            {
+                // SAFETY: Invariant. Extremely dangerous.
+                self.matches = unsafe {
+                    mem::transmute::<Vec<Erased>, Vec<T>>((self.bucket_ops.clone_vec)(queue))
+                };
+            }
+        }
+    }
+}
+
+impl<T> Drop for Visitor<T> {
+    #[inline]
+    fn drop(&mut self) {
+        if let Some(queue) = self.queue.take() {
+            let () = (self.bucket_ops.drop_vec)(queue);
+        }
+        let () = self.store.drop_unused();
     }
 }
 
@@ -411,6 +527,32 @@ mod tests {
         let () = store.push(vec![3_usize]);
         let mut sections = store.sections(iter::once((TypeId::of::<Vec<usize>>(), 2)).collect());
         let () = sections.next().unwrap().drop_unused();
+        // drop
+    }
+
+    #[test]
+    fn visit_vec_as_linked_list() {
+        let mut store = Store::new();
+        let () = store.push(vec![1, 2, 3_usize]);
+
+        let vec_store = store.clone();
+        let vecs_visited: Vec<Vec<usize>> = vec_store.visit::<Vec<usize>>().collect();
+        let vecs_expected: Vec<Vec<usize>> = vec![vec![1, 2, 3], vec![1, 2], vec![1], vec![]];
+        assert_eq!(vecs_visited, vecs_expected);
+
+        let usizes_visited: Vec<usize> = store.visit::<usize>().collect();
+        let usizes_expected: Vec<usize> = vec![3, 2, 1];
+        assert_eq!(usizes_visited, usizes_expected);
+    }
+
+    #[test]
+    fn drop_visitor() {
+        let mut store = Store::new();
+        let () = store.push(1_usize);
+        let () = store.push(2_usize);
+        let () = store.push(3_usize);
+        let mut visitor = store.visit::<usize>();
+        let _: usize = visitor.next().unwrap();
         // drop
     }
 }
