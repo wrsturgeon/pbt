@@ -74,6 +74,32 @@ where
     pub(crate) const fn new() -> Self {
         Self { counts: map() }
     }
+
+    /// Remove exactly one element arbitrarily.
+    #[inline]
+    #[must_use]
+    pub(crate) fn pop(&mut self) -> Option<T>
+    where
+        T: Clone,
+    {
+        let k = self.iter_dedup().next()?.clone();
+        let () = self.remove(&k);
+        Some(k)
+    }
+
+    /// Remove exactly one element.
+    #[inline]
+    pub(crate) fn remove(&mut self, t: &T) {
+        let Some(n) = self.counts.get_mut(t) else {
+            return;
+        };
+        // SAFETY: Nonzero.
+        let Some(decremented) = NonZero::new(unsafe { n.get().unchecked_sub(1) }) else {
+            let _: Option<_> = self.counts.remove(t);
+            return;
+        };
+        *n = decremented;
+    }
 }
 
 impl<T> FromIterator<T> for Multiset<T>

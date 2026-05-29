@@ -19,8 +19,11 @@ use {
         any::TypeId,
         cmp,
         hash::{Hash, Hasher},
-        iter, mem,
+        iter,
+        marker::PhantomData,
+        mem,
         num::NonZero,
+        ptr,
     },
     std::{collections::hash_map, sync::RwLock},
     wyrand::WyRand,
@@ -52,14 +55,28 @@ pub(crate) struct Affordances<SelfType> {
     pub(crate) potential_loops: Box<[Constructor<SelfType>]>,
 }
 
+// TODO: Try once again to use `SelfType` in function types and then
+// to transmute the function pointers instead of transmuting internally.
 /// Function pointers performing operations on vectors of some type.
 #[non_exhaustive]
 #[derive(Clone, Copy)]
 pub struct BucketOps<SelfType> {
-    /// Clone a slice into a vector.
-    pub clone: fn(&[SelfType]) -> Vec<SelfType>,
+    /// Type-level indicator.
+    pub _phantom: PhantomData<SelfType>,
+    /// Clone a term of this type.
+    pub clone: fn(ptr::NonNull<Erased>) -> ptr::NonNull<Erased>,
+    /// Clone a vector of this type.
+    pub clone_vec: fn(&Vec<Erased>) -> Vec<Erased>,
+    /// Drop a boxed term of this type.
+    pub drop: fn(ptr::NonNull<Erased>),
+    /// Drop a vector of this type.
+    pub drop_vec: fn(Vec<Erased>),
+    /// Initialize an empty vector of this type.
+    pub empty: fn() -> Vec<Erased>,
+    /// Clone an element and push it onto a vector.
+    pub push_clone: fn(&mut Vec<Erased>, ptr::NonNull<Erased>),
     /// Remove the `i`th element in O(1) by swapping it with the last element.
-    pub swap_remove: fn(&mut Vec<SelfType>, usize) -> SelfType,
+    pub swap_remove: fn(&mut Vec<Erased>, usize) -> ptr::NonNull<Erased>,
 }
 
 /// Each variant of some type in source order.
@@ -170,10 +187,52 @@ impl<T: Clone> BucketOps<T> {
     /// Derive operations for a statically known type.
     #[inline]
     #[must_use]
-    pub const fn new() -> Self {
+    pub const fn derive() -> Self {
         Self {
-            clone: <[T]>::to_vec,
-            swap_remove: Vec::swap_remove,
+            clone: |erased_t: ptr::NonNull<Erased>| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let t: &T = unsafe { erased_t.cast::<T>().as_ref() };
+                let cloned: Box<T> = Box::new(t.clone());
+                ptr::NonNull::from_mut(Box::leak(cloned)).cast()
+            },
+            clone_vec: |erased_v: &Vec<Erased>| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let v: &Vec<T> =
+                    unsafe { ptr::from_ref(erased_v).cast::<Vec<T>>().as_ref_unchecked() };
+                let cloned: Vec<T> = v.clone();
+                // SAFETY: Invariant. Extremely dangerous.
+                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(cloned) }
+            },
+            drop: |erased_boxed: ptr::NonNull<Erased>| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
+                let () = drop(boxed);
+            },
+            drop_vec: |erased_v: Vec<Erased>| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let typed: Vec<T> = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_v) };
+                let () = drop(typed);
+            },
+            empty: || {
+                // SAFETY: Invariant. Extremely dangerous.
+                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(vec![]) }
+            },
+            push_clone: |erased_v: &mut Vec<Erased>, erased_t: ptr::NonNull<Erased>| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let v: &mut Vec<T> =
+                    unsafe { ptr::from_mut(erased_v).cast::<Vec<T>>().as_mut_unchecked() };
+                // SAFETY: Invariant. Extremely dangerous.
+                let t: &T = unsafe { erased_t.cast::<T>().as_ref() };
+                v.push(t.clone());
+            },
+            swap_remove: |erased_v: &mut Vec<Erased>, i: usize| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let v: &mut Vec<T> =
+                    unsafe { ptr::from_mut(erased_v).cast::<Vec<T>>().as_mut_unchecked() };
+                let boxed: Box<T> = Box::new(v.swap_remove(i));
+                ptr::NonNull::from_mut(Box::leak(boxed)).cast()
+            },
+            _phantom: PhantomData,
         }
     }
 }
@@ -181,7 +240,7 @@ impl<T: Clone> BucketOps<T> {
 impl<T: Clone> Default for BucketOps<T> {
     #[inline]
     fn default() -> Self {
-        Self::new()
+        Self::derive()
     }
 }
 
@@ -262,6 +321,20 @@ impl<T> Clone for Variant<T> {
             Self::Literal { generator } => Self::Literal { generator },
         }
     }
+}
+
+/// Function pointers performing operations on vectors of some type.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    reason = "Internal invariants: violations should fail loudly."
+)]
+pub(crate) fn bucket_ops_of(ty: TypeId) -> BucketOps<Erased> {
+    *BUCKET_OPS
+        .read()
+        .expect("INTERNAL ERROR (`pbt`): variants lock poisoned")
+        .get(&ty)
+        .expect("INTERNAL ERROR (`pbt`): unregistered type during bucket-ops lookup")
 }
 
 /// Instantiable constructors for each type.

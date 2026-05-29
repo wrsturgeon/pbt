@@ -38,7 +38,7 @@ impl Registration<'_> {
         let ty = TypeId::of::<T>();
         if self
             .bucket_ops
-            .insert(ty, BucketOps::<T>::new().erase())
+            .insert(ty, BucketOps::<T>::derive().erase())
             .is_some()
         {
             return;
