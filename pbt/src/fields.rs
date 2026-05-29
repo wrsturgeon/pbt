@@ -5,6 +5,7 @@ use {
     crate::{
         Pbt,
         hash::map,
+        multiset::Multiset,
         reflection::Erased,
         size::{self, Size},
         swarm::Swarm,
@@ -133,6 +134,13 @@ impl Store {
             unsafe { ptr::from_mut(erased).cast::<Vec<T>>().as_mut_unchecked() };
         typed.push(t);
     }
+
+    /// The multiset of types stored.
+    #[inline]
+    #[must_use]
+    pub fn types(&self) -> Multiset<TypeId> {
+        self.store.iter().map(|(&k, v)| (k, v.len())).collect()
+    }
 }
 
 impl Default for Store {
@@ -170,5 +178,28 @@ mod tests {
             let reconstructed: Vec<usize> = iter::from_fn(|| store.pop()).collect();
             assert_eq!(reconstructed, ints);
         }
+    }
+
+    #[test]
+    fn types() {
+        let mut store = Store::new();
+        let () = store.push(42_usize);
+        let () = store.push(true);
+        let () = store.push(false);
+        let () = store.push(42_usize); // <-- duplicate
+        let () = store.push(vec![false]);
+        let expected: Multiset<TypeId> = [
+            (TypeId::of::<usize>(), 2),
+            (TypeId::of::<bool>(), 2),
+            (TypeId::of::<Vec<bool>>(), 1),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(store.types(), expected);
+        let _: usize = store.pop().unwrap();
+        let _: usize = store.pop().unwrap();
+        let _: bool = store.pop().unwrap();
+        let _: bool = store.pop().unwrap();
+        let _: Vec<bool> = store.pop().unwrap();
     }
 }

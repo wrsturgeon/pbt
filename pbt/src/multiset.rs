@@ -93,3 +93,38 @@ where
         acc
     }
 }
+
+impl<T> FromIterator<(T, usize)> for Multiset<T>
+where
+    T: Eq + Hash,
+{
+    /// Collect values into a multiset, counting duplicate elements.
+    #[inline]
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (T, usize)>,
+    {
+        Self {
+            counts: iter
+                .into_iter()
+                .filter_map(|(k, v)| Some((k, NonZero::new(v)?)))
+                .collect(),
+        }
+    }
+}
+
+impl<T> FromIterator<(T, NonZero<usize>)> for Multiset<T>
+where
+    T: Eq + Hash,
+{
+    /// Collect values into a multiset, counting duplicate elements.
+    #[inline]
+    fn from_iter<I>(iter: I) -> Self
+    where
+        I: IntoIterator<Item = (T, NonZero<usize>)>,
+    {
+        Self {
+            counts: iter.into_iter().collect(),
+        }
+    }
+}
