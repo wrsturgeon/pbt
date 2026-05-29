@@ -6,7 +6,7 @@ use {
         Pbt,
         reflection::{BucketOps, Constructor, Erased},
     },
-    ahash::{HashMap, HashSet},
+    ahash::HashMap,
     alloc::{collections::BTreeMap, sync::Arc},
     core::{any::TypeId, mem},
 };
@@ -19,8 +19,6 @@ pub struct Registration<'lock> {
     pub(crate) bucket_ops: &'lock mut HashMap<TypeId, BucketOps<Erased>>,
     /// The global "naive" variant graph including uninstantiable structures.
     pub(crate) variants: &'lock mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
-    /// All types that have been seen so far (eagerly). Tracked to avoid cycles.
-    pub(crate) visited: &'lock mut HashSet<TypeId>,
 }
 
 impl Registration<'_> {
@@ -38,11 +36,13 @@ impl Registration<'_> {
     {
         // If this type has already been registered, short-circuit:
         let ty = TypeId::of::<T>();
-        if self.variants.contains_key(&ty) || !self.visited.insert(ty) {
+        if self
+            .bucket_ops
+            .insert(ty, BucketOps::<T>::new().erase())
+            .is_some()
+        {
             return;
         }
-
-        let _: Option<_> = self.bucket_ops.insert(ty, BucketOps::<T>::new().erase());
 
         // Recurse, i.e. run depth-first search:
         let ordered_naive_variants = T::register(self);

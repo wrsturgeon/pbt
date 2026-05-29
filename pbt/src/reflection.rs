@@ -12,13 +12,7 @@
 // - naive variants (reading off the def'n, including uninstantiable variants)
 
 use {
-    crate::{
-        Pbt,
-        hash::{map, set},
-        instantiability,
-        multiset::Multiset,
-        registration::Registration,
-    },
+    crate::{Pbt, hash::map, instantiability, multiset::Multiset, registration::Registration},
     ahash::HashMap,
     alloc::{collections::BTreeMap, sync::Arc},
     core::{
@@ -336,7 +330,6 @@ where
     let mut registration = Registration {
         bucket_ops: &mut bucket_ops,
         variants: &mut naive_variants,
-        visited: &mut set(),
     };
     let () = registration.register::<T>();
 }
