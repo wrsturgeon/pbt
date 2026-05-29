@@ -6,10 +6,9 @@
 //! "has a field of this type" or "contains this variant."
 
 use {
-    crate::hash::map,
+    crate::{hash::map, multiset::Multiset},
     ahash::HashMap,
-    alloc::collections::BTreeMap,
-    alloc::sync::Arc,
+    alloc::{collections::BTreeMap, sync::Arc},
     core::{hash::Hash, iter},
 };
 
@@ -20,16 +19,15 @@ use {
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-fn mask_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
+fn mask_all_reachable<FieldsOfVariant, Variant, Vertex>(
     root: Vertex,
-    naive: &'naive BTreeMap<Vertex, Arc<[Variant]>>,
+    naive: &BTreeMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
     fields_of_variant: &FieldsOfVariant,
     masks: &mut HashMap<Vertex, (bool, Box<[bool]>)>,
 ) where
-    Fields: Iterator<Item = Vertex>,
-    FieldsOfVariant: Fn(&'naive Variant) -> Fields,
-    Vertex: Eq + Hash + Ord,
+    FieldsOfVariant: Fn(&Variant) -> &Multiset<Vertex>,
+    Vertex: Clone + Eq + Hash + Ord,
 {
     if constructors.contains_key(&root) || masks.contains_key(&root) {
         return;
@@ -43,7 +41,7 @@ fn mask_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
         (false, iter::repeat_n(false, variants.len()).collect()),
     );
     for variant in &**variants {
-        for field in fields_of_variant(variant) {
+        for field in fields_of_variant(variant).iter_dedup().cloned() {
             let () = mask_all_reachable(field, naive, constructors, fields_of_variant, masks);
         }
     }
@@ -55,15 +53,14 @@ fn mask_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-fn finalize_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
+fn finalize_all_reachable<FieldsOfVariant, Variant, Vertex>(
     root: Vertex,
-    naive: &'naive BTreeMap<Vertex, Arc<[Variant]>>,
+    naive: &BTreeMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
     fields_of_variant: &FieldsOfVariant,
     masks: &HashMap<Vertex, (bool, Box<[bool]>)>,
 ) where
-    Fields: Iterator<Item = Vertex>,
-    FieldsOfVariant: Fn(&'naive Variant) -> Fields,
+    FieldsOfVariant: Fn(&Variant) -> &Multiset<Vertex>,
     Variant: Clone,
     Vertex: Clone + Eq + Hash + Ord,
 {
@@ -90,12 +87,30 @@ fn finalize_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
     let _: &mut _ = constructors
         .entry(root)
         .or_insert_with(|| -> Arc<[Variant]> {
-            variants
+            let mut acc: Vec<Variant> = variants
                 .iter()
                 .zip(variant_mask)
                 .filter_map(|(variant, enabled)| enabled.then_some(variant))
                 .cloned()
-                .collect()
+                .collect();
+            for i in 0..acc.len() {
+                #[expect(clippy::arithmetic_side_effects, reason = "bounded by hardware")]
+                for j in (i + 1)..acc.len() {
+                    // Necessary to re-index `i` inside `j` because we flip elements.
+                    let Some(i_variant) = acc.get(i) else {
+                        continue;
+                    };
+                    let Some(j_variant) = acc.get(j) else {
+                        continue;
+                    };
+                    let i_fields = fields_of_variant(i_variant);
+                    let j_fields = fields_of_variant(j_variant);
+                    if j_fields.is_subset_of(i_fields) {
+                        let () = acc.swap(i, j);
+                    }
+                }
+            }
+            acc.into()
         });
 
     for variant in variants
@@ -103,7 +118,7 @@ fn finalize_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
         .zip(variant_mask)
         .filter_map(|(variant, enabled)| enabled.then_some(variant))
     {
-        for field in fields_of_variant(variant) {
+        for field in fields_of_variant(variant).iter_dedup().cloned() {
             let () = finalize_all_reachable(field, naive, constructors, fields_of_variant, masks);
         }
     }
@@ -124,14 +139,13 @@ fn finalize_all_reachable<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-pub(crate) fn update<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
+pub(crate) fn update<FieldsOfVariant, Variant, Vertex>(
     root: Vertex,
-    naive: &'naive BTreeMap<Vertex, Arc<[Variant]>>,
+    naive: &BTreeMap<Vertex, Arc<[Variant]>>,
     constructors: &mut HashMap<Vertex, Arc<[Variant]>>,
     fields_of_variant: &FieldsOfVariant,
 ) where
-    Fields: Iterator<Item = Vertex>,
-    FieldsOfVariant: Fn(&'naive Variant) -> Fields,
+    FieldsOfVariant: Fn(&Variant) -> &Multiset<Vertex>,
     Variant: Clone,
     Vertex: Copy + Eq + Hash + Ord,
 {
@@ -162,12 +176,12 @@ pub(crate) fn update<'naive, Fields, FieldsOfVariant, Variant, Vertex>(
                 if *unsafe { variant_masks.get_unchecked(i) } {
                     continue 'variants;
                 }
-                let instantiable = fields_of_variant(naive_variant).all(|field| {
-                    if let Some(field_ctors) = constructors.get(&field) {
+                let instantiable = fields_of_variant(naive_variant).iter_dedup().all(|field| {
+                    if let Some(field_ctors) = constructors.get(field) {
                         !field_ctors.is_empty()
                     } else {
                         masks
-                            .get(&field)
+                            .get(field)
                             .expect("INTERNAL ERROR (`pbt`): mask disappeared")
                             .0
                     }

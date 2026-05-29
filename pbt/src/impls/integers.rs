@@ -29,10 +29,11 @@ impl Pbt for usize {
     #[inline]
     fn register(_registration: &mut Registration<'_>) -> Reflection<Self> {
         Reflection {
+            #[expect(clippy::todo, reason = "TODO")]
             variants: vec![
-                // This generator samples uniformly on [0, usize::MAX]:
+                // This variant samples uniformly on [0, usize::MAX]:
                 Variant::Literal {
-                    generator: |prng| {
+                    generate: |prng| {
                         if const { usize::BITS <= 64 } {
                             #[expect(
                                 clippy::as_conversions,
@@ -56,10 +57,15 @@ impl Pbt for usize {
                             acc
                         }
                     },
+                    shrink: |_| {
+                        // TODO: fuck! we want a single definition of shrink logic,
+                        // since we can't tell which variant we used to generate a literal...
+                        todo!()
+                    },
                 },
-                // This generator samples "small" values with coin flips for each bit:
+                // This variant samples "small" values with coin flips for each bit:
                 Variant::Literal {
-                    generator: |prng| {
+                    generate: |prng| {
                         let mut bit_reservoir = prng.rand();
                         let mut remaining_bits: u8 = 64;
                         let mut coin_flip = || -> bool {
@@ -88,6 +94,11 @@ impl Pbt for usize {
                         }
                         acc
                     },
+                    shrink: |_| {
+                        // TODO: fuck! we want a single definition of shrink logic,
+                        // since we can't tell which variant we used to generate a literal...
+                        todo!()
+                    },
                 },
             ],
         }
@@ -109,16 +120,16 @@ mod tests {
         let mut prng = WyRand::new(42);
         let generated: Vec<usize> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected = vec![
-            9,
-            6,
-            6,
-            10_465_773_274_321_242_342,
-            9_091_519_196_080_063_832,
-            17_108_568_891_541_767_080,
+            13_292_779_941_566_893_674,
+            9_988_084_050_349_509_710,
+            18_244_980_304_542_046_478,
             3,
-            0,
             1,
-            0,
+            1,
+            11_967_504_129_163_326_662,
+            3_095_088_136_117_157_605,
+            15_065_991_851_063_199_176,
+            15_974_396_501_549_280_873,
         ];
         assert_eq!(generated, expected);
     }

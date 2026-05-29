@@ -60,7 +60,7 @@ mod tests {
         let mut prng = WyRand::new(42);
         let generated: Vec<bool> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected = vec![
-            true, false, false, true, true, true, false, true, true, false,
+            false, true, true, false, false, false, false, true, true, false,
         ];
         assert_eq!(generated, expected);
     }

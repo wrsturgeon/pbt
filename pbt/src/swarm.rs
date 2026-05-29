@@ -92,7 +92,7 @@ impl Swarm {
 
         let field_types = match ctor.variant {
             Variant::Algebraic { ref field_types } => field_types,
-            Variant::Literal { generator } => return generator(prng),
+            Variant::Literal { generate, .. } => return generate(prng),
         };
 
         let n_ind = self.count_inductive_fields(field_types);
@@ -180,7 +180,7 @@ impl Swarm {
                 ty,
                 &naive_masked_constructors,
                 &mut masked_constructors,
-                &Constructor::dedup_fields,
+                &Constructor::field_types,
             );
 
             // If the original type is uninstantiable with these masks, try again:

@@ -161,7 +161,9 @@ pub enum Variant<SelfType: ?Sized> {
     /// An opaque function pointer that generates values of this type.
     Literal {
         /// An opaque function pointer that generates values of this type.
-        generator: fn(&mut WyRand) -> SelfType,
+        generate: fn(&mut WyRand) -> SelfType,
+        /// An opaque function pointer that shrinks values of this type.
+        shrink: fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
     },
 }
 
@@ -263,6 +265,12 @@ impl<T> Constructor<T> {
     pub(crate) fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
         self.variant.dedup_fields()
     }
+
+    /// The types of all fields in this variant.
+    #[inline]
+    pub(crate) fn field_types(&self) -> &Multiset<TypeId> {
+        self.variant.field_types()
+    }
 }
 
 impl<T> Clone for Constructor<T> {
@@ -314,12 +322,20 @@ impl<T> Variant<T> {
     /// yielding each type exactly once (skipping duplicates).
     #[inline]
     fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
-        const EMPTY: &HashMap<TypeId, NonZero<usize>> = &map();
         match *self {
             Self::Algebraic { ref field_types } => field_types.iter_dedup(),
-            Self::Literal { .. } => EMPTY.keys(),
+            Self::Literal { .. } => const { &map() }.keys(),
         }
         .copied()
+    }
+
+    /// The types of all fields in this variant.
+    #[inline]
+    pub(crate) fn field_types(&self) -> &Multiset<TypeId> {
+        match *self {
+            Self::Algebraic { ref field_types } => field_types,
+            Self::Literal { .. } => const { &Multiset::new() },
+        }
     }
 }
 
@@ -330,7 +346,7 @@ impl<T> Clone for Variant<T> {
             Self::Algebraic { ref field_types } => Self::Algebraic {
                 field_types: field_types.clone(),
             },
-            Self::Literal { generator } => Self::Literal { generator },
+            Self::Literal { generate, shrink } => Self::Literal { generate, shrink },
         }
     }
 }
@@ -374,7 +390,7 @@ pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
     let mut cache = CACHE
         .write()
         .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
-    let () = instantiability::update(ty, &naive, &mut cache, &Constructor::dedup_fields);
+    let () = instantiability::update(ty, &naive, &mut cache, &Constructor::field_types);
 
     Arc::clone(
         cache
