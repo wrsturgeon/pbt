@@ -4,11 +4,11 @@
 use {
     crate::{
         Pbt,
-        reflection::{BucketOps, Constructor, Erased},
+        reflection::{BucketOps, Constructors, Erased},
     },
     ahash::HashMap,
-    alloc::{collections::BTreeMap, sync::Arc},
-    core::{any::TypeId, mem},
+    alloc::collections::BTreeMap,
+    core::any::TypeId,
 };
 
 /// Opaque internal data necessary to
@@ -18,7 +18,7 @@ pub struct Registration<'lock> {
     /// Erased function pointers performing operations on vectors of this type.
     pub(crate) bucket_ops: &'lock mut HashMap<TypeId, BucketOps<Erased>>,
     /// The global "naive" variant graph including uninstantiable structures.
-    pub(crate) variants: &'lock mut BTreeMap<TypeId, Arc<[Constructor<Erased>]>>,
+    pub(crate) variants: &'lock mut BTreeMap<TypeId, Constructors<Erased>>,
 }
 
 impl Registration<'_> {
@@ -45,23 +45,8 @@ impl Registration<'_> {
         }
 
         // Recurse, i.e. run depth-first search:
-        let ordered_naive_variants = T::register(self);
-        let naive_variants = ordered_naive_variants
-            .variants
-            .into_iter()
-            .enumerate()
-            .map(|(index, variant)| Constructor { index, variant })
-            .collect();
-
-        // SAFETY: `T` is only ever the codomain of a function pointer.
-        let erased = unsafe {
-            mem::transmute::<
-                Arc<[Constructor<T>]>, //
-                Arc<[Constructor<Erased>]>,
-            >(naive_variants)
-        };
-
-        let dup: Option<_> = self.variants.insert(ty, erased);
+        let constructors = T::register(self).erase();
+        let dup: Option<_> = self.variants.insert(ty, constructors);
         assert!(
             dup.is_none(),
             "INTERNAL ERROR (`pbt`): TOCTOU despite `&mut` (witchcraft)",

@@ -5,7 +5,7 @@ use {
         Pbt,
         fields::{Fields, Store},
         multiset::Multiset,
-        reflection::{Parts, Reflection, Variant},
+        reflection::{Parts, Variant, Variants},
         registration::Registration,
     },
     core::any::TypeId,
@@ -55,20 +55,18 @@ where
     }
 
     #[inline]
-    fn register(registration: &mut Registration<'_>) -> Reflection<Self> {
+    fn register(registration: &mut Registration<'_>) -> Variants<Self> {
         let () = registration.register::<T>();
-        Reflection {
-            variants: vec![
-                Variant::Algebraic {
-                    field_types: Multiset::new(),
-                },
-                Variant::Algebraic {
-                    field_types: [TypeId::of::<Self>(), TypeId::of::<T>()]
-                        .into_iter()
-                        .collect(),
-                },
-            ],
-        }
+        Variants::Algebraic(vec![
+            Variant {
+                field_types: Multiset::new(),
+            },
+            Variant {
+                field_types: [TypeId::of::<Self>(), TypeId::of::<T>()]
+                    .into_iter()
+                    .collect(),
+            },
+        ])
     }
 }
 

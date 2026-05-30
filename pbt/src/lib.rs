@@ -49,9 +49,7 @@ pub trait Pbt: 'static + Clone {
     /// // ... return this type's variants ...
     /// # }
     /// ```
-    fn register(
-        registration: &mut registration::Registration<'_>,
-    ) -> reflection::Constructors<Self>;
+    fn register(registration: &mut registration::Registration<'_>) -> reflection::Variants<Self>;
 }
 
 /// Generate an arbitrary term of any type `T`.

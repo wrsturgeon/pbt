@@ -6,9 +6,7 @@ use {
         Pbt,
         hash::map,
         multiset::Multiset,
-        reflection::{
-            BucketOps, Erased, Parts, Variant, bucket_ops_of, naive_variants_of, register_globally,
-        },
+        reflection::{BucketOps, Erased, bucket_ops_of, is_literal, register_globally},
         size::{self, Size},
         swarm::Swarm,
     },
@@ -206,7 +204,7 @@ impl Store {
     /// If this is not called, stores must
     /// use all their stored fields before being dropped.
     #[inline]
-    fn drop_unused(&mut self) {
+    pub(crate) fn drop_unused(&mut self) {
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for (k, v) in self.store.drain() {
             let bucket_ops = bucket_ops_of(k);
@@ -294,7 +292,7 @@ impl Store {
 
     /// Store a field of some type.
     #[inline]
-    pub fn push_erased(&mut self, ty: TypeId, erased_boxed: ptr::NonNull<Erased>) {
+    pub(crate) fn push_erased(&mut self, ty: TypeId, erased_boxed: ptr::NonNull<Erased>) {
         let bucket_ops = bucket_ops_of(ty);
         let v: &mut Vec<Erased> = self.store.entry(ty).or_default();
         let () = (bucket_ops.push)(v, erased_boxed);
@@ -390,14 +388,8 @@ where
             while let Some(ref mut queue) = self.queue
                 && let Some(boxed_erased) = (self.bucket_ops.pop)(queue)
             {
-                let Parts {
-                    mut fields,
-                    variant_index,
-                } = (self.bucket_ops.deconstruct)(boxed_erased);
-                if naive_variants_of(self.ty)
-                    .get(variant_index)
-                    .is_some_and(|ctor| matches!(ctor.variant, Variant::Algebraic { .. }))
-                {
+                let mut fields = (self.bucket_ops.deconstruct)(boxed_erased).fields;
+                if !is_literal(self.ty) {
                     self.recurse = Some(Box::new(Self::new(fields)));
                     continue 'restart;
                 }

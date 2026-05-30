@@ -4,7 +4,7 @@ use crate::{
     Pbt,
     fields::{Fields, Store},
     multiset::Multiset,
-    reflection::{Parts, Reflection, Variant},
+    reflection::{Parts, Variant, Variants},
     registration::Registration,
 };
 
@@ -31,17 +31,15 @@ impl Pbt for bool {
     }
 
     #[inline]
-    fn register(_registration: &mut Registration<'_>) -> Reflection<Self> {
-        Reflection {
-            variants: vec![
-                Variant::Algebraic {
-                    field_types: Multiset::new(),
-                },
-                Variant::Algebraic {
-                    field_types: Multiset::new(),
-                },
-            ],
-        }
+    fn register(_registration: &mut Registration<'_>) -> Variants<Self> {
+        Variants::Algebraic(vec![
+            Variant {
+                field_types: Multiset::new(),
+            },
+            Variant {
+                field_types: Multiset::new(),
+            },
+        ])
     }
 }
 
@@ -60,7 +58,7 @@ mod tests {
         let mut prng = WyRand::new(42);
         let generated: Vec<bool> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected = vec![
-            false, true, true, false, false, false, false, true, true, false,
+            true, false, false, true, true, true, false, true, true, false,
         ];
         assert_eq!(generated, expected);
     }

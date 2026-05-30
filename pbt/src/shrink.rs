@@ -2,7 +2,10 @@ use {
     crate::{
         Pbt,
         fields::Store,
-        reflection::{BucketOps, Constructor, Erased, Parts, bucket_ops_of, constructors_of},
+        reflection::{
+            BucketOps, Constructor, Erased, Parts, bucket_ops_of, constructors_of,
+            register_globally, shrink_literal,
+        },
     },
     core::{any::TypeId, ptr},
 };
@@ -27,6 +30,7 @@ pub struct ShrinkingCache {
     bucket_ops: BucketOps<Erased>, // <-- TODO: duplicated across `Vec<ShrinkingCache>`
     cache: Vec<Erased>,
     iterator: Box<dyn Iterator<Item = ptr::NonNull<Erased>>>,
+    original: ptr::NonNull<Erased>,
     /// The type being shrunk.
     ty: TypeId,
 }
@@ -53,22 +57,26 @@ impl EachFieldRecursively {
         Self { index: 0, recurse }
     }
 
+    /// Yield the next item with at most some total number of shrinking steps.
+    ///
+    /// The `bool` keeps track of whether all retured fields so far are originals,
+    /// so we can exclude the original input at the top level.
     #[inline]
-    fn next_with_leash(&mut self, leash_length: usize) -> Option<Store> {
+    fn next_with_leash(&mut self, leash_length: usize) -> Option<(Store, bool)> {
         let Some((ref mut recurse, ref mut shrinking_cache)) = self.recurse else {
             if leash_length == 0 && self.index == 0 {
                 self.index = 1;
-                return Some(Store::new());
+                return Some((Store::new(), true));
             }
             return None;
         };
         loop {
             let remaining_leash = leash_length.checked_sub(self.index)?;
-            let head = shrinking_cache.get(self.index)?;
-            if let Some(mut next) = recurse.next_with_leash(remaining_leash) {
+            let (head, orig) = shrinking_cache.get(self.index)?;
+            if let Some((mut next, all_orig)) = recurse.next_with_leash(remaining_leash) {
                 let () =
                     next.push_erased(shrinking_cache.ty, (shrinking_cache.bucket_ops.clone)(head));
-                return Some(next);
+                return Some((next, all_orig && orig));
             }
             self.index += 1;
             let () = recurse.rewind();
@@ -86,15 +94,20 @@ impl EachFieldRecursively {
 
 impl ShrinkingCache {
     /// Return an erased *reference* (*not* a `Box`) to the nth shrinking candidate.
+    ///
+    /// The `bool` indicates whether this reference is
+    /// the *original* input (not a shrunk version thereof).
     #[inline]
-    fn get(&mut self, index: usize) -> Option<ptr::NonNull<Erased>> {
+    fn get(&mut self, index: usize) -> Option<(ptr::NonNull<Erased>, bool)> {
         // We only ever extend this cache by one element at a time,
         // so this dumb retry loop is not only fine but optimal:
         loop {
             if let Some(cached_ref) = (self.bucket_ops.get)(&mut self.cache, index) {
-                return Some(cached_ref);
+                return Some((cached_ref, false));
             }
-            let next = self.iterator.next()?;
+            let Some(next) = self.iterator.next() else {
+                return (index == self.cache.len()).then_some((self.original, true));
+            };
             let () = (self.bucket_ops.push)(&mut self.cache, next);
         }
     }
@@ -102,12 +115,14 @@ impl ShrinkingCache {
     #[inline]
     fn new(ty: TypeId, erased_boxed: ptr::NonNull<Erased>) -> Self {
         let bucket_ops = bucket_ops_of(ty);
-        let mut cache = vec![];
-        let () = (bucket_ops.push)(&mut cache, (bucket_ops.clone)(erased_boxed));
+        // Clone `erased_boxed` before moving it into `bucket_ops.shrink`:
+        let original = (bucket_ops.clone)(erased_boxed);
+        let iterator = (bucket_ops.shrink)(erased_boxed);
         Self {
             bucket_ops,
-            cache,
-            iterator: (bucket_ops.shrink)(erased_boxed),
+            cache: vec![],
+            iterator,
+            original,
             ty,
         }
     }
@@ -118,19 +133,36 @@ impl Iterator for EachField {
 
     #[inline]
     fn next(&mut self) -> Option<Self::Item> {
-        if let Some(next) = self.recurse.next_with_leash(self.leash_length) {
-            return Some(next);
+        'exclude_orig: loop {
+            let Some((mut next, orig)) = self.recurse.next_with_leash(self.leash_length) else {
+                break 'exclude_orig;
+            };
+            if !orig {
+                return Some(next);
+            }
+            let () = next.drop_unused();
         }
-        let next = self.recurse.next_with_leash(self.leash_length + 1)?;
+        let () = self.recurse.rewind();
         self.leash_length += 1;
-        Some(next)
+        loop {
+            let (mut next, orig) = self.recurse.next_with_leash(self.leash_length)?;
+            if !orig {
+                return Some(next);
+            }
+            let () = next.drop_unused();
+        }
     }
 }
 
-pub(crate) fn candidates<T>(t: T) -> impl Iterator<Item = T>
+pub(crate) fn candidates<T>(t: T) -> Box<dyn Iterator<Item = T>>
 where
     T: Pbt,
 {
+    let () = register_globally::<T>();
+    if let Some(shrink_literal) = shrink_literal(t.clone()) {
+        return shrink_literal;
+    }
+
     let ty = TypeId::of::<T>();
 
     let Parts {
@@ -141,21 +173,13 @@ where
     // First, find all sub-terms of type `Self` and try them at the top level:
     let subterms_of_type_self = fields.clone().visit::<T>();
 
-    // Then, recurse on all fields, in some way TBD that's "fair":
-    let shrink_each_field = EachField::new(fields.clone()).map(move |shrunk_fields| {
-        T::construct(Parts {
-            fields: shrunk_fields,
-            variant_index,
-        })
-    });
-
     // Then, try all variants smaller than the original variant
     // using all sections of available fields necessary for each:
-    let ctors: Vec<Constructor<Erased>> = constructors_of(ty).iter().cloned().collect();
-    let smaller_variants = ctors
+    let ctors: Vec<Constructor> = constructors_of(ty).algebraic().to_vec();
+    let smaller_variants: Vec<T> = ctors
         .into_iter()
         .take_while(move |ctor| ctor.index != variant_index)
-        .flat_map(move |ctor| {
+        .flat_map(|ctor| {
             fields
                 .clone()
                 .sections(ctor.field_types().clone())
@@ -165,27 +189,78 @@ where
                         variant_index: ctor.index,
                     })
                 })
-        });
+        })
+        .collect();
 
-    subterms_of_type_self
-        .chain(smaller_variants)
-        .chain(shrink_each_field)
+    // Then, recurse on all fields:
+    let shrink_each_field = EachField::new(fields).map(move |shrunk_fields| {
+        T::construct(Parts {
+            fields: shrunk_fields,
+            variant_index,
+        })
+    });
+
+    Box::new(
+        subterms_of_type_self
+            .chain(smaller_variants)
+            .chain(shrink_each_field),
+    )
 }
 
 #[cfg(test)]
 mod tests {
-    // use {super::*, pretty_assertions::assert_eq};
+    use {super::*, pretty_assertions::assert_eq};
 
-    // TODO: re-enable
-    /*
     #[test]
-    fn shrink_10_10_10() {
-        let v: Vec<usize> = vec![10, 10, 10];
+    fn shrink_triple() {
+        let v: Vec<usize> = vec![2, 2, 2];
         let shrunk: Vec<Vec<usize>> = candidates(v).collect();
         let expected: Vec<Vec<usize>> = vec![
-            // left empty to see what's produced when this test fails
+            vec![2, 2],
+            vec![2],
+            vec![],
+            vec![],
+            vec![0],
+            vec![2, 1],
+            vec![0],
+            vec![1],
+            vec![2, 2],
+            vec![0, 0],
+            vec![1],
+            vec![2],
+            vec![1, 0],
+            vec![0, 1],
+            vec![2],
+            vec![1, 0, 0],
+            vec![1, 1],
+            vec![0, 2],
+            vec![1, 0],
+            vec![1, 0, 1],
+            vec![1, 2],
+            vec![2, 0],
+            vec![1, 1],
+            vec![1, 0, 2],
+            vec![2, 0, 0],
+            vec![2, 1],
+            vec![1, 2],
+            vec![1, 1, 0],
+            vec![2, 0, 1],
+            vec![2, 2],
+            vec![2, 0],
+            vec![1, 1, 1],
+            vec![2, 0, 2],
+            vec![2, 1, 0],
+            vec![2, 1],
+            vec![1, 1, 2],
+            vec![1, 2, 0],
+            vec![2, 1, 1],
+            vec![2, 2],
+            vec![2, 2, 0],
+            vec![1, 2, 1],
+            vec![2, 1, 2],
+            vec![2, 2, 1],
+            vec![1, 2, 2],
         ];
         assert_eq!(shrunk, expected);
     }
-    */
 }

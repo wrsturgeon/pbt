@@ -42,49 +42,37 @@ static BUCKET_OPS: RwLock<HashMap<TypeId, BucketOps<Erased>>> = RwLock::new(map(
 /// types point to constructors and constructors point to types.
 /// Each directed edge means "contains," i.e.
 /// "has a field of this type" or "contains this variant."
-static NAIVE_VARIANTS: RwLock<BTreeMap<TypeId, Arc<[Constructor<Erased>]>>> =
+static NAIVE_VARIANTS: RwLock<BTreeMap<TypeId, Constructors<Erased>>> =
     RwLock::new(BTreeMap::new());
-
-/// A type's constructors, partitioned into potential leaves and loops,
-/// i.e. whether a sub-term of type `Self` is *avoidable* or *reachable*.
-#[non_exhaustive]
-pub(crate) struct Affordances<SelfType> {
-    /// Sorted list of indices of instantiable constructors
-    /// for which a sub-term of type `Self` is *avoidable*.
-    pub(crate) potential_leaves: Box<[Constructor<SelfType>]>,
-    /// Sorted list of indices of instantiable constructors
-    /// for which a sub-term of type `Self` is *reachable*.
-    pub(crate) potential_loops: Box<[Constructor<SelfType>]>,
-}
 
 // TODO: Try once again to use `SelfType` in function types and then
 // to transmute the function pointers instead of transmuting internally.
 /// Function pointers performing operations on vectors of some type.
 #[non_exhaustive]
 #[derive(Clone, Copy)]
-pub struct BucketOps<SelfType> {
+pub(crate) struct BucketOps<SelfType> {
     /// Type-level indicator.
-    pub _phantom: PhantomData<SelfType>,
+    pub(crate) _phantom: PhantomData<SelfType>,
     /// Clone a term of this type.
-    pub clone: fn(ptr::NonNull<Erased>) -> ptr::NonNull<Erased>,
+    pub(crate) clone: fn(ptr::NonNull<Erased>) -> ptr::NonNull<Erased>,
     /// Clone a vector of this type.
-    pub clone_vec: fn(&Vec<Erased>) -> Vec<Erased>,
+    pub(crate) clone_vec: fn(&Vec<Erased>) -> Vec<Erased>,
     /// Deconstruct a boxed value into its constructor index and its fields.
-    pub deconstruct: fn(ptr::NonNull<Erased>) -> Parts<Store>,
+    pub(crate) deconstruct: fn(ptr::NonNull<Erased>) -> Parts<Store>,
     /// Drop a boxed term of this type.
-    pub drop: fn(ptr::NonNull<Erased>),
+    pub(crate) drop: fn(ptr::NonNull<Erased>),
     /// Drop a vector of this type.
-    pub drop_vec: fn(Vec<Erased>),
+    pub(crate) drop_vec: fn(Vec<Erased>),
     /// Get a *reference* (*not* a `Box`) to the nth element of a vector.
-    pub get: fn(&Vec<Erased>, usize) -> Option<ptr::NonNull<Erased>>,
+    pub(crate) get: fn(&Vec<Erased>, usize) -> Option<ptr::NonNull<Erased>>,
     /// Pop an element and box it.
-    pub pop: fn(&mut Vec<Erased>) -> Option<ptr::NonNull<Erased>>,
+    pub(crate) pop: fn(&mut Vec<Erased>) -> Option<ptr::NonNull<Erased>>,
     /// Push a boxed element onto a vector.
-    pub push: fn(&mut Vec<Erased>, ptr::NonNull<Erased>),
+    pub(crate) push: fn(&mut Vec<Erased>, ptr::NonNull<Erased>),
     /// Iterate over shrinking candidates for a given initial witness.
-    pub shrink: fn(ptr::NonNull<Erased>) -> Box<dyn Iterator<Item = ptr::NonNull<Erased>>>,
+    pub(crate) shrink: fn(ptr::NonNull<Erased>) -> Box<dyn Iterator<Item = ptr::NonNull<Erased>>>,
     /// Remove the `i`th element in O(1) by swapping it with the last element.
-    pub swap_remove: fn(&mut Vec<Erased>, usize) -> ptr::NonNull<Erased>,
+    pub(crate) swap_remove: fn(&mut Vec<Erased>, usize) -> ptr::NonNull<Erased>,
 }
 
 /// Each variant of some type in roughly "smallest-to-largest" order,
@@ -103,11 +91,11 @@ pub struct BucketOps<SelfType> {
 pub(crate) enum Constructors<SelfType: ?Sized> {
     /// The type of each field in this variant.
     /// Order does not matter, but total count does.
-    Algebraic(Vec<Constructor>),
+    Algebraic(Arc<[Constructor]>),
     /// An opaque function pointer that generates values of this type.
     Literal {
         /// Opaque function pointers that generate values of this type.
-        generators: Vec<fn(&mut WyRand) -> SelfType>,
+        generators: Arc<[fn(&mut WyRand) -> SelfType]>,
         /// An opaque function pointer that shrinks values of this type.
         shrink: fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
     },
@@ -139,7 +127,7 @@ pub(crate) struct Constructor {
 /// do not use it directly. Instead, `mem::transmute` and be very, very careful.
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug)]
-pub enum Erased {}
+pub(crate) enum Erased {}
 
 /// A deconstruction of a value into its constructor index and its fields.
 #[non_exhaustive]
@@ -155,23 +143,55 @@ pub struct Parts<F> {
 #[non_exhaustive]
 pub struct Uninstantiable;
 
-impl<SelfType> Affordances<SelfType> {
-    /// Whether this type can transitively
-    /// contain a field of its own type.
-    ///
-    /// Equivalently, whether this type can be arbitrarily large.
-    #[inline]
-    #[must_use]
-    pub(crate) const fn is_inductive(&self) -> bool {
-        !self.potential_loops.is_empty()
-    }
+/// Each variant of some type in source order.
+///
+/// - If this is an `enum`, each variant is one `enum` variant.
+/// - if this is a `struct`, there's exactly one variant with all fields.
+/// - If this is a literal type, each variant is an opaque generator.
+///   For example, `usize` might have two generators:
+///   *small* `usize`s (for indices) and *uniform* `usize`s.
+///   Swarm testing will pick *either* one *or* the other about half the time
+///   and enable both the other half of the time, so this works elegantly
+///   no matter which "flavor" of `usize` we want.
+#[derive(Debug)]
+#[non_exhaustive]
+pub struct Variant {
+    /// The type of each field in this variant.
+    /// Order does not matter, but total count does.
+    pub field_types: Multiset<TypeId>,
+}
+
+/// Each variant of some type in roughly "smallest-to-largest" order,
+/// with ties broken by source ordering.
+///
+/// - If this is an `enum`, each variant is one `enum` variant.
+/// - if this is a `struct`, there's exactly one variant with all fields.
+/// - If this is a literal type, each variant is an opaque generator.
+///   For example, `usize` might have two generators:
+///   *small* `usize`s (for indices) and *uniform* `usize`s.
+///   Swarm testing will pick *either* one *or* the other about half the time
+///   and enable both the other half of the time, so this works elegantly
+///   no matter which "flavor" of `usize` we want.
+#[derive(Debug)]
+#[non_exhaustive]
+pub enum Variants<SelfType: ?Sized> {
+    /// The type of each field in this variant.
+    /// Order does not matter, but total count does.
+    Algebraic(Vec<Variant>),
+    /// An opaque function pointer that generates values of this type.
+    Literal {
+        /// Opaque function pointers that generate values of this type.
+        generators: Vec<fn(&mut WyRand) -> SelfType>,
+        /// An opaque function pointer that shrinks values of this type.
+        shrink: fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
+    },
 }
 
 impl<T> BucketOps<T> {
     /// Erase type data while maintaining exactly the same function pointers.
     #[inline]
     #[must_use]
-    pub const fn erase(self) -> BucketOps<Erased> {
+    pub(crate) const fn erase(self) -> BucketOps<Erased> {
         // SAFETY: Function pointers are the same size no matter the types in these positions.
         unsafe { mem::transmute::<BucketOps<T>, BucketOps<Erased>>(self) }
     }
@@ -181,7 +201,7 @@ impl<T: Pbt> BucketOps<T> {
     /// Derive operations for a statically known type.
     #[inline]
     #[must_use]
-    pub const fn derive() -> Self {
+    pub(crate) const fn derive() -> Self {
         Self {
             clone: |erased_t: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
@@ -260,35 +280,38 @@ impl<T: Pbt> Default for BucketOps<T> {
     }
 }
 
-impl<T> Constructor<T> {
+impl Constructor {
     /// Iterate over the types of all fields in this variant,
     /// yielding each type exactly once (skipping duplicates).
     #[inline]
     pub(crate) fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
-        self.variant.dedup_fields()
+        self.field_types.iter_dedup().copied()
     }
 
     /// The types of all fields in this variant.
     #[inline]
     pub(crate) fn field_types(&self) -> &Multiset<TypeId> {
-        self.variant.field_types()
+        &self.field_types
     }
 }
 
-impl<T> Clone for Constructor<T> {
+impl Clone for Constructor {
     #[inline]
     fn clone(&self) -> Self {
-        let Self { index, ref variant } = *self;
-        Self {
+        let Self {
+            ref field_types,
             index,
-            variant: variant.clone(),
+        } = *self;
+        Self {
+            field_types: field_types.clone(),
+            index,
         }
     }
 }
 
-impl<T> Eq for Constructor<T> {}
+impl Eq for Constructor {}
 
-impl<T> Hash for Constructor<T> {
+impl Hash for Constructor {
     #[inline]
     fn hash<H>(&self, state: &mut H)
     where
@@ -298,57 +321,174 @@ impl<T> Hash for Constructor<T> {
     }
 }
 
-impl<T> Ord for Constructor<T> {
+impl Ord for Constructor {
     #[inline]
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         <usize as Ord>::cmp(&self.index, &other.index)
     }
 }
 
-impl<T> PartialEq for Constructor<T> {
+impl PartialEq for Constructor {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         <usize as PartialEq>::eq(&self.index, &other.index)
     }
 }
 
-impl<T> PartialOrd for Constructor<T> {
+impl PartialOrd for Constructor {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(<Self as Ord>::cmp(self, other))
     }
 }
 
-impl<T> Variant<T> {
-    /// Iterate over the types of all fields in this variant,
-    /// yielding each type exactly once (skipping duplicates).
-    #[inline]
-    fn dedup_fields(&self) -> iter::Copied<hash_map::Keys<'_, TypeId, NonZero<usize>>> {
-        match *self {
-            Self::Algebraic { ref field_types } => field_types.iter_dedup(),
-            Self::Literal { .. } => const { &map() }.keys(),
-        }
-        .copied()
-    }
+impl<SelfType: ?Sized> Eq for Constructors<SelfType> {}
 
-    /// The types of all fields in this variant.
+impl<SelfType: ?Sized> Hash for Constructors<SelfType> {
     #[inline]
-    pub(crate) fn field_types(&self) -> &Multiset<TypeId> {
+    fn hash<H>(&self, state: &mut H)
+    where
+        H: Hasher,
+    {
         match *self {
-            Self::Algebraic { ref field_types } => field_types,
-            Self::Literal { .. } => const { &Multiset::new() },
+            Self::Algebraic(ref ctors) => {
+                let () = 0_usize.hash(state);
+                let () = ctors.hash(state);
+            }
+            Self::Literal { ref generators, .. } => {
+                let () = 1_usize.hash(state);
+                let () = generators.hash(state);
+                // The shrinking function is always the same within a given type.
+            }
         }
     }
 }
 
-impl<T> Clone for Variant<T> {
+impl<SelfType: ?Sized> Ord for Constructors<SelfType> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> cmp::Ordering {
+        match (self, other) {
+            (
+                &Self::Literal {
+                    generators: ref lhs,
+                    ..
+                },
+                &Self::Literal {
+                    generators: ref rhs,
+                    ..
+                },
+            ) => lhs.cmp(rhs),
+            (&Self::Literal { .. }, &Self::Algebraic(_)) => cmp::Ordering::Less,
+            (&Self::Algebraic(_), &Self::Literal { .. }) => cmp::Ordering::Greater,
+            (&Self::Algebraic(ref lhs), &Self::Algebraic(ref rhs)) => lhs.cmp(rhs),
+        }
+    }
+}
+
+impl<SelfType: ?Sized> PartialEq for Constructors<SelfType> {
+    #[inline]
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                &Self::Literal {
+                    generators: ref lhs,
+                    ..
+                },
+                &Self::Literal {
+                    generators: ref rhs,
+                    ..
+                },
+            ) => lhs.eq(rhs),
+            (&Self::Algebraic(ref lhs), &Self::Algebraic(ref rhs)) => lhs.eq(rhs),
+            _ => false,
+        }
+    }
+}
+
+impl<SelfType: ?Sized> PartialOrd for Constructors<SelfType> {
+    #[inline]
+    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
+        Some(<Self as Ord>::cmp(self, other))
+    }
+}
+
+impl<SelfType: ?Sized> Clone for Constructors<SelfType> {
     #[inline]
     fn clone(&self) -> Self {
         match *self {
-            Self::Algebraic { ref field_types } => Self::Algebraic {
-                field_types: field_types.clone(),
+            Self::Algebraic(ref constructors) => Self::Algebraic(Arc::clone(constructors)),
+            Self::Literal {
+                ref generators,
+                shrink,
+            } => Self::Literal {
+                generators: Arc::clone(generators),
+                shrink,
             },
-            Self::Literal { generate, shrink } => Self::Literal { generate, shrink },
+        }
+    }
+}
+
+impl<SelfType: ?Sized> Constructors<SelfType> {
+    /// Algebraic constructors exposed as a slice.
+    #[inline]
+    #[must_use]
+    pub(crate) fn algebraic(&self) -> &[Constructor] {
+        match *self {
+            Self::Algebraic(ref constructors) => constructors,
+            Self::Literal { .. } => &[],
+        }
+    }
+
+    /// Whether this type has no productive variants.
+    #[inline]
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        match *self {
+            Self::Algebraic(ref constructors) => constructors.is_empty(),
+            Self::Literal { ref generators, .. } => generators.is_empty(),
+        }
+    }
+}
+
+impl<SelfType> Variants<SelfType> {
+    /// Erase type data while maintaining exactly the same function pointers.
+    #[inline]
+    #[must_use]
+    pub(crate) fn erase(self) -> Constructors<Erased> {
+        match self {
+            Self::Algebraic(constructors) => Constructors::Algebraic(
+                constructors
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, Variant { field_types })| Constructor { field_types, index })
+                    .collect(),
+            ),
+            Self::Literal { generators, shrink } => {
+                let erased_generators: Arc<[fn(&mut WyRand) -> Erased]> =
+                    generators
+                        .into_iter()
+                        .map(|f| {
+                            // SAFETY: Function pointers are the same size no matter the types in these positions.
+                            unsafe {
+                                mem::transmute::<
+                                    fn(&mut WyRand) -> SelfType,
+                                    fn(&mut WyRand) -> Erased,
+                                >(f)
+                            }
+                        })
+                        .collect();
+                // SAFETY: Function pointers are the same size no matter the types in these positions.
+                let shrink = unsafe {
+                    mem::transmute::<
+                        fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
+                        fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
+                    >(shrink)
+                };
+                Constructors::Literal {
+                    generators: erased_generators,
+                    shrink,
+                }
+            }
         }
     }
 }
@@ -367,6 +507,53 @@ pub(crate) fn bucket_ops_of(ty: TypeId) -> BucketOps<Erased> {
         .expect("INTERNAL ERROR (`pbt`): unregistered type during bucket-ops lookup")
 }
 
+/// Whether a registered type is represented by opaque literal operations.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    reason = "Internal invariants: violations should fail loudly."
+)]
+pub(crate) fn is_literal(ty: TypeId) -> bool {
+    matches!(
+        NAIVE_VARIANTS
+            .read()
+            .expect("INTERNAL ERROR (`pbt`): variants lock poisoned")
+            .get(&ty),
+        Some(Constructors::Literal { .. })
+    )
+}
+
+/// Shrink a literal value using its type-level literal shrinker.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    reason = "Internal invariants: violations should fail loudly."
+)]
+pub(crate) fn shrink_literal<T>(t: T) -> Option<Box<dyn Iterator<Item = T>>>
+where
+    T: 'static,
+{
+    let ty = TypeId::of::<T>();
+    let shrink = {
+        let naive_variants = NAIVE_VARIANTS
+            .read()
+            .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
+        let Constructors::Literal { shrink, .. } = *naive_variants.get(&ty)? else {
+            return None;
+        };
+        shrink
+    };
+
+    // SAFETY: `Registration::register::<T>` erased this function pointer.
+    let shrink = unsafe {
+        mem::transmute::<
+            fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
+            fn(T) -> Box<dyn Iterator<Item = T>>,
+        >(shrink)
+    };
+    Some(shrink(t))
+}
+
 /// Instantiable constructors for each type.
 ///
 /// N.B.: A type's instantiability is as simple as `!constructors.is_empty()`.
@@ -375,15 +562,15 @@ pub(crate) fn bucket_ops_of(ty: TypeId) -> BucketOps<Erased> {
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
-    static CACHE: RwLock<HashMap<TypeId, Arc<[Constructor<Erased>]>>> = RwLock::new(map());
+pub(crate) fn constructors_of(ty: TypeId) -> Constructors<Erased> {
+    static CACHE: RwLock<HashMap<TypeId, Constructors<Erased>>> = RwLock::new(map());
 
     if let Some(cached) = CACHE
         .read()
         .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned")
         .get(&ty)
     {
-        return Arc::clone(cached);
+        return cached.clone();
     }
 
     let naive = NAIVE_VARIANTS
@@ -394,29 +581,10 @@ pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
         .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
     let () = instantiability::update(ty, &naive, &mut cache, &Constructor::field_types);
 
-    Arc::clone(
-        cache
-            .get(&ty)
-            .expect("INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis"),
-    )
-}
-
-/// All variants of a registered type
-/// *including* uninstantiable variants.
-#[inline]
-#[expect(
-    clippy::expect_used,
-    reason = "Internal invariants: violations should fail loudly."
-)]
-pub(crate) fn naive_variants_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
-    let naive = NAIVE_VARIANTS
-        .read()
-        .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
-    Arc::clone(
-        naive
-            .get(&ty)
-            .expect("INTERNAL ERROR (`pbt`): unregistered type during naive variants lookup"),
-    )
+    cache
+        .get(&ty)
+        .expect("INTERNAL ERROR (`pbt`): unregistered type during instantiability analysis")
+        .clone()
 }
 
 /// Register the type `T` and its dependencies
