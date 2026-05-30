@@ -436,7 +436,7 @@ impl<T> Drop for Visitor<T> {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "Failing tests ought to panic.")]
 
-    use {super::*, crate::arbitrary, core::iter, pretty_assertions::assert_eq};
+    use {super::*, crate::arbitrary::arbitrary, core::iter, pretty_assertions::assert_eq};
 
     // TODO: make this a real PBT when macro are ready
     #[test]

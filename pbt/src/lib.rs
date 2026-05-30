@@ -3,6 +3,7 @@
 
 extern crate alloc;
 
+mod arbitrary;
 pub mod fields;
 pub mod hash;
 mod impls;
@@ -52,44 +53,6 @@ pub trait Pbt: 'static + Clone {
     fn register(registration: &mut registration::Registration<'_>) -> reflection::Variants<Self>;
 }
 
-/// Generate an arbitrary term of any type `T`.
-///
-/// # Errors
-///
-/// If `T` is uninstantiable.
-#[inline]
-#[expect(
-    clippy::expect_used,
-    clippy::missing_panics_doc,
-    reason = "Internal invariants: violations should fail loudly."
-)]
-#[expect(
-    clippy::arithmetic_side_effects,
-    reason = "The hardware will die before batch size overflows."
-)]
-pub fn arbitrary<T>(
-    prng: &mut wyrand::WyRand,
-) -> Result<impl Iterator<Item = T>, reflection::Uninstantiable>
-where
-    T: Pbt,
-{
-    let mut swarm_cache = hash::map();
-    let mut swarm = swarm::Swarm::new::<T>(prng, &mut swarm_cache)?;
-    let mut batch_size = 1_usize; // Increases over time.
-    let mut remaining_in_batch = batch_size;
-    Ok(size::Size::increasing().map(move |size| {
-        if let Some(decremented) = remaining_in_batch.checked_sub(1) {
-            remaining_in_batch = decremented;
-        } else {
-            remaining_in_batch = batch_size;
-            batch_size += 1;
-            swarm = swarm::Swarm::new::<T>(prng, &mut swarm_cache)
-                .expect("INTERNAL ERROR (`pbt`): instantiability changed mid-generation");
-        }
-        swarm.arbitrary(size, prng)
-    }))
-}
-
 /// Check that deconstructing and then immediately reconstructing a value is a no-op.
 #[inline]
 #[expect(
@@ -101,12 +64,46 @@ where
     T: Clone + core::fmt::Debug + PartialEq + Pbt,
 {
     let mut prng = wyrand::WyRand::new(42);
-    let Ok(arbitrary) = arbitrary::<T>(&mut prng) else {
+    let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
         return;
     };
     for t in arbitrary.take(42) {
         let parts = t.clone().deconstruct();
         let reconstructed = T::construct(parts);
         pretty_assertions::assert_eq!(reconstructed, t);
+    }
+}
+
+/// Search for the smallest witness of an arbitrary property, if one exists.
+///
+/// If this fails, this does not mean that the property never holds;
+/// instead, it simply means we didn't find a property in `cases` cases.
+#[inline]
+pub fn witness<T, Property>(
+    property: Property,
+    cases: usize,
+    prng: &mut wyrand::WyRand,
+) -> Option<T>
+where
+    Property: Fn(&T) -> bool,
+    T: Pbt,
+{
+    let arbitrary = arbitrary::arbitrary::<T>(prng).ok()?;
+    for t in arbitrary.take(cases) {
+        if property(&t) {
+            return Some(shrink::to_minimal_witness(t, &property));
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, pretty_assertions::assert_eq, wyrand::WyRand};
+
+    #[test]
+    fn witness_at_least_42() {
+        let mut prng = WyRand::new(42);
+        assert_eq!(witness(|i: &usize| *i >= 42, 1_000, &mut prng), Some(42));
     }
 }

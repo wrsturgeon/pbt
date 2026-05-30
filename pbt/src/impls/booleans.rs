@@ -48,7 +48,7 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
-        crate::{arbitrary, check_eta_expansion},
+        crate::{arbitrary::arbitrary, check_eta_expansion},
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
