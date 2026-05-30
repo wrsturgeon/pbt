@@ -5,10 +5,11 @@ use {
         Pbt,
         fields::Store,
         reflection::{
-            BucketOps, Constructor, Erased, Parts, bucket_ops_of, constructors_of,
-            register_globally, shrink_literal,
+            BucketOps, Constructors, Erased, Parts, bucket_ops_of, constructors_of,
+            register_globally,
         },
     },
+    alloc::sync::Arc,
     core::{any::TypeId, mem, ptr},
 };
 
@@ -183,31 +184,47 @@ impl Drop for ShrinkingCache {
 }
 
 /// Iterate over all shrinking candidates for a witness.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    reason = "Internal invariants: violations should fail loudly."
+)]
 pub(crate) fn candidates<T>(t: T) -> Box<dyn Iterator<Item = T>>
 where
     T: Pbt,
 {
     let () = register_globally::<T>();
-    if let Some(shrink_literal) = shrink_literal(t.clone()) {
-        return shrink_literal;
-    }
-
     let ty = TypeId::of::<T>();
+
+    let ctors = match constructors_of(ty) {
+        Constructors::Algebraic(ref algebraic) => Arc::clone(algebraic),
+        Constructors::Literal { shrink, .. } => {
+            // SAFETY: Invariant. Extremely dangerous.
+            let typed_shrink = unsafe {
+                mem::transmute::<
+                    fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
+                    fn(T) -> Box<dyn Iterator<Item = T>>,
+                >(shrink)
+            };
+            return typed_shrink(t);
+        }
+    };
 
     let Parts {
         fields,
         variant_index,
     } = t.deconstruct();
+    let index =
+        variant_index.expect("INTERNAL ERROR (`pbt`): algebraic type without a variant index");
 
     // First, find all sub-terms of type `Self` and try them at the top level:
     let subterms_of_type_self = fields.clone().visit::<T>();
 
     // Then, try all variants smaller than the original variant
     // using all sections of available fields necessary for each:
-    let ctors: Vec<Constructor> = constructors_of(ty).algebraic().to_vec();
     let smaller_variants: Vec<T> = ctors
-        .into_iter()
-        .take_while(move |ctor| ctor.index != variant_index)
+        .iter()
+        .take_while(move |ctor| ctor.index != index)
         .flat_map(|ctor| {
             fields
                 .clone()
@@ -215,7 +232,7 @@ where
                 .map(move |field_section| {
                     T::construct(Parts {
                         fields: field_section,
-                        variant_index: ctor.index,
+                        variant_index: Some(ctor.index),
                     })
                 })
         })

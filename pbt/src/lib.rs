@@ -61,7 +61,7 @@ pub trait Pbt: 'static + Clone {
 )]
 pub fn check_eta_expansion<T>()
 where
-    T: Clone + core::fmt::Debug + PartialEq + Pbt,
+    T: core::fmt::Debug + PartialEq + Pbt,
 {
     let mut prng = wyrand::WyRand::new(42);
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
@@ -70,7 +70,36 @@ where
     for t in arbitrary.take(42) {
         let parts = t.clone().deconstruct();
         let reconstructed = T::construct(parts);
-        pretty_assertions::assert_eq!(reconstructed, t);
+        pretty_assertions::assert_eq!(
+            reconstructed,
+            t,
+            "\r\n\r\n{t:?} -> Parts {{ .. }} -> {reconstructed:?} =/= {t:?}",
+        );
+    }
+}
+
+/// Check that serializing and then immediately deserializing a value is a no-op.
+#[inline]
+#[expect(
+    clippy::absolute_paths,
+    reason = "to avoid polluting the top-level namespace"
+)]
+pub fn check_serialization<T>()
+where
+    T: core::fmt::Debug + PartialEq + Pbt,
+{
+    let mut prng = wyrand::WyRand::new(42);
+    let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
+        return;
+    };
+    for t in arbitrary.take(16) {
+        let json = t.clone().deconstruct().serialize();
+        let reconstructed: Option<T> = reflection::Parts::deserialize(&json);
+        pretty_assertions::assert_eq!(
+            reconstructed,
+            Some(t.clone()),
+            "\r\n\r\n{t:?} -> {json:?} -> {reconstructed:?} =/= Some({t:?})",
+        );
     }
 }
 

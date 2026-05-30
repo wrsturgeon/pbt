@@ -19,7 +19,7 @@ use {
     ahash::HashMap,
     alloc::{collections::BTreeMap, sync::Arc},
     core::{
-        any::TypeId,
+        any::{TypeId, type_name},
         cmp,
         hash::{Hash, Hasher},
         iter,
@@ -59,6 +59,8 @@ pub(crate) struct BucketOps<SelfType> {
     pub(crate) clone_vec: fn(&Vec<Erased>) -> Vec<Erased>,
     /// Deconstruct a boxed value into its constructor index and its fields.
     pub(crate) deconstruct: fn(ptr::NonNull<Erased>) -> Parts<Store>,
+    /// Deserialize JSON into a vector of this type.
+    pub(crate) deserialize: fn(&Vec<serde_json::Value>) -> Option<Vec<Erased>>,
     /// Drop a boxed term of this type.
     pub(crate) drop: fn(ptr::NonNull<Erased>),
     /// Drop a vector of this type.
@@ -67,10 +69,14 @@ pub(crate) struct BucketOps<SelfType> {
     pub(crate) empty: fn() -> Vec<Erased>,
     /// Get a *reference* (*not* a `Box`) to the nth element of a vector.
     pub(crate) get: fn(&Vec<Erased>, usize) -> Option<ptr::NonNull<Erased>>,
+    /// The name of this type.
+    pub(crate) name: fn() -> &'static str,
     /// Pop an element and box it.
     pub(crate) pop: fn(&mut Vec<Erased>) -> Option<ptr::NonNull<Erased>>,
     /// Push a boxed element onto a vector.
     pub(crate) push: fn(&mut Vec<Erased>, ptr::NonNull<Erased>),
+    /// Serialize a vector of this type into JSON.
+    pub(crate) serialize: fn(Vec<Erased>) -> Vec<serde_json::Value>,
     /// Iterate over shrinking candidates for a given initial witness.
     pub(crate) shrink: fn(ptr::NonNull<Erased>) -> Box<dyn Iterator<Item = ptr::NonNull<Erased>>>,
     /// Remove the `i`th element in O(1) by swapping it with the last element.
@@ -90,14 +96,18 @@ pub(crate) struct BucketOps<SelfType> {
 ///   no matter which "flavor" of `usize` we want.
 #[derive(Debug)]
 #[non_exhaustive]
-pub(crate) enum Constructors<SelfType: ?Sized> {
+pub(crate) enum Constructors<SelfType> {
     /// The type of each field in this variant.
     /// Order does not matter, but total count does.
     Algebraic(Arc<[Constructor]>),
     /// An opaque function pointer that generates values of this type.
     Literal {
+        /// Deserialize JSON into this type.
+        deserialize: fn(&serde_json::Value) -> Option<SelfType>,
         /// Opaque function pointers that generate values of this type.
         generators: Arc<[fn(&mut WyRand) -> SelfType]>,
+        /// Serialize this type into JSON.
+        serialize: fn(&SelfType) -> serde_json::Value,
         /// An opaque function pointer that shrinks values of this type.
         shrink: fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
     },
@@ -119,8 +129,8 @@ pub(crate) struct Constructor {
     /// The type of each field in this variant.
     /// Order does not matter, but total count does.
     pub(crate) field_types: Multiset<TypeId>,
-    /// The index of this variant under the original source ordering.
-    pub(crate) index: usize,
+    /// The 1-indexed position of this variant under the original source ordering.
+    pub(crate) index: NonZero<usize>,
 }
 
 /// An erased type.
@@ -136,8 +146,8 @@ pub(crate) enum Erased {}
 pub struct Parts<F> {
     /// All fields applied to this variant/constructor.
     pub fields: F,
-    /// The source-ordering index of the variant used to construct this value.
-    pub variant_index: usize,
+    /// The 1-indexed source-ordering position of the variant used to construct this value.
+    pub variant_index: Option<NonZero<usize>>,
 }
 
 /// A type was not instantiable, e.g. `enum Bad { /* no variants */ }`.
@@ -176,14 +186,18 @@ pub struct Variant {
 ///   no matter which "flavor" of `usize` we want.
 #[derive(Debug)]
 #[non_exhaustive]
-pub enum Variants<SelfType: ?Sized> {
+pub enum Variants<SelfType> {
     /// The type of each field in this variant.
     /// Order does not matter, but total count does.
     Algebraic(Vec<Variant>),
     /// An opaque function pointer that generates values of this type.
     Literal {
+        /// Deserialize JSON into this type.
+        deserialize: fn(&serde_json::Value) -> Option<SelfType>,
         /// Opaque function pointers that generate values of this type.
         generators: Vec<fn(&mut WyRand) -> SelfType>,
+        /// Serialize this type into JSON.
+        serialize: fn(&SelfType) -> serde_json::Value,
         /// An opaque function pointer that shrinks values of this type.
         shrink: fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
     },
@@ -224,6 +238,14 @@ impl<T: Pbt> BucketOps<T> {
                 let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
                 T::deconstruct(*boxed)
             },
+            deserialize: |jsons: &Vec<serde_json::Value>| {
+                let v: Vec<T> = jsons
+                    .iter()
+                    .map(Parts::deserialize)
+                    .collect::<Option<Vec<T>>>()?;
+                // SAFETY: Invariant. Extremely dangerous.
+                Some(unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) })
+            },
             drop: |erased_boxed: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
                 let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
@@ -245,6 +267,7 @@ impl<T: Pbt> BucketOps<T> {
                     unsafe { ptr::from_ref(erased_v).cast::<Vec<T>>().as_ref_unchecked() };
                 Some(ptr::NonNull::from_ref(v.get(index)?).cast::<Erased>())
             },
+            name: type_name::<T>,
             pop: |erased_v: &mut Vec<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
                 let v: &mut Vec<T> =
@@ -259,6 +282,25 @@ impl<T: Pbt> BucketOps<T> {
                 // SAFETY: Invariant. Extremely dangerous.
                 let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
                 let () = v.push(*boxed);
+            },
+            serialize: |erased_v: Vec<Erased>| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let v: Vec<T> = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_v) };
+                if let Constructors::Literal { serialize, .. } = constructors_of(TypeId::of::<T>())
+                {
+                    // SAFETY: Invariant. Extremely dangerous.
+                    let serialize_typed = unsafe {
+                        mem::transmute::<
+                            fn(&Erased) -> serde_json::Value,
+                            fn(&T) -> serde_json::Value,
+                        >(serialize)
+                    };
+                    v.iter().map(serialize_typed).collect()
+                } else {
+                    v.into_iter()
+                        .map(|t: T| t.deconstruct().serialize())
+                        .collect()
+                }
             },
             shrink: |erased_boxed: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
@@ -324,21 +366,21 @@ impl Hash for Constructor {
     where
         H: Hasher,
     {
-        let () = <usize as Hash>::hash(&self.index, state);
+        let () = <NonZero<usize> as Hash>::hash(&self.index, state);
     }
 }
 
 impl Ord for Constructor {
     #[inline]
     fn cmp(&self, other: &Self) -> cmp::Ordering {
-        <usize as Ord>::cmp(&self.index, &other.index)
+        <NonZero<usize> as Ord>::cmp(&self.index, &other.index)
     }
 }
 
 impl PartialEq for Constructor {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
-        <usize as PartialEq>::eq(&self.index, &other.index)
+        <NonZero<usize> as PartialEq>::eq(&self.index, &other.index)
     }
 }
 
@@ -349,9 +391,9 @@ impl PartialOrd for Constructor {
     }
 }
 
-impl<SelfType: ?Sized> Eq for Constructors<SelfType> {}
+impl<SelfType> Eq for Constructors<SelfType> {}
 
-impl<SelfType: ?Sized> Hash for Constructors<SelfType> {
+impl<SelfType> Hash for Constructors<SelfType> {
     #[inline]
     fn hash<H>(&self, state: &mut H)
     where
@@ -371,7 +413,7 @@ impl<SelfType: ?Sized> Hash for Constructors<SelfType> {
     }
 }
 
-impl<SelfType: ?Sized> Ord for Constructors<SelfType> {
+impl<SelfType> Ord for Constructors<SelfType> {
     #[inline]
     fn cmp(&self, other: &Self) -> cmp::Ordering {
         match (self, other) {
@@ -392,7 +434,7 @@ impl<SelfType: ?Sized> Ord for Constructors<SelfType> {
     }
 }
 
-impl<SelfType: ?Sized> PartialEq for Constructors<SelfType> {
+impl<SelfType> PartialEq for Constructors<SelfType> {
     #[inline]
     fn eq(&self, other: &Self) -> bool {
         match (self, other) {
@@ -412,30 +454,34 @@ impl<SelfType: ?Sized> PartialEq for Constructors<SelfType> {
     }
 }
 
-impl<SelfType: ?Sized> PartialOrd for Constructors<SelfType> {
+impl<SelfType> PartialOrd for Constructors<SelfType> {
     #[inline]
     fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
         Some(<Self as Ord>::cmp(self, other))
     }
 }
 
-impl<SelfType: ?Sized> Clone for Constructors<SelfType> {
+impl<SelfType> Clone for Constructors<SelfType> {
     #[inline]
     fn clone(&self) -> Self {
         match *self {
             Self::Algebraic(ref constructors) => Self::Algebraic(Arc::clone(constructors)),
             Self::Literal {
+                deserialize,
                 ref generators,
+                serialize,
                 shrink,
             } => Self::Literal {
+                deserialize,
                 generators: Arc::clone(generators),
+                serialize,
                 shrink,
             },
         }
     }
 }
 
-impl<SelfType: ?Sized> Constructors<SelfType> {
+impl<SelfType> Constructors<SelfType> {
     /// Algebraic constructors exposed as a slice.
     #[inline]
     #[must_use]
@@ -457,6 +503,107 @@ impl<SelfType: ?Sized> Constructors<SelfType> {
     }
 }
 
+impl Parts<Store> {
+    /// Deserialize from JSON.
+    #[inline]
+    #[expect(
+        clippy::expect_used,
+        clippy::unwrap_in_result,
+        reason = "Internal invariants: violations should fail loudly."
+    )]
+    pub(crate) fn deserialize<T>(json: &serde_json::Value) -> Option<T>
+    where
+        T: Pbt,
+    {
+        let () = register_globally::<T>();
+
+        let ty = TypeId::of::<T>();
+        let ctors = match constructors_of(ty) {
+            Constructors::Algebraic(ref arc_ctors) => Arc::clone(arc_ctors),
+            Constructors::Literal { deserialize, .. } => {
+                // SAFETY: Invariant. Extremely dangerous.
+                let deserialize_typed = unsafe {
+                    mem::transmute::<
+                        fn(&serde_json::Value) -> Option<Erased>,
+                        fn(&serde_json::Value) -> Option<T>,
+                    >(deserialize)
+                };
+                return deserialize_typed(json);
+            }
+        };
+
+        let serde_json::Value::Object(ref map) = *json else {
+            return None;
+        };
+        let variant_index: Option<NonZero<usize>> =
+            map.get("index").and_then(|json_index: &serde_json::Value| {
+                let serde_json::Value::String(ref s) = *json_index else {
+                    return None;
+                };
+                NonZero::new(s.parse().ok()?)
+            });
+
+        let algebraic_variant_index = variant_index?;
+        let ctor = ctors
+            .iter()
+            // TODO: store naive `Variant`s (without indices) to eliminate the below lienar search
+            .find(|&ctor| ctor.index == algebraic_variant_index)
+            .expect("INTERNAL ERROR (`pbt`): deserializing non-existent constructor");
+
+        let fields = Store::deserialize(map.get("fields")?, &ctor.field_types)?;
+        Some(T::construct(Self {
+            fields,
+            variant_index,
+        }))
+    }
+
+    /// Serialize into JSON.
+    #[inline]
+    #[expect(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "Internal invariants: violations should fail loudly."
+    )]
+    pub(crate) fn serialize(self) -> serde_json::Value {
+        let Self {
+            mut fields,
+            variant_index,
+        } = self;
+        if let Some(index) = variant_index {
+            serde_json::Value::Object(
+                [
+                    ("fields".to_owned(), fields.serialize()),
+                    ("index".to_owned(), index.to_string().into()),
+                ]
+                .into_iter()
+                .collect(),
+            )
+        } else {
+            let (ty, erased) = fields
+                .pop_erased()
+                .expect("INTERNAL ERROR (`pbt`): serializing a non-existent literal");
+            debug_assert!(
+                fields.pop_erased().is_none(),
+                "INTERNAL ERROR (`pbt`): serializing a literal that contains multitudes",
+            );
+            let ctors = constructors_of(ty);
+            let Constructors::Literal { serialize, .. } = ctors else {
+                panic!("INTERNAL ERROR (`pbt`): serializing a literal that think it's algebraic");
+            };
+            // SAFETY: References are non-null pointers with extra type-level info.
+            let serialize_ptr = unsafe {
+                mem::transmute::<
+                    fn(&Erased) -> serde_json::Value,
+                    fn(ptr::NonNull<Erased>) -> serde_json::Value,
+                >(serialize)
+            };
+            let json = serialize_ptr(erased);
+            let () = (bucket_ops_of(ty).drop)(erased);
+            json
+        }
+    }
+}
+
 impl<SelfType> Variants<SelfType> {
     /// Erase type data while maintaining exactly the same function pointers.
     #[inline]
@@ -467,10 +614,26 @@ impl<SelfType> Variants<SelfType> {
                 constructors
                     .into_iter()
                     .enumerate()
-                    .map(|(index, Variant { field_types })| Constructor { field_types, index })
+                    .map(|(zero_indexed, Variant { field_types })| Constructor {
+                        field_types,
+                        #[expect(
+                            clippy::arithmetic_side_effects,
+                            reason = "If an index is `usize::MAX`, there are bigger issues."
+                        )]
+                        index: {
+                            // SAFETY: If an index is `usize::MAX`, there are bigger issues,
+                            // so this should panic. Otherwise, the result will be nonzero.
+                            unsafe { NonZero::new_unchecked(zero_indexed + 1) }
+                        },
+                    })
                     .collect(),
             ),
-            Self::Literal { generators, shrink } => {
+            Self::Literal {
+                deserialize,
+                generators,
+                serialize,
+                shrink,
+            } => {
                 let erased_generators: Arc<[fn(&mut WyRand) -> Erased]> =
                     generators
                         .into_iter()
@@ -485,6 +648,20 @@ impl<SelfType> Variants<SelfType> {
                         })
                         .collect();
                 // SAFETY: Function pointers are the same size no matter the types in these positions.
+                let erased_deserialize = unsafe {
+                    mem::transmute::<
+                        fn(&serde_json::Value) -> Option<SelfType>,
+                        fn(&serde_json::Value) -> Option<Erased>,
+                    >(deserialize)
+                };
+                // SAFETY: Function pointers are the same size no matter the types in these positions.
+                let erased_serialize = unsafe {
+                    mem::transmute::<
+                        fn(&SelfType) -> serde_json::Value,
+                        fn(&Erased) -> serde_json::Value,
+                    >(serialize)
+                };
+                // SAFETY: Function pointers are the same size no matter the types in these positions.
                 let erased_shrink = unsafe {
                     mem::transmute::<
                         fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
@@ -492,7 +669,9 @@ impl<SelfType> Variants<SelfType> {
                     >(shrink)
                 };
                 Constructors::Literal {
+                    deserialize: erased_deserialize,
                     generators: erased_generators,
+                    serialize: erased_serialize,
                     shrink: erased_shrink,
                 }
             }
@@ -528,37 +707,6 @@ pub(crate) fn is_literal(ty: TypeId) -> bool {
             .get(&ty),
         Some(Constructors::Literal { .. })
     )
-}
-
-/// Shrink a literal value using its type-level literal shrinker.
-#[inline]
-#[expect(
-    clippy::expect_used,
-    reason = "Internal invariants: violations should fail loudly."
-)]
-pub(crate) fn shrink_literal<T>(t: T) -> Option<Box<dyn Iterator<Item = T>>>
-where
-    T: 'static,
-{
-    let ty = TypeId::of::<T>();
-    let erased_shrink = {
-        let naive_variants = NAIVE_VARIANTS
-            .read()
-            .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
-        let Constructors::Literal { shrink, .. } = *naive_variants.get(&ty)? else {
-            return None;
-        };
-        shrink
-    };
-
-    // SAFETY: `Registration::register::<T>` erased this function pointer.
-    let typed_shrink = unsafe {
-        mem::transmute::<
-            fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
-            fn(T) -> Box<dyn Iterator<Item = T>>,
-        >(erased_shrink)
-    };
-    Some(typed_shrink(t))
 }
 
 /// Instantiable constructors for each type.

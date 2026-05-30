@@ -158,7 +158,7 @@ impl Swarm {
                 sizes,
                 swarm: self,
             },
-            variant_index: ctor.index,
+            variant_index: Some(ctor.index),
         })
     }
 
@@ -451,7 +451,12 @@ fn mask_all_constructors_reachable_from(
                 }
             }
         }
-        Constructors::Literal { generators, shrink } => {
+        Constructors::Literal {
+            deserialize,
+            generators,
+            serialize,
+            shrink,
+        } => {
             let mask = mask_for(generators.len(), prng);
             let masked_generators = generators
                 .iter()
@@ -461,7 +466,9 @@ fn mask_all_constructors_reachable_from(
             let _dup: Option<_> = masked_constructors.insert(
                 ty,
                 Constructors::Literal {
+                    deserialize,
                     generators: masked_generators,
+                    serialize,
                     shrink,
                 },
             );

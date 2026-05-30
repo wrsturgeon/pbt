@@ -200,6 +200,27 @@ impl Fields for Store {
 }
 
 impl Store {
+    /// Deserialize from JSON.
+    #[inline]
+    pub(crate) fn deserialize(
+        json: &serde_json::Value,
+        field_types: &Multiset<TypeId>,
+    ) -> Option<Self> {
+        let mut store = map();
+        let serde_json::Value::Object(ref map) = *json else {
+            return None;
+        };
+        #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
+        for &ty in field_types.iter_dedup() {
+            let bucket_ops = bucket_ops_of(ty);
+            let serde_json::Value::Array(ref values) = *map.get((bucket_ops.name)())? else {
+                return None;
+            };
+            let _: Option<_> = store.insert(ty, (bucket_ops.deserialize)(values)?);
+        }
+        Some(Self { store })
+    }
+
     /// Drop all unused fields of this store.
     /// If this is not called, stores must
     /// use all their stored fields before being dropped.
@@ -246,7 +267,7 @@ impl Store {
 
     /// Pop and return all cached fields of this type iff they exist.
     #[inline]
-    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
+    #[cfg(test)]
     pub(crate) fn pop_all<T>(&mut self) -> Option<Vec<T>>
     where
         T: 'static,
@@ -310,6 +331,23 @@ impl Store {
     #[inline]
     pub(crate) fn sections(self, requirements: Multiset<TypeId>) -> impl Iterator<Item = Self> {
         Sections::new(self, requirements)
+    }
+
+    /// Serialize into JSON.
+    #[inline]
+    pub(crate) fn serialize(mut self) -> serde_json::Value {
+        serde_json::Value::Object(
+            self.store
+                .drain()
+                .map(|(ty, v)| {
+                    let bucket_ops = bucket_ops_of(ty);
+                    (
+                        (bucket_ops.name)().to_owned(),
+                        serde_json::Value::Array((bucket_ops.serialize)(v)),
+                    )
+                })
+                .collect(),
+        )
     }
 
     /// Visit all sub-terms of an arbitrary type within a `Store`.

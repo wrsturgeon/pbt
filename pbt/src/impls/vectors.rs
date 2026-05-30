@@ -8,7 +8,7 @@ use {
         reflection::{Parts, Variant, Variants},
         registration::Registration,
     },
-    core::any::TypeId,
+    core::{any::TypeId, num::NonZero},
 };
 
 impl<T> Pbt for Vec<T>
@@ -16,7 +16,11 @@ where
     T: Pbt,
 {
     #[inline]
-    #[expect(clippy::panic, reason = "end-users shouldn't be calling this")]
+    #[expect(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "end-users shouldn't be calling this"
+    )]
     fn construct<F>(
         Parts {
             mut fields,
@@ -26,14 +30,15 @@ where
     where
         F: Fields,
     {
-        match variant_index {
-            0 => vec![],
-            1 => {
+        let algebraic_index: usize = variant_index.expect("`bool` is not a literal").get();
+        match algebraic_index {
+            1 => vec![],
+            2 => {
                 let mut acc: Self = fields.field();
                 let () = acc.push(fields.field());
                 acc
             }
-            _ => panic!("can't instantiate variant #{variant_index} of `bool`"),
+            _ => panic!("can't instantiate variant #{algebraic_index} of `bool`"),
         }
     }
 
@@ -42,7 +47,7 @@ where
         let Some(caboose) = self.pop() else {
             return Parts {
                 fields: Store::new(),
-                variant_index: 0,
+                variant_index: Some(const { NonZero::new(1).unwrap() }),
             };
         };
         let mut fields = Store::new();
@@ -50,7 +55,7 @@ where
         let () = fields.push(self);
         Parts {
             fields,
-            variant_index: 1,
+            variant_index: Some(const { NonZero::new(2).unwrap() }),
         }
     }
 
@@ -75,7 +80,7 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
-        crate::{arbitrary::arbitrary, check_eta_expansion},
+        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
@@ -113,5 +118,15 @@ mod tests {
     #[test]
     fn eta_expansion_deep() {
         let () = check_eta_expansion::<Vec<Vec<usize>>>();
+    }
+
+    #[test]
+    fn serialization() {
+        let () = check_serialization::<Vec<usize>>();
+    }
+
+    #[test]
+    fn serialization_deep() {
+        let () = check_serialization::<Vec<Vec<usize>>>();
     }
 }

@@ -13,10 +13,16 @@ use {
 
 impl Pbt for usize {
     #[inline]
-    fn construct<F>(Parts { mut fields, .. }: Parts<F>) -> Self
+    fn construct<F>(
+        Parts {
+            mut fields,
+            variant_index,
+        }: Parts<F>,
+    ) -> Self
     where
         F: Fields,
     {
+        debug_assert_eq!(variant_index, None, "`usize` is a literal");
         fields.field()
     }
 
@@ -26,14 +32,21 @@ impl Pbt for usize {
         let () = fields.push(self);
         Parts {
             fields,
-            variant_index: 0,
+            variant_index: None,
         }
     }
 
     #[inline]
     fn register(_registration: &mut Registration<'_>) -> Variants<Self> {
         Variants::Literal {
+            deserialize: |json| {
+                let serde_json::Value::String(ref s) = *json else {
+                    return None;
+                };
+                s.parse().ok()
+            },
             generators: vec![uniform, small],
+            serialize: |&i| i.to_string().into(),
             shrink,
         }
     }
@@ -117,7 +130,7 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
-        crate::{arbitrary::arbitrary, check_eta_expansion},
+        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
@@ -144,5 +157,10 @@ mod tests {
     #[test]
     fn eta_expansion() {
         let () = check_eta_expansion::<usize>();
+    }
+
+    #[test]
+    fn serialization() {
+        let () = check_serialization::<usize>();
     }
 }

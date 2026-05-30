@@ -1,24 +1,32 @@
 //! Implementations for `bool`.
 
-use crate::{
-    Pbt,
-    fields::{Fields, Store},
-    multiset::Multiset,
-    reflection::{Parts, Variant, Variants},
-    registration::Registration,
+use {
+    crate::{
+        Pbt,
+        fields::{Fields, Store},
+        multiset::Multiset,
+        reflection::{Parts, Variant, Variants},
+        registration::Registration,
+    },
+    core::num::NonZero,
 };
 
 impl Pbt for bool {
     #[inline]
-    #[expect(clippy::panic, reason = "end-users shouldn't be calling this")]
+    #[expect(
+        clippy::expect_used,
+        clippy::panic,
+        reason = "end-users shouldn't be calling this"
+    )]
     fn construct<F>(Parts { variant_index, .. }: Parts<F>) -> Self
     where
         F: Fields,
     {
-        match variant_index {
-            0 => false,
-            1 => true,
-            _ => panic!("can't instantiate variant #{variant_index} of `bool`"),
+        let algebraic_index: usize = variant_index.expect("`bool` is not a literal").get();
+        match algebraic_index {
+            1 => false,
+            2 => true,
+            _ => panic!("can't instantiate variant #{algebraic_index} of `bool`"),
         }
     }
 
@@ -26,7 +34,10 @@ impl Pbt for bool {
     fn deconstruct(self) -> Parts<Store> {
         Parts {
             fields: Store::new(),
-            variant_index: usize::from(self),
+            #[expect(clippy::arithmetic_side_effects, reason = "`bool`s can be only 0 or 1")]
+            // SAFETY: `bool`s can be only 0 or 1,
+            // each of which can be safely incremented to a nonzero integer.
+            variant_index: Some(unsafe { NonZero::new_unchecked(usize::from(self) + 1) }),
         }
     }
 
@@ -48,7 +59,7 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
-        crate::{arbitrary::arbitrary, check_eta_expansion},
+        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
@@ -66,5 +77,10 @@ mod tests {
     #[test]
     fn eta_expansion() {
         let () = check_eta_expansion::<bool>();
+    }
+
+    #[test]
+    fn serialization() {
+        let () = check_serialization::<bool>();
     }
 }
