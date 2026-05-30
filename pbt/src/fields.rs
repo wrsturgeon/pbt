@@ -158,7 +158,7 @@ impl Iterator for Sections {
 
             if let Some((ref head, ref mut recurse)) = self.recurse {
                 if let Some(mut tail) = recurse.next() {
-                    let v: &mut Vec<Erased> = tail.store.entry(ty).or_default();
+                    let v: &mut Vec<Erased> = tail.store.entry(ty).or_insert_with(bucket_ops.empty);
                     let cloned = (bucket_ops.clone)(*head);
                     let () = (bucket_ops.push)(v, cloned);
                     return Some(tail);
@@ -294,7 +294,7 @@ impl Store {
     #[inline]
     pub(crate) fn push_erased(&mut self, ty: TypeId, erased_boxed: ptr::NonNull<Erased>) {
         let bucket_ops = bucket_ops_of(ty);
-        let v: &mut Vec<Erased> = self.store.entry(ty).or_default();
+        let v: &mut Vec<Erased> = self.store.entry(ty).or_insert_with(bucket_ops.empty);
         let () = (bucket_ops.push)(v, erased_boxed);
     }
 

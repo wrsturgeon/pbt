@@ -174,5 +174,3 @@ pub(crate) fn update(
         let _old = cache.insert(ty, constructors);
     }
 }
-
-// TODO: generic tests

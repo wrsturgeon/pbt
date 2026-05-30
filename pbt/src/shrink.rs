@@ -7,7 +7,7 @@ use {
             register_globally, shrink_literal,
         },
     },
-    core::{any::TypeId, ptr},
+    core::{any::TypeId, mem, ptr},
 };
 
 pub struct EachField {
@@ -41,6 +41,32 @@ impl EachField {
         Self {
             leash_length: 1,
             recurse: EachFieldRecursively::new(fields),
+        }
+    }
+}
+
+impl Iterator for EachField {
+    type Item = Store;
+
+    #[inline]
+    fn next(&mut self) -> Option<Self::Item> {
+        'exclude_orig: loop {
+            let Some((mut next, orig)) = self.recurse.next_with_leash(self.leash_length) else {
+                break 'exclude_orig;
+            };
+            if !orig {
+                return Some(next);
+            }
+            let () = next.drop_unused();
+        }
+        let () = self.recurse.rewind();
+        self.leash_length += 1;
+        loop {
+            let (mut next, orig) = self.recurse.next_with_leash(self.leash_length)?;
+            if !orig {
+                return Some(next);
+            }
+            let () = next.drop_unused();
         }
     }
 }
@@ -120,7 +146,7 @@ impl ShrinkingCache {
         let iterator = (bucket_ops.shrink)(erased_boxed);
         Self {
             bucket_ops,
-            cache: vec![],
+            cache: (bucket_ops.empty)(),
             iterator,
             original,
             ty,
@@ -128,29 +154,11 @@ impl ShrinkingCache {
     }
 }
 
-impl Iterator for EachField {
-    type Item = Store;
-
+impl Drop for ShrinkingCache {
     #[inline]
-    fn next(&mut self) -> Option<Self::Item> {
-        'exclude_orig: loop {
-            let Some((mut next, orig)) = self.recurse.next_with_leash(self.leash_length) else {
-                break 'exclude_orig;
-            };
-            if !orig {
-                return Some(next);
-            }
-            let () = next.drop_unused();
-        }
-        let () = self.recurse.rewind();
-        self.leash_length += 1;
-        loop {
-            let (mut next, orig) = self.recurse.next_with_leash(self.leash_length)?;
-            if !orig {
-                return Some(next);
-            }
-            let () = next.drop_unused();
-        }
+    fn drop(&mut self) {
+        let () = (self.bucket_ops.drop)(self.original);
+        let () = (self.bucket_ops.drop_vec)(mem::take(&mut self.cache));
     }
 }
 

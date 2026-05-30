@@ -63,6 +63,8 @@ pub(crate) struct BucketOps<SelfType> {
     pub(crate) drop: fn(ptr::NonNull<Erased>),
     /// Drop a vector of this type.
     pub(crate) drop_vec: fn(Vec<Erased>),
+    /// Create an empty vector of this type.
+    pub(crate) empty: fn() -> Vec<Erased>,
     /// Get a *reference* (*not* a `Box`) to the nth element of a vector.
     pub(crate) get: fn(&Vec<Erased>, usize) -> Option<ptr::NonNull<Erased>>,
     /// Pop an element and box it.
@@ -231,6 +233,11 @@ impl<T: Pbt> BucketOps<T> {
                 // SAFETY: Invariant. Extremely dangerous.
                 let v: Vec<T> = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_v) };
                 let () = drop(v);
+            },
+            empty: || {
+                let v: Vec<T> = Vec::new();
+                // SAFETY: Invariant. Extremely dangerous.
+                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) }
             },
             get: |erased_v: &Vec<Erased>, index: usize| {
                 // SAFETY: Invariant. Extremely dangerous.
@@ -579,7 +586,7 @@ pub(crate) fn constructors_of(ty: TypeId) -> Constructors<Erased> {
     let mut cache = CACHE
         .write()
         .expect("INTERNAL ERROR (`pbt`): instantiability lock poisoned");
-    let () = instantiability::update(ty, &naive, &mut cache, &Constructor::field_types);
+    let () = instantiability::update(ty, &naive, &mut cache);
 
     cache
         .get(&ty)
