@@ -45,8 +45,6 @@ static BUCKET_OPS: RwLock<HashMap<TypeId, BucketOps<Erased>>> = RwLock::new(map(
 static NAIVE_VARIANTS: RwLock<BTreeMap<TypeId, Constructors<Erased>>> =
     RwLock::new(BTreeMap::new());
 
-// TODO: Try once again to use `SelfType` in function types and then
-// to transmute the function pointers instead of transmuting internally.
 /// Function pointers performing operations on vectors of some type.
 #[non_exhaustive]
 #[derive(Clone, Copy)]
@@ -192,6 +190,7 @@ pub enum Variants<SelfType> {
     Algebraic(Vec<Variant>),
     /// An opaque function pointer that generates values of this type.
     Literal {
+        // TODO: automatically enumerate corner cases
         /// Deserialize JSON into this type.
         deserialize: fn(&serde_json::Value) -> Option<SelfType>,
         /// Opaque function pointers that generate values of this type.
@@ -546,7 +545,7 @@ impl Parts<Store> {
         let algebraic_variant_index = variant_index?;
         let ctor = ctors
             .iter()
-            // TODO: store naive `Variant`s (without indices) to eliminate the below lienar search
+            // TODO: store naive `Variant`s (without indices) to eliminate the below linear search
             .find(|&ctor| ctor.index == algebraic_variant_index)
             .expect("INTERNAL ERROR (`pbt`): deserializing non-existent constructor");
 
