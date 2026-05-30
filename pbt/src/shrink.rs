@@ -4,6 +4,7 @@ use {
     crate::{
         Pbt,
         fields::Store,
+        persist,
         reflection::{
             BucketOps, Constructors, Erased, Parts, bucket_ops_of, constructors_of,
             register_globally,
@@ -268,6 +269,7 @@ where
                 continue 'giant_leaps;
             }
         }
+        let () = persist::witness(&best_yet);
         return best_yet;
     }
 }

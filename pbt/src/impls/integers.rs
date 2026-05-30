@@ -140,6 +140,7 @@ mod tests {
         let mut prng = WyRand::new(42);
         let generated: Vec<usize> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected = vec![
+            42, // <-- persisted to `.pbt/` and replayed
             9,
             6,
             6,
@@ -149,7 +150,6 @@ mod tests {
             3,
             0,
             1,
-            0,
         ];
         assert_eq!(generated, expected);
     }

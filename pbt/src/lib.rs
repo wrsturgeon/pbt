@@ -9,6 +9,7 @@ pub mod hash;
 mod impls;
 mod instantiability;
 mod multiset;
+mod persist;
 pub mod reflection;
 pub mod registration;
 mod scc;
