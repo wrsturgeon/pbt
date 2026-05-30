@@ -14,7 +14,7 @@
 use {
     crate::{
         Pbt, fields::Store, hash::map, instantiability, multiset::Multiset,
-        registration::Registration,
+        registration::Registration, shrink,
     },
     ahash::HashMap,
     alloc::{collections::BTreeMap, sync::Arc},
@@ -75,12 +75,42 @@ pub struct BucketOps<SelfType> {
     pub drop: fn(ptr::NonNull<Erased>),
     /// Drop a vector of this type.
     pub drop_vec: fn(Vec<Erased>),
+    /// Get a *reference* (*not* a `Box`) to the nth element of a vector.
+    pub get: fn(&Vec<Erased>, usize) -> Option<ptr::NonNull<Erased>>,
     /// Pop an element and box it.
     pub pop: fn(&mut Vec<Erased>) -> Option<ptr::NonNull<Erased>>,
-    /// Clone an element and push it onto a vector.
-    pub push_clone: fn(&mut Vec<Erased>, ptr::NonNull<Erased>),
+    /// Push a boxed element onto a vector.
+    pub push: fn(&mut Vec<Erased>, ptr::NonNull<Erased>),
+    /// Iterate over shrinking candidates for a given initial witness.
+    pub shrink: fn(ptr::NonNull<Erased>) -> Box<dyn Iterator<Item = ptr::NonNull<Erased>>>,
     /// Remove the `i`th element in O(1) by swapping it with the last element.
     pub swap_remove: fn(&mut Vec<Erased>, usize) -> ptr::NonNull<Erased>,
+}
+
+/// Each variant of some type in roughly "smallest-to-largest" order,
+/// with ties broken by source ordering.
+///
+/// - If this is an `enum`, each variant is one `enum` variant.
+/// - if this is a `struct`, there's exactly one variant with all fields.
+/// - If this is a literal type, each variant is an opaque generator.
+///   For example, `usize` might have two generators:
+///   *small* `usize`s (for indices) and *uniform* `usize`s.
+///   Swarm testing will pick *either* one *or* the other about half the time
+///   and enable both the other half of the time, so this works elegantly
+///   no matter which "flavor" of `usize` we want.
+#[derive(Debug)]
+#[non_exhaustive]
+pub(crate) enum Constructors<SelfType: ?Sized> {
+    /// The type of each field in this variant.
+    /// Order does not matter, but total count does.
+    Algebraic(Vec<Constructor>),
+    /// An opaque function pointer that generates values of this type.
+    Literal {
+        /// Opaque function pointers that generate values of this type.
+        generators: Vec<fn(&mut WyRand) -> SelfType>,
+        /// An opaque function pointer that shrinks values of this type.
+        shrink: fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
+    },
 }
 
 /// Each variant of some type in source order.
@@ -95,12 +125,12 @@ pub struct BucketOps<SelfType> {
 ///   no matter which "flavor" of `usize` we want.
 #[derive(Debug)]
 #[non_exhaustive]
-pub(crate) struct Constructor<SelfType: ?Sized> {
+pub(crate) struct Constructor {
+    /// The type of each field in this variant.
+    /// Order does not matter, but total count does.
+    pub(crate) field_types: Multiset<TypeId>,
     /// The index of this variant under the original source ordering.
     pub(crate) index: usize,
-    /// Reflection about this constructor
-    /// in terms of its original source-code variant.
-    pub(crate) variant: Variant<SelfType>,
 }
 
 /// An erased type.
@@ -120,52 +150,10 @@ pub struct Parts<F> {
     pub variant_index: usize,
 }
 
-/// All variants of this type.
-///
-/// If this type is an `enum`, this means exactly what it sounds like.
-/// If this type is a `struct`, there's only one variant.
-#[non_exhaustive]
-pub struct Reflection<SelfType> {
-    /// All variants of this type.
-    ///
-    /// If this type is an `enum`, this means exactly what it sounds like.
-    /// If this type is a `struct`, there's only one variant.
-    pub variants: Vec<Variant<SelfType>>,
-}
-
 /// A type was not instantiable, e.g. `enum Bad { /* no variants */ }`.
 #[derive(Debug)]
 #[non_exhaustive]
 pub struct Uninstantiable;
-
-/// Each variant of some type in source order.
-///
-/// - If this is an `enum`, each variant is one `enum` variant.
-/// - if this is a `struct`, there's exactly one variant with all fields.
-/// - If this is a literal type, each variant is an opaque generator.
-///   For example, `usize` might have two generators:
-///   *small* `usize`s (for indices) and *uniform* `usize`s.
-///   Swarm testing will pick *either* one *or* the other about half the time
-///   and enable both the other half of the time, so this works elegantly
-///   no matter which "flavor" of `usize` we want.
-#[derive(Debug)]
-#[non_exhaustive]
-pub enum Variant<SelfType: ?Sized> {
-    /// The type of each field in this variant.
-    /// Order does not matter, but total count does.
-    Algebraic {
-        /// The type of each field in this variant.
-        /// Order does not matter, but total count does.
-        field_types: Multiset<TypeId>,
-    },
-    /// An opaque function pointer that generates values of this type.
-    Literal {
-        /// An opaque function pointer that generates values of this type.
-        generate: fn(&mut WyRand) -> SelfType,
-        /// An opaque function pointer that shrinks values of this type.
-        shrink: fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
-    },
-}
 
 impl<SelfType> Affordances<SelfType> {
     /// Whether this type can transitively
@@ -224,20 +212,34 @@ impl<T: Pbt> BucketOps<T> {
                 let v: Vec<T> = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_v) };
                 let () = drop(v);
             },
-            pop: |erased_v| {
+            get: |erased_v: &Vec<Erased>, index: usize| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let v: &Vec<T> =
+                    unsafe { ptr::from_ref(erased_v).cast::<Vec<T>>().as_ref_unchecked() };
+                Some(ptr::NonNull::from_ref(v.get(index)?).cast::<Erased>())
+            },
+            pop: |erased_v: &mut Vec<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
                 let v: &mut Vec<T> =
                     unsafe { ptr::from_mut(erased_v).cast::<Vec<T>>().as_mut_unchecked() };
                 let boxed = Box::new(v.pop()?);
                 Some(ptr::NonNull::from_mut(Box::leak(boxed)).cast())
             },
-            push_clone: |erased_v: &mut Vec<Erased>, erased_t: ptr::NonNull<Erased>| {
+            push: |erased_v: &mut Vec<Erased>, erased_boxed: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
                 let v: &mut Vec<T> =
                     unsafe { ptr::from_mut(erased_v).cast::<Vec<T>>().as_mut_unchecked() };
                 // SAFETY: Invariant. Extremely dangerous.
-                let t: &T = unsafe { erased_t.cast::<T>().as_ref() };
-                v.push(t.clone());
+                let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
+                let () = v.push(*boxed);
+            },
+            shrink: |erased_boxed: ptr::NonNull<Erased>| {
+                // SAFETY: Invariant. Extremely dangerous.
+                let unboxed: T = *unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
+                let iter_over_t = shrink::candidates(unboxed);
+                let iter_over_erased =
+                    iter_over_t.map(|t: T| ptr::NonNull::from_mut(Box::leak(Box::new(t))).cast());
+                Box::new(iter_over_erased)
             },
             swap_remove: |erased_v: &mut Vec<Erased>, i: usize| {
                 // SAFETY: Invariant. Extremely dangerous.
@@ -406,7 +408,6 @@ pub(crate) fn constructors_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-#[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
 pub(crate) fn naive_variants_of(ty: TypeId) -> Arc<[Constructor<Erased>]> {
     let naive = NAIVE_VARIANTS
         .read()

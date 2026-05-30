@@ -84,34 +84,17 @@ fn finalize_all_reachable<FieldsOfVariant, Variant, Vertex>(
         "INTERNAL ERROR (`pbt`): variant size mismatch during instantiability analysis",
     );
 
-    let _: &mut _ = constructors
-        .entry(root)
-        .or_insert_with(|| -> Arc<[Variant]> {
-            let mut acc: Vec<Variant> = variants
-                .iter()
-                .zip(variant_mask)
-                .filter_map(|(variant, enabled)| enabled.then_some(variant))
-                .cloned()
-                .collect();
-            for i in 0..acc.len() {
-                #[expect(clippy::arithmetic_side_effects, reason = "bounded by hardware")]
-                for j in (i + 1)..acc.len() {
-                    // Necessary to re-index `i` inside `j` because we flip elements.
-                    let Some(i_variant) = acc.get(i) else {
-                        continue;
-                    };
-                    let Some(j_variant) = acc.get(j) else {
-                        continue;
-                    };
-                    let i_fields = fields_of_variant(i_variant);
-                    let j_fields = fields_of_variant(j_variant);
-                    if j_fields.is_subset_of(i_fields) {
-                        let () = acc.swap(i, j);
-                    }
-                }
-            }
-            acc.into()
-        });
+    let _: &mut _ = constructors.entry(root).or_insert_with(|| {
+        let mut acc: Vec<Variant> = variants
+            .iter()
+            .zip(variant_mask)
+            .filter_map(|(variant, enabled)| enabled.then_some(variant))
+            .cloned()
+            .collect();
+        // TODO: sort by whether it's an inductive ctor, then # inductive fields, then # fields
+        let () = acc.sort_by_key(|variant| fields_of_variant(variant).total());
+        acc.into()
+    });
 
     for variant in variants
         .iter()

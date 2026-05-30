@@ -55,20 +55,6 @@ where
             .or_insert(const { NonZero::new(1).unwrap() });
     }
 
-    /// Check if this multset is entirely contained within another.
-    #[inline]
-    pub(crate) fn is_subset_of(&self, other: &Self) -> bool {
-        for (k, lhs) in self.iter() {
-            let Some(&rhs) = other.counts.get(k) else {
-                return false;
-            };
-            if rhs < lhs {
-                return false;
-            }
-        }
-        true
-    }
-
     /// Iterate over each distinct element and its count.
     #[inline]
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&T, NonZero<usize>)> {
@@ -113,6 +99,11 @@ where
             return;
         };
         *n = decremented;
+    }
+
+    #[inline]
+    pub(crate) fn total(&self) -> usize {
+        self.iter().map(|(_, n)| n.get()).sum()
     }
 }
 

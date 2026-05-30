@@ -53,7 +53,6 @@ pub(crate) struct Lazy<'prng, 'swarm> {
 /// using these stored fields to create a sub-store
 /// containing a requested multiset of types.
 #[non_exhaustive]
-#[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
 struct Sections {
     /// One type at a time, index over all stored terms of that type.
     index: usize,
@@ -80,7 +79,6 @@ pub struct Store {
 
 /// Visit all sub-terms of an arbitrary type within a `Store`.
 #[non_exhaustive]
-#[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
 struct Visitor<T> {
     /// Function pointers performing operations on vectors of `self.ty`.
     bucket_ops: BucketOps<Erased>,
@@ -118,7 +116,6 @@ impl Sections {
     /// using these stored fields to create a sub-store
     /// containing a requested multiset of types.
     #[inline]
-    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
     fn new(store: Store, mut requirements: Multiset<TypeId>) -> Self {
         Self {
             index: 0,
@@ -164,7 +161,8 @@ impl Iterator for Sections {
             if let Some((ref head, ref mut recurse)) = self.recurse {
                 if let Some(mut tail) = recurse.next() {
                     let v: &mut Vec<Erased> = tail.store.entry(ty).or_default();
-                    let () = (bucket_ops.push_clone)(v, *head);
+                    let cloned = (bucket_ops.clone)(*head);
+                    let () = (bucket_ops.push)(v, cloned);
                     return Some(tail);
                 }
                 if let Some((drop_head, _)) = self.recurse.take() {
@@ -208,7 +206,6 @@ impl Store {
     /// If this is not called, stores must
     /// use all their stored fields before being dropped.
     #[inline]
-    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
     fn drop_unused(&mut self) {
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for (k, v) in self.store.drain() {
@@ -249,7 +246,7 @@ impl Store {
         Some(t)
     }
 
-    /// Pop and return a cached field of this type iff one exists.
+    /// Pop and return all cached fields of this type iff they exist.
     #[inline]
     #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
     pub(crate) fn pop_all<T>(&mut self) -> Option<Vec<T>>
@@ -264,6 +261,24 @@ impl Store {
         }
     }
 
+    /// Pop and return a cached field of any type iff one exists.
+    #[inline]
+    pub(crate) fn pop_erased(&mut self) -> Option<(TypeId, ptr::NonNull<Erased>)> {
+        let ty = *self.store.keys().next()?;
+        let bucket_ops = bucket_ops_of(ty);
+        let hash_map::Entry::Occupied(mut entry) = self.store.entry(ty) else {
+            panic!("INTERNAL ERROR (`pbt`): disappearing store items")
+        };
+        let erased: &mut Vec<Erased> = entry.get_mut();
+        let popped =
+            (bucket_ops.pop)(erased).expect("INTERNAL ERROR (`pbt`): empty vector in a `Store`");
+        if erased.is_empty() {
+            let erased_to_drop: Vec<Erased> = entry.remove();
+            let () = (bucket_ops.drop_vec)(erased_to_drop);
+        }
+        Some((ty, popped))
+    }
+
     /// Store a field of this type.
     #[inline]
     pub fn push<T>(&mut self, t: T)
@@ -271,29 +286,30 @@ impl Store {
         T: Pbt,
     {
         let () = register_globally::<T>();
-        let ty = TypeId::of::<T>();
-        let erased: &mut Vec<Erased> = self.store.entry(ty).or_insert_with(|| {
-            // SAFETY: Invariant. Extremely dangerous.
-            unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(vec![]) }
-        });
-        // SAFETY: Invariant. Extremely dangerous.
-        let typed: &mut Vec<T> =
-            unsafe { ptr::from_mut(erased).cast::<Vec<T>>().as_mut_unchecked() };
-        typed.push(t);
+        let () = self.push_erased(
+            TypeId::of::<T>(),
+            ptr::NonNull::from_mut(Box::leak(Box::new(t))).cast(),
+        );
+    }
+
+    /// Store a field of some type.
+    #[inline]
+    pub fn push_erased(&mut self, ty: TypeId, erased_boxed: ptr::NonNull<Erased>) {
+        let bucket_ops = bucket_ops_of(ty);
+        let v: &mut Vec<Erased> = self.store.entry(ty).or_default();
+        let () = (bucket_ops.push)(v, erased_boxed);
     }
 
     /// Iterate over all possible subsets and orderings
     /// using these stored fields to create a sub-store
     /// containing a requested multiset of types.
     #[inline]
-    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
     pub(crate) fn sections(self, requirements: Multiset<TypeId>) -> impl Iterator<Item = Self> {
         Sections::new(self, requirements)
     }
 
     /// Visit all sub-terms of an arbitrary type within a `Store`.
     #[inline]
-    #[cfg_attr(not(test), expect(dead_code, reason = "TODO"))]
     pub(crate) fn visit<T>(self) -> impl Iterator<Item = T>
     where
         T: Pbt,
