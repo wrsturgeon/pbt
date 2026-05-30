@@ -1,3 +1,5 @@
+//! Shrinking candidates for witnesses found by property-based search.
+
 use {
     crate::{
         Pbt,
@@ -10,13 +12,16 @@ use {
     core::{any::TypeId, mem, ptr},
 };
 
+/// Iterate over all combinations produced by shrinking this constructor's fields.
 pub struct EachField {
     /// How many shrinking steps are we allowed to take,
     /// summed over *all* fields (from here down)?
     leash_length: usize,
+    /// Recursive iterator over the fields being shrunk.
     recurse: EachFieldRecursively,
 }
 
+/// Iterate over field shrink combinations with a fixed total shrink budget.
 pub struct EachFieldRecursively {
     /// How many shrinking steps should this field take?
     index: usize,
@@ -28,14 +33,18 @@ pub struct EachFieldRecursively {
 pub struct ShrinkingCache {
     /// Function pointers performing operations on vectors of some type.
     bucket_ops: BucketOps<Erased>, // <-- TODO: duplicated across `Vec<ShrinkingCache>`
+    /// Already-computed shrinking candidates.
     cache: Vec<Erased>,
+    /// The underlying shrinking iterator, extended lazily into `cache`.
     iterator: Box<dyn Iterator<Item = ptr::NonNull<Erased>>>,
+    /// A clone of the original value, yielded after all proper shrinks.
     original: ptr::NonNull<Erased>,
     /// The type being shrunk.
     ty: TypeId,
 }
 
 impl EachField {
+    /// Shrink fields from this store one shrinking step at a time.
     #[inline]
     fn new(fields: Store) -> Self {
         Self {
@@ -49,6 +58,10 @@ impl Iterator for EachField {
     type Item = Store;
 
     #[inline]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "A process cannot enumerate enough shrink combinations to overflow `usize`."
+    )]
     fn next(&mut self) -> Option<Self::Item> {
         'exclude_orig: loop {
             let Some((mut next, orig)) = self.recurse.next_with_leash(self.leash_length) else {
@@ -72,6 +85,7 @@ impl Iterator for EachField {
 }
 
 impl EachFieldRecursively {
+    /// Prepare recursive shrinking for the next erased field in this store.
     #[inline]
     fn new(mut fields: Store) -> Self {
         let recurse = fields.pop_erased().map(move |(ty, erased_boxed)| {
@@ -88,6 +102,10 @@ impl EachFieldRecursively {
     /// The `bool` keeps track of whether all retured fields so far are originals,
     /// so we can exclude the original input at the top level.
     #[inline]
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "A process cannot enumerate enough shrink combinations to overflow `usize`."
+    )]
     fn next_with_leash(&mut self, leash_length: usize) -> Option<(Store, bool)> {
         let Some((ref mut recurse, ref mut shrinking_cache)) = self.recurse else {
             if leash_length == 0 && self.index == 0 {
@@ -110,6 +128,7 @@ impl EachFieldRecursively {
     }
 
     #[inline]
+    /// Rewind this field-combination iterator back to the beginning.
     fn rewind(&mut self) {
         self.index = 0;
         if let Some((ref mut recurse, _)) = self.recurse {
@@ -138,6 +157,7 @@ impl ShrinkingCache {
         }
     }
 
+    /// Initialize a lazily-filled shrinking cache for one erased value.
     #[inline]
     fn new(ty: TypeId, erased_boxed: ptr::NonNull<Erased>) -> Self {
         let bucket_ops = bucket_ops_of(ty);
@@ -162,6 +182,7 @@ impl Drop for ShrinkingCache {
     }
 }
 
+/// Iterate over all shrinking candidates for a witness.
 pub(crate) fn candidates<T>(t: T) -> Box<dyn Iterator<Item = T>>
 where
     T: Pbt,

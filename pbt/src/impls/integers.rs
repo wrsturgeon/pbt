@@ -11,6 +11,35 @@ use {
     wyrand::WyRand,
 };
 
+impl Pbt for usize {
+    #[inline]
+    fn construct<F>(Parts { mut fields, .. }: Parts<F>) -> Self
+    where
+        F: Fields,
+    {
+        fields.field()
+    }
+
+    #[inline]
+    fn deconstruct(self) -> Parts<Store> {
+        let mut fields = Store::new();
+        let () = fields.push(self);
+        Parts {
+            fields,
+            variant_index: 0,
+        }
+    }
+
+    #[inline]
+    fn register(_registration: &mut Registration<'_>) -> Variants<Self> {
+        Variants::Literal {
+            generators: vec![uniform, small],
+            shrink,
+        }
+    }
+}
+
+/// Shrink an integer by repeatedly subtracting half the previous shrunk amount.
 #[inline]
 fn shrink(n: usize) -> Box<dyn Iterator<Item = usize>> {
     let mut shift = 0;
@@ -24,6 +53,7 @@ fn shrink(n: usize) -> Box<dyn Iterator<Item = usize>> {
     }))
 }
 
+/// Generate small integers using a geometric-ish bit-by-bit distribution.
 #[inline]
 fn small(prng: &mut WyRand) -> usize {
     let mut bit_reservoir = prng.rand();
@@ -55,6 +85,7 @@ fn small(prng: &mut WyRand) -> usize {
     acc
 }
 
+/// Generate integers uniformly over the target machine word.
 #[inline]
 fn uniform(prng: &mut WyRand) -> usize {
     if const { usize::BITS <= 64 } {
@@ -78,34 +109,6 @@ fn uniform(prng: &mut WyRand) -> usize {
             acc = acc.wrapping_shl(64) | (prng.rand() as usize);
         }
         acc
-    }
-}
-
-impl Pbt for usize {
-    #[inline]
-    fn construct<F>(Parts { mut fields, .. }: Parts<F>) -> Self
-    where
-        F: Fields,
-    {
-        fields.field()
-    }
-
-    #[inline]
-    fn deconstruct(self) -> Parts<Store> {
-        let mut fields = Store::new();
-        let () = fields.push(self);
-        Parts {
-            fields,
-            variant_index: 0,
-        }
-    }
-
-    #[inline]
-    fn register(_registration: &mut Registration<'_>) -> Variants<Self> {
-        Variants::Literal {
-            generators: vec![uniform, small],
-            shrink,
-        }
     }
 }
 

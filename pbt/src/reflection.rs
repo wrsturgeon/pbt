@@ -485,7 +485,7 @@ impl<SelfType> Variants<SelfType> {
                         })
                         .collect();
                 // SAFETY: Function pointers are the same size no matter the types in these positions.
-                let shrink = unsafe {
+                let erased_shrink = unsafe {
                     mem::transmute::<
                         fn(SelfType) -> Box<dyn Iterator<Item = SelfType>>,
                         fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
@@ -493,7 +493,7 @@ impl<SelfType> Variants<SelfType> {
                 };
                 Constructors::Literal {
                     generators: erased_generators,
-                    shrink,
+                    shrink: erased_shrink,
                 }
             }
         }
@@ -541,7 +541,7 @@ where
     T: 'static,
 {
     let ty = TypeId::of::<T>();
-    let shrink = {
+    let erased_shrink = {
         let naive_variants = NAIVE_VARIANTS
             .read()
             .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
@@ -552,13 +552,13 @@ where
     };
 
     // SAFETY: `Registration::register::<T>` erased this function pointer.
-    let shrink = unsafe {
+    let typed_shrink = unsafe {
         mem::transmute::<
             fn(Erased) -> Box<dyn Iterator<Item = Erased>>,
             fn(T) -> Box<dyn Iterator<Item = T>>,
-        >(shrink)
+        >(erased_shrink)
     };
-    Some(shrink(t))
+    Some(typed_shrink(t))
 }
 
 /// Instantiable constructors for each type.

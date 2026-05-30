@@ -261,6 +261,12 @@ impl Store {
 
     /// Pop and return a cached field of any type iff one exists.
     #[inline]
+    #[expect(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unwrap_in_result,
+        reason = "Internal invariants: violations should fail loudly."
+    )]
     pub(crate) fn pop_erased(&mut self) -> Option<(TypeId, ptr::NonNull<Erased>)> {
         let ty = *self.store.keys().next()?;
         let bucket_ops = bucket_ops_of(ty);

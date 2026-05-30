@@ -71,6 +71,10 @@ fn collect_uncached(
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
+#[expect(
+    clippy::unreachable,
+    reason = "The mask kind is derived from the constructor kind for the same type."
+)]
 pub(crate) fn update(
     root: TypeId,
     naive: &BTreeMap<TypeId, Constructors<Erased>>,
@@ -113,6 +117,7 @@ pub(crate) fn update(
             )
             .collect();
 
+        #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for &ty in &domain {
             let Constructors::Algebraic(ref constructors) = *naive
                 .get(&ty)
@@ -146,6 +151,7 @@ pub(crate) fn update(
         }
     }
 
+    #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
     for &ty in &domain {
         let constructors = match *naive
             .get(&ty)

@@ -102,15 +102,24 @@ impl Swarm {
     where
         T: Pbt,
     {
-        let (potential_leaves, potential_loops) = match self.affordances::<T>() {
+        let (potential_leaves, potential_loops) = match *self.affordances::<T>() {
             Affordances::Algebraic {
-                potential_leaves,
-                potential_loops,
+                ref potential_leaves,
+                ref potential_loops,
             } => (potential_leaves, potential_loops),
-            Affordances::Literal { generators } => {
+            Affordances::Literal { ref generators } => {
+                #[expect(
+                    clippy::expect_used,
+                    reason = "Swarms for uninstantiable literal types are rejected during construction."
+                )]
                 let n = NonZero::new(generators.len()).expect(
                     "INTERNAL ERROR (`pbt`): swarm created for an uninstantiable literal type",
                 );
+                #[expect(
+                    clippy::as_conversions,
+                    clippy::cast_possible_truncation,
+                    reason = "Intentional lossy sampling from a 64-bit PRNG into machine-word indices."
+                )]
                 let generator_index = prng.rand() as usize % n;
                 // SAFETY: `%` above.
                 let erased = unsafe { *generators.get_unchecked(generator_index) };
@@ -125,9 +134,9 @@ impl Swarm {
         let (ctors, n) = if let Some(n_loops) = NonZero::new(potential_loops.len())
             && size.should_recurse(prng)
         {
-            (&*potential_loops, n_loops)
+            (potential_loops.as_ref(), n_loops)
         } else if let Some(n_leaves) = NonZero::new(potential_leaves.len()) {
-            (&*potential_leaves, n_leaves)
+            (potential_leaves.as_ref(), n_leaves)
         } else {
             panic!("INTERNAL ERROR (`pbt`): swarm created for an uninstantiable type")
         };
@@ -356,17 +365,17 @@ fn mask_for(n_total: usize, prng: &mut WyRand) -> Vec<bool> {
 )]
 fn affordances_of(
     ty: TypeId,
-    constructors: Constructors<Erased>,
+    constructors_of_ty: Constructors<Erased>,
     scc_quotient_graph: &mut UnionFind<TypeId>,
     unavoidable: &HashMap<TypeId, Arc<HashSet<TypeId>>>,
 ) -> Affordances {
-    let Constructors::Algebraic(constructors) = constructors else {
-        let Constructors::Literal { generators, .. } = constructors else {
-            panic!("INTERNAL ERROR (`pbt`): impossible constructors")
-        };
-        return Affordances::Literal {
-            generators: generators.iter().copied().collect(),
-        };
+    let constructors = match constructors_of_ty {
+        Constructors::Algebraic(constructors) => constructors,
+        Constructors::Literal { generators, .. } => {
+            return Affordances::Literal {
+                generators: generators.iter().copied().collect(),
+            };
+        }
     };
 
     let self_scc = scc_quotient_graph
@@ -415,13 +424,6 @@ fn affordances_of(
 
 /// Run depth-first search, selecting constructors to mask for every type traversed.
 #[inline]
-#[expect(
-    clippy::arithmetic_side_effects,
-    clippy::as_conversions,
-    clippy::cast_possible_truncation,
-    clippy::integer_division_remainder_used,
-    reason = "OK: `u64` is already huge"
-)]
 fn mask_all_constructors_reachable_from(
     ty: TypeId,
     masked_constructors: &mut BTreeMap<TypeId, Constructors<Erased>>,
@@ -451,13 +453,18 @@ fn mask_all_constructors_reachable_from(
         }
         Constructors::Literal { generators, shrink } => {
             let mask = mask_for(generators.len(), prng);
-            let generators = generators
+            let masked_generators = generators
                 .iter()
                 .zip(mask)
                 .filter_map(|(&generate, enable)| enable.then_some(generate))
                 .collect();
-            let _dup: Option<_> =
-                masked_constructors.insert(ty, Constructors::Literal { generators, shrink });
+            let _dup: Option<_> = masked_constructors.insert(
+                ty,
+                Constructors::Literal {
+                    generators: masked_generators,
+                    shrink,
+                },
+            );
         }
     }
 }

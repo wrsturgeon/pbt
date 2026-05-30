@@ -101,6 +101,7 @@ where
         *n = decremented;
     }
 
+    /// The total number of elements, counting duplicates.
     #[inline]
     pub(crate) fn total(&self) -> usize {
         self.iter().map(|(_, n)| n.get()).sum()
