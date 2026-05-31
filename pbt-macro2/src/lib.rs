@@ -279,36 +279,70 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
             "`#[pbt]` test functions must return `()`",
         ));
     }
-    let mut inputs = sig.inputs.iter();
-    let Some(input_arg) = inputs.next() else {
+    let inputs = sig
+        .inputs
+        .iter()
+        .map(|input_arg| {
+            let input = match *input_arg {
+                syn::FnArg::Typed(ref input) => input,
+                syn::FnArg::Receiver(_) => {
+                    return Err(syn::Error::new_spanned(
+                        input_arg,
+                        "`#[pbt]` test functions cannot accept `self`",
+                    ));
+                }
+            };
+            if let Some(attribute) = input.attrs.first() {
+                return Err(syn::Error::new_spanned(
+                    attribute,
+                    "`#[pbt]` test function inputs cannot have attributes",
+                ));
+            }
+            Ok(input)
+        })
+        .collect::<syn::Result<Vec<_>>>()?;
+    if inputs.is_empty() {
         return Err(syn::Error::new_spanned(
             sig.ident,
-            "`#[pbt]` test functions must accept exactly one input",
-        ));
-    };
-    if let Some(extra) = inputs.next() {
-        return Err(syn::Error::new_spanned(
-            extra,
-            "`#[pbt]` test functions must accept exactly one input",
+            "`#[pbt]` test functions must accept at least one input",
         ));
     }
-    let input = match *input_arg {
-        syn::FnArg::Typed(ref input) => input,
-        syn::FnArg::Receiver(_) => {
-            return Err(syn::Error::new_spanned(
-                input_arg,
-                "`#[pbt]` test functions cannot accept `self`",
-            ));
+    let (pat, ty) = if let Some(input) = inputs.first().filter(|_| inputs.len() == 1) {
+        let pat = &input.pat;
+        let ty = &input.ty;
+        (quote::quote! { #pat }, quote::quote! { #ty })
+    } else {
+        let mut pats = Vec::new();
+        let mut tys = Vec::new();
+        for input in inputs {
+            let syn::Pat::Ident(ref pat) = *input.pat else {
+                return Err(syn::Error::new_spanned(
+                    &input.pat,
+                    "`#[pbt]` test functions with multiple inputs must use identifier patterns",
+                ));
+            };
+            let syn::Type::Reference(ref reference) = *input.ty else {
+                return Err(syn::Error::new_spanned(
+                    &input.ty,
+                    "`#[pbt]` test function inputs must be shared references",
+                ));
+            };
+            if reference.mutability.is_some() {
+                return Err(syn::Error::new_spanned(
+                    &input.ty,
+                    "`#[pbt]` test function inputs must be shared references",
+                ));
+            }
+            let ident = &pat.ident;
+            let ty = &reference.elem;
+            pats.push(quote::quote! { ref #ident });
+            tys.push(quote::quote! { #ty });
         }
+        (
+            quote::quote! { &(#(#pats),*) },
+            quote::quote! { &(#(#tys),*) },
+        )
     };
-    if let Some(attribute) = input.attrs.first() {
-        return Err(syn::Error::new_spanned(
-            attribute,
-            "`#[pbt]` test function inputs cannot have attributes",
-        ));
-    }
-    let pat = &input.pat;
-    let ty = &input.ty;
     let ident = sig.ident;
 
     Ok(quote::quote! {
@@ -726,6 +760,54 @@ fn less_than_42() {
                     if let LambdaCalculus::Variable { de_bruijn } = *lc {
                         assert!(de_bruijn < 42)
                     }
+                })
+                .err()?;
+            Some(
+                if let Some(s) = panic.downcast_ref::<&'static str>() {
+                    Some(s.to_string())
+                } else if let Some(s) = panic.downcast_ref::<String>() {
+                    Some(s.clone())
+                } else {
+                    None
+                },
+            )
+        },
+        1_000,
+        &mut prng,
+    );
+    if let Some((witness, maybe_panic_msg)) = maybe_witness {
+        if let Some(panic_msg) = maybe_panic_msg {
+            panic!(
+                "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
+            );
+        } else {
+            panic!(
+                "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
+            );
+        }
+    }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn lhs_at_most_rhs() {
+        expect_test(
+            r#"
+fn lhs_at_most_rhs(lhs: &usize, rhs: &usize) {
+    assert!(*lhs <= *rhs);
+}
+"#,
+            |ts| pbt(ts, 1_000_usize.into_token_stream()),
+            r#"
+#[test]
+fn lhs_at_most_rhs() {
+    let mut prng = ::pbt::WyRand::new(42);
+    let maybe_witness = pbt::witness(
+        |&(ref lhs, ref rhs): &(usize, usize)| -> Option<Option<String>> {
+            let panic = ::std::panic::catch_unwind(move || {
+                    assert!(* lhs <= * rhs);
                 })
                 .err()?;
             Some(
