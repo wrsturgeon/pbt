@@ -95,6 +95,7 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
 
     let DeriveInput {
         data: input_data,
+        generics,
         ident,
         ..
     } = syn::parse2(ts)?;
@@ -127,6 +128,11 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
     let literal_message = format!("`{ident}` is not a literal");
     let bad_variant_message =
         format!("can't instantiate variant #{{algebraic_index}} of `{ident}`");
+    let mut bounded_generics = generics;
+    for parameter in bounded_generics.type_params_mut() {
+        parameter.bounds.push(syn::parse_quote!(::pbt::Pbt));
+    }
+    let (impl_generics, ty_generics, where_clause) = bounded_generics.split_for_impl();
 
     let mut construct_arms = Vec::new();
     let mut deconstruct_arms = Vec::new();
@@ -167,7 +173,7 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
     }
 
     Ok(quote::quote! {
-        impl ::pbt::Pbt for #ident {
+        impl #impl_generics ::pbt::Pbt for #ident #ty_generics #where_clause {
             #[inline]
             fn construct<F>(::pbt::reflection::Parts { fields, variant_index }: ::pbt::reflection::Parts<F>) -> Self
             where
@@ -454,6 +460,62 @@ impl ::pbt::Pbt for LambdaCalculus {
                 field_types: {
                     let mut acc = ::pbt::multiset::Multiset::new();
                     let () = acc.insert(::core::any::TypeId::of::<usize>());
+                    acc
+                },
+            });
+        ::pbt::reflection::Variants::Algebraic(acc)
+    }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn generic() {
+        expect_test(
+            r#"
+struct Generic<A, B, C>;
+"#,
+            r#"
+impl<A: ::pbt::Pbt, B: ::pbt::Pbt, C: ::pbt::Pbt> ::pbt::Pbt for Generic<A, B, C> {
+    #[inline]
+    fn construct<F>(
+        ::pbt::reflection::Parts { fields, variant_index }: ::pbt::reflection::Parts<F>,
+    ) -> Self
+    where
+        F: ::pbt::fields::Fields,
+    {
+        let algebraic_index: usize = variant_index
+            .expect("`Generic` is not a literal")
+            .get();
+        match algebraic_index {
+            1 => Self,
+            _ => panic!("can't instantiate variant #{algebraic_index} of `Generic`"),
+        }
+    }
+    #[inline]
+    fn deconstruct(self) -> ::pbt::reflection::Parts<::pbt::fields::Store> {
+        match self {
+            Self => {
+                ::pbt::reflection::Parts {
+                    fields: {
+                        let mut acc = ::pbt::fields::Store::new();
+                        acc
+                    },
+                    variant_index: Some(const { ::core::num::NonZero::new(1).unwrap() }),
+                }
+            }
+        }
+    }
+    #[inline]
+    fn register(
+        registration: &mut ::pbt::registration::Registration<'_>,
+    ) -> ::pbt::reflection::Variants<Self> {
+        let mut acc = vec![];
+        let () = acc
+            .push(::pbt::reflection::Variant {
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
                     acc
                 },
             });
