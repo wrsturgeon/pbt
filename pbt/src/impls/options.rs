@@ -19,6 +19,7 @@ where
     #[expect(
         clippy::expect_used,
         clippy::panic,
+        clippy::unwrap_in_result,
         reason = "end-users shouldn't be calling this"
     )]
     fn construct<F>(

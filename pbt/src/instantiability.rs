@@ -15,22 +15,62 @@ use {
     core::{any::TypeId, iter},
 };
 
-/// Per-type progress while computing instantiability.
-enum Mask {
-    /// Which algebraic constructors are currently known to be instantiable.
-    Algebraic(Box<[bool]>),
-    /// Whether this literal has at least one generator.
-    Literal(bool),
-}
-
-impl Mask {
-    /// Whether this type is currently known to be instantiable.
-    #[inline]
-    #[must_use]
-    fn is_instantiable(&self) -> bool {
-        match *self {
-            Self::Algebraic(ref constructors) => constructors.iter().any(|&enabled| enabled),
-            Self::Literal(enabled) => enabled,
+/// Productive constructors for one type under the fixed-point mask.
+#[inline]
+#[expect(
+    clippy::expect_used,
+    reason = "Internal invariants: violations should fail loudly."
+)]
+fn productive_constructors(
+    ty: TypeId,
+    naive: &BTreeMap<TypeId, Constructors<Erased>>,
+    masks: &HashMap<TypeId, Box<[bool]>>,
+) -> Constructors<Erased> {
+    match *naive
+        .get(&ty)
+        .expect("INTERNAL ERROR (`pbt`): unregistered type")
+    {
+        Constructors::Algebraic(ref constructors) => {
+            let constructor_masks = masks
+                .get(&ty)
+                .expect("INTERNAL ERROR (`pbt`): missing instantiability mask");
+            debug_assert_eq!(
+                constructor_masks.len(),
+                constructors.len(),
+                "INTERNAL ERROR (`pbt`): mask size mismatch",
+            );
+            let mut enabled: Vec<Constructor> = constructors
+                .iter()
+                .zip(constructor_masks)
+                .filter_map(|(constructor, &enabled)| enabled.then_some(constructor.clone()))
+                .collect();
+            let () = enabled.sort_by_key(|constructor| constructor.field_types().total());
+            Constructors::Algebraic(enabled.into())
+        }
+        Constructors::Literal {
+            deserialize,
+            ref generators,
+            serialize,
+            shrink,
+        } => {
+            let generator_masks = masks
+                .get(&ty)
+                .expect("INTERNAL ERROR (`pbt`): missing instantiability mask");
+            debug_assert_eq!(
+                generator_masks.len(),
+                generators.len(),
+                "INTERNAL ERROR (`pbt`): mask size mismatch",
+            );
+            Constructors::Literal {
+                deserialize,
+                generators: generators
+                    .iter()
+                    .zip(generator_masks)
+                    .filter_map(|(&generator, &enabled)| enabled.then_some(generator))
+                    .collect(),
+                serialize,
+                shrink,
+            }
         }
     }
 }
@@ -65,15 +105,39 @@ fn collect_uncached(
     }
 }
 
+/// Cache all types reachable through productive constructors.
+#[inline]
+fn cache_productive_reachable(
+    ty: TypeId,
+    naive: &BTreeMap<TypeId, Constructors<Erased>>,
+    masks: &HashMap<TypeId, Box<[bool]>>,
+    cache: &mut HashMap<TypeId, Constructors<Erased>>,
+) {
+    if cache.contains_key(&ty) {
+        return;
+    }
+
+    let constructors = productive_constructors(ty, naive, masks);
+    let fields: Vec<TypeId> = constructors
+        .algebraic()
+        .iter()
+        .flat_map(Constructor::dedup_fields)
+        .collect();
+    assert!(
+        cache.insert(ty, constructors).is_none(),
+        "INTERNAL ERROR (`pbt`): duplicate instantiability result",
+    );
+
+    for field in fields {
+        let () = cache_productive_reachable(field, naive, masks, cache);
+    }
+}
+
 /// Compute and cache the productive constructors reachable from `root`.
 #[inline]
 #[expect(
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
-)]
-#[expect(
-    clippy::unreachable,
-    reason = "The mask kind is derived from the constructor kind for the same type."
 )]
 pub(crate) fn update(
     root: TypeId,
@@ -86,21 +150,21 @@ pub(crate) fn update(
 
     let mut domain = set();
     let () = collect_uncached(root, naive, cache, &mut domain);
-    let mut masks: HashMap<TypeId, Mask> = domain
+    let mut masks: HashMap<TypeId, Box<[bool]>> = domain
         .iter()
         .map(|&ty| {
-            let mask = match *naive
+            let constructors = match *naive
                 .get(&ty)
                 .expect("INTERNAL ERROR (`pbt`): unregistered type")
             {
                 Constructors::Algebraic(ref constructors) => {
-                    Mask::Algebraic(iter::repeat_n(false, constructors.len()).collect())
+                    iter::repeat_n(false, constructors.len()).collect()
                 }
                 Constructors::Literal { ref generators, .. } => {
-                    Mask::Literal(!generators.is_empty())
+                    iter::repeat_n(true, generators.len()).collect()
                 }
             };
-            (ty, mask)
+            (ty, constructors)
         })
         .collect();
 
@@ -109,7 +173,11 @@ pub(crate) fn update(
         let instantiable_types: HashSet<TypeId> = domain
             .iter()
             .copied()
-            .filter(|ty| masks.get(ty).is_some_and(Mask::is_instantiable))
+            .filter(|ty| {
+                masks
+                    .get(ty)
+                    .is_some_and(|constructors| constructors.iter().any(|&enabled| enabled))
+            })
             .chain(
                 cache
                     .iter()
@@ -118,16 +186,10 @@ pub(crate) fn update(
             .collect();
 
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-        for &ty in &domain {
+        for (&ty, constructor_masks) in &mut masks {
             let Constructors::Algebraic(ref constructors) = *naive
                 .get(&ty)
                 .expect("INTERNAL ERROR (`pbt`): unregistered type")
-            else {
-                continue;
-            };
-            let Mask::Algebraic(ref mut constructor_masks) = *masks
-                .get_mut(&ty)
-                .expect("INTERNAL ERROR (`pbt`): missing instantiability mask")
             else {
                 continue;
             };
@@ -151,32 +213,5 @@ pub(crate) fn update(
         }
     }
 
-    #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
-    for &ty in &domain {
-        let constructors = match *naive
-            .get(&ty)
-            .expect("INTERNAL ERROR (`pbt`): unregistered type")
-        {
-            Constructors::Algebraic(ref constructors) => {
-                let Mask::Algebraic(ref constructor_masks) = *masks
-                    .get(&ty)
-                    .expect("INTERNAL ERROR (`pbt`): missing instantiability mask")
-                else {
-                    unreachable!("INTERNAL ERROR (`pbt`): impossible instantiability mask")
-                };
-                let mut enabled: Vec<Constructor> = constructors
-                    .iter()
-                    .zip(constructor_masks)
-                    .filter_map(|(constructor, &enabled)| enabled.then_some(constructor.clone()))
-                    .collect();
-                let () = enabled.sort_by_key(|constructor| constructor.field_types().total());
-                Constructors::Algebraic(enabled.into())
-            }
-            Constructors::Literal { .. } => naive
-                .get(&ty)
-                .expect("INTERNAL ERROR (`pbt`): unregistered type")
-                .clone(),
-        };
-        let _old = cache.insert(ty, constructors);
-    }
+    let () = cache_productive_reachable(root, naive, &masks, cache);
 }

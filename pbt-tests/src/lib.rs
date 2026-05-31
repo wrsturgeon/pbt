@@ -26,6 +26,10 @@ pub enum LambdaCalculus {
     },
 }
 
+/// Reproduction of a prior failure that produced an "SCC missing" error.
+#[derive(Clone, Debug, PartialEq, Pbt)]
+pub struct SccRepro(Vec<(bool, usize)>);
+
 #[cfg(test)]
 mod tests {
     use {super::*, pbt::pbt, wyrand::WyRand};
@@ -39,4 +43,7 @@ mod tests {
             assert!(de_bruijn < 42);
         }
     }
+
+    #[pbt(1)]
+    fn scc_missing_repro(_: &SccRepro) {}
 }

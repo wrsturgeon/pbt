@@ -233,7 +233,6 @@ impl Swarm {
             let mut masked_constructors = map();
             let () =
                 instantiability::update(ty, &naive_masked_constructors, &mut masked_constructors);
-            let () = masked_constructors.retain(|_, constructors| !constructors.is_empty());
 
             // If the original type is uninstantiable with these masks, try again:
             if masked_constructors
