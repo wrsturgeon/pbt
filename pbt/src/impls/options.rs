@@ -1,4 +1,4 @@
-//! Implementations for `Vec<_>`.
+//! Implementations for `Option<_>`.
 
 use {
     crate::{
@@ -8,10 +8,10 @@ use {
         reflection::{Parts, Variant, Variants},
         registration::Registration,
     },
-    core::{any::TypeId, num::NonZero},
+    core::{any::TypeId, iter, num::NonZero},
 };
 
-impl<T> Pbt for Vec<T>
+impl<T> Pbt for Option<T>
 where
     T: Pbt,
 {
@@ -30,29 +30,24 @@ where
     where
         F: Fields,
     {
-        let algebraic_index: usize = variant_index.expect("`Vec` is not a literal").get();
+        let algebraic_index: usize = variant_index.expect("`Option` is not a literal").get();
         match algebraic_index {
-            1 => vec![],
-            2 => {
-                let mut acc: Self = fields.field();
-                let () = acc.push(fields.field());
-                acc
-            }
-            _ => panic!("can't instantiate variant #{algebraic_index} of `Vec`"),
+            1 => None,
+            2 => Some(fields.field()),
+            _ => panic!("can't instantiate variant #{algebraic_index} of `Option`"),
         }
     }
 
     #[inline]
-    fn deconstruct(mut self) -> Parts<Store> {
-        let Some(caboose) = self.pop() else {
+    fn deconstruct(self) -> Parts<Store> {
+        let Some(t) = self else {
             return Parts {
                 fields: Store::new(),
                 variant_index: Some(const { NonZero::new(1).unwrap() }),
             };
         };
         let mut fields = Store::new();
-        let () = fields.push(caboose);
-        let () = fields.push(self);
+        let () = fields.push(t);
         Parts {
             fields,
             variant_index: Some(const { NonZero::new(2).unwrap() }),
@@ -67,9 +62,7 @@ where
                 field_types: Multiset::new(),
             },
             Variant {
-                field_types: [TypeId::of::<Self>(), TypeId::of::<T>()]
-                    .into_iter()
-                    .collect(),
+                field_types: iter::once(TypeId::of::<T>()).collect(),
             },
         ])
     }
@@ -88,45 +81,45 @@ mod tests {
     #[test]
     fn deterministic() {
         let mut prng = WyRand::new(42);
-        let generated: Vec<Vec<usize>> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<Vec<usize>> = vec![
-            vec![],
-            vec![],
-            vec![],
-            vec![10],
-            vec![],
-            vec![
-                1_501_726_134_688_862_675,
-                0,
-                9_423_774_293_538_187_240,
-                0,
-                1,
-            ],
-            vec![],
-            vec![],
-            vec![],
-            vec![],
+        let generated: Vec<Option<usize>> = arbitrary(&mut prng).unwrap().take(16).collect();
+        let expected: Vec<Option<usize>> = vec![
+            Some(17_850_812_975_400_668_360),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+            Some(1_501_726_134_688_862_675),
+            Some(3),
+            None,
+            Some(0),
+            None,
+            Some(1),
         ];
         assert_eq!(generated, expected);
     }
 
     #[test]
     fn eta_expansion() {
-        let () = check_eta_expansion::<Vec<usize>>();
+        let () = check_eta_expansion::<Option<usize>>();
     }
 
     #[test]
     fn eta_expansion_deep() {
-        let () = check_eta_expansion::<Vec<Vec<usize>>>();
+        let () = check_eta_expansion::<Option<Option<usize>>>();
     }
 
     #[test]
     fn serialization() {
-        let () = check_serialization::<Vec<usize>>();
+        let () = check_serialization::<Option<usize>>();
     }
 
     #[test]
     fn serialization_deep() {
-        let () = check_serialization::<Vec<Vec<usize>>>();
+        let () = check_serialization::<Option<Option<usize>>>();
     }
 }
