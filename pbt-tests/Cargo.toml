@@ -13,7 +13,6 @@ version.workspace = true
 
 [dependencies]
 pbt = { path = "../pbt" }
-wyrand = "~0.4"
 
 [lints]
 workspace = true

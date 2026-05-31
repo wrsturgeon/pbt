@@ -32,7 +32,7 @@ pub struct SccRepro(Vec<(bool, usize)>);
 
 #[cfg(test)]
 mod tests {
-    use {super::*, pbt::pbt, wyrand::WyRand};
+    use {super::*, pbt::pbt};
 
     #[pbt(1_000)]
     #[should_panic(

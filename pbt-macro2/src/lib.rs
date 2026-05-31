@@ -315,7 +315,7 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
         #[test]
         #(#attrs)*
         fn #ident() {
-            let mut prng = WyRand::new(42);
+            let mut prng = ::pbt::WyRand::new(42);
             let maybe_witness = pbt::witness(
                 |#pat: #ty| -> Option<Option<String>> {
                     let panic = ::std::panic::catch_unwind(move || #block).err()?;
@@ -719,7 +719,7 @@ fn less_than_42(lc: &LambdaCalculus) {
             r#"
 #[test]
 fn less_than_42() {
-    let mut prng = WyRand::new(42);
+    let mut prng = ::pbt::WyRand::new(42);
     let maybe_witness = pbt::witness(
         |lc: &LambdaCalculus| -> Option<Option<String>> {
             let panic = ::std::panic::catch_unwind(move || {

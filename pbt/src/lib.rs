@@ -19,7 +19,10 @@ mod swarm;
 mod unavoidability;
 mod union_find;
 
-pub use pbt_macros::{Pbt, pbt};
+pub use {
+    pbt_macros::{Pbt, pbt},
+    wyrand::WyRand,
+};
 
 /// The main property-based testing trait.
 #[expect(
