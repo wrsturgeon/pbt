@@ -74,6 +74,7 @@ name = "pbt"
 version = "0.5.0"
 dependencies = [
  "ahash",
+ "pbt-macros",
  "pretty_assertions",
  "serde_json",
  "wyrand",
@@ -97,6 +98,14 @@ version = "0.5.0"
 dependencies = [
  "pbt-macro2",
  "proc-macro2",
+]
+
+[[package]]
+name = "pbt-tests"
+version = "0.5.0"
+dependencies = [
+ "pbt",
+ "wyrand",
 ]
 
 [[package]]

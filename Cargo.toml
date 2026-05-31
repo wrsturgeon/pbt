@@ -1,5 +1,5 @@
 [workspace]
-members = ["pbt", "pbt-macro2", "pbt-macros"]
+members = ["pbt", "pbt-macro2", "pbt-macros", "pbt-tests"]
 metadata.crane.name = "pbt"
 resolver = "3"
 

@@ -30,7 +30,7 @@ where
     where
         F: Fields,
     {
-        let algebraic_index: usize = variant_index.expect("`bool` is not a literal").get();
+        let algebraic_index: usize = variant_index.expect("`Vec` is not a literal").get();
         match algebraic_index {
             1 => vec![],
             2 => {
@@ -38,7 +38,7 @@ where
                 let () = acc.push(fields.field());
                 acc
             }
-            _ => panic!("can't instantiate variant #{algebraic_index} of `bool`"),
+            _ => panic!("can't instantiate variant #{algebraic_index} of `Vec`"),
         }
     }
 

@@ -39,7 +39,7 @@ where
 {
     /// Insert one copy of `value` into this multiset.
     #[inline]
-    fn insert(&mut self, value: T) {
+    pub fn insert(&mut self, value: T) {
         self.counts
             .entry(value)
             .and_modify(|count: &mut NonZero<usize>| {
@@ -71,7 +71,7 @@ where
     /// Initialize an empty multiset.
     #[inline]
     #[must_use]
-    pub(crate) const fn new() -> Self {
+    pub const fn new() -> Self {
         Self { counts: map() }
     }
 

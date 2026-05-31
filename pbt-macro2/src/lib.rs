@@ -46,6 +46,7 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
                     field_constructions.push(quote::quote! { fields.field() });
                     let ty = &field.ty;
                     field_type_inserts.push(quote::quote! {
+                        let () = registration.register::<#ty>();
                         let () = acc.insert(::core::any::TypeId::of::<#ty>());
                     });
                     field_bindings.push(field_binding);
@@ -73,6 +74,7 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
                     };
                     let ty = &field.ty;
                     field_type_inserts.push(quote::quote! {
+                        let () = registration.register::<#ty>();
                         let () = acc.insert(::core::any::TypeId::of::<#ty>());
                     });
                     field_bindings.push(field_binding);
@@ -175,7 +177,12 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
     Ok(quote::quote! {
         impl #impl_generics ::pbt::Pbt for #ident #ty_generics #where_clause {
             #[inline]
-            fn construct<F>(::pbt::reflection::Parts { fields, variant_index }: ::pbt::reflection::Parts<F>) -> Self
+            fn construct<F>(
+                ::pbt::reflection::Parts {
+                    mut fields,
+                    variant_index,
+                }: ::pbt::reflection::Parts<F>,
+            ) -> Self
             where
                 F: ::pbt::fields::Fields,
             {
@@ -233,7 +240,10 @@ enum Bool {
 impl ::pbt::Pbt for Bool {
     #[inline]
     fn construct<F>(
-        ::pbt::reflection::Parts { fields, variant_index }: ::pbt::reflection::Parts<F>,
+        ::pbt::reflection::Parts {
+            mut fields,
+            variant_index,
+        }: ::pbt::reflection::Parts<F>,
     ) -> Self
     where
         F: ::pbt::fields::Fields,
@@ -306,7 +316,10 @@ struct Unit;
 impl ::pbt::Pbt for Unit {
     #[inline]
     fn construct<F>(
-        ::pbt::reflection::Parts { fields, variant_index }: ::pbt::reflection::Parts<F>,
+        ::pbt::reflection::Parts {
+            mut fields,
+            variant_index,
+        }: ::pbt::reflection::Parts<F>,
     ) -> Self
     where
         F: ::pbt::fields::Fields,
@@ -370,7 +383,10 @@ enum LambdaCalculus {
 impl ::pbt::Pbt for LambdaCalculus {
     #[inline]
     fn construct<F>(
-        ::pbt::reflection::Parts { fields, variant_index }: ::pbt::reflection::Parts<F>,
+        ::pbt::reflection::Parts {
+            mut fields,
+            variant_index,
+        }: ::pbt::reflection::Parts<F>,
     ) -> Self
     where
         F: ::pbt::fields::Fields,
@@ -442,15 +458,9 @@ impl ::pbt::Pbt for LambdaCalculus {
             .push(::pbt::reflection::Variant {
                 field_types: {
                     let mut acc = ::pbt::multiset::Multiset::new();
+                    let () = registration.register::<Box<Self>>();
                     let () = acc.insert(::core::any::TypeId::of::<Box<Self>>());
-                    let () = acc.insert(::core::any::TypeId::of::<Box<Self>>());
-                    acc
-                },
-            });
-        let () = acc
-            .push(::pbt::reflection::Variant {
-                field_types: {
-                    let mut acc = ::pbt::multiset::Multiset::new();
+                    let () = registration.register::<Box<Self>>();
                     let () = acc.insert(::core::any::TypeId::of::<Box<Self>>());
                     acc
                 },
@@ -459,6 +469,16 @@ impl ::pbt::Pbt for LambdaCalculus {
             .push(::pbt::reflection::Variant {
                 field_types: {
                     let mut acc = ::pbt::multiset::Multiset::new();
+                    let () = registration.register::<Box<Self>>();
+                    let () = acc.insert(::core::any::TypeId::of::<Box<Self>>());
+                    acc
+                },
+            });
+        let () = acc
+            .push(::pbt::reflection::Variant {
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
+                    let () = registration.register::<usize>();
                     let () = acc.insert(::core::any::TypeId::of::<usize>());
                     acc
                 },
@@ -480,7 +500,10 @@ struct Generic<A, B, C>;
 impl<A: ::pbt::Pbt, B: ::pbt::Pbt, C: ::pbt::Pbt> ::pbt::Pbt for Generic<A, B, C> {
     #[inline]
     fn construct<F>(
-        ::pbt::reflection::Parts { fields, variant_index }: ::pbt::reflection::Parts<F>,
+        ::pbt::reflection::Parts {
+            mut fields,
+            variant_index,
+        }: ::pbt::reflection::Parts<F>,
     ) -> Self
     where
         F: ::pbt::fields::Fields,

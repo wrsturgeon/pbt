@@ -140,7 +140,10 @@ pub(crate) struct Constructor {
 pub(crate) enum Erased {}
 
 /// A deconstruction of a value into its constructor index and its fields.
-#[non_exhaustive]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "`derive(Pbt)` must construct and destructure this across crate boundaries"
+)]
 pub struct Parts<F> {
     /// All fields applied to this variant/constructor.
     pub fields: F,
@@ -164,7 +167,10 @@ pub struct Uninstantiable;
 ///   and enable both the other half of the time, so this works elegantly
 ///   no matter which "flavor" of `usize` we want.
 #[derive(Debug)]
-#[non_exhaustive]
+#[expect(
+    clippy::exhaustive_structs,
+    reason = "`derive(Pbt)` must construct this across crate boundaries"
+)]
 pub struct Variant {
     /// The type of each field in this variant.
     /// Order does not matter, but total count does.

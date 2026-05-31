@@ -8,7 +8,7 @@ pub mod fields;
 pub mod hash;
 mod impls;
 mod instantiability;
-mod multiset;
+pub mod multiset;
 mod persist;
 pub mod reflection;
 pub mod registration;
@@ -18,6 +18,8 @@ mod size;
 mod swarm;
 mod unavoidability;
 mod union_find;
+
+pub use pbt_macros::Pbt;
 
 /// The main property-based testing trait.
 pub trait Pbt: 'static + Clone {
