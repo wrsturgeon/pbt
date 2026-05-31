@@ -11,6 +11,115 @@ use {
     wyrand::WyRand,
 };
 
+/// Shrink an integer by repeatedly subtracting half the previous shrunk amount.
+macro_rules! shrink {
+    ($u:ty) => {
+        |n: $u| {
+            let mut shift = 0;
+            Box::new(iter::from_fn(move || {
+                let delta = n.checked_shr(shift)?;
+                if delta == 0 {
+                    return None;
+                }
+                shift = shift.checked_add(1)?;
+                n.checked_sub(delta)
+            }))
+        }
+    };
+}
+
+/// Generate small integers using a geometric-ish bit-by-bit distribution.
+macro_rules! small {
+    ($u:ty) => {
+        |prng| {
+            let mut bit_reservoir = prng.rand();
+            let mut remaining_bits: u8 = 64;
+            let mut coin_flip = || -> bool {
+                if let Some(decrement) = remaining_bits.checked_sub(1) {
+                    remaining_bits = decrement;
+                } else {
+                    bit_reservoir = prng.rand();
+                    remaining_bits = 63;
+                }
+                let bit = (bit_reservoir & 1) != 0;
+                bit_reservoir >>= 1_u8;
+                bit
+            };
+
+            if coin_flip() {
+                return 0;
+            }
+            let mut acc: $u = 1;
+            while coin_flip() {
+                acc = acc.wrapping_shl(1) | <$u>::from(coin_flip());
+            }
+            acc
+        }
+    };
+}
+
+/// Implement `Pbt` for `u_` up to `u64`, above which we need another strategy.
+macro_rules! impl_unsigned {
+    ($u:ty) => {
+        impl Pbt for $u {
+            #[inline]
+            fn construct<F>(
+                Parts {
+                    mut fields,
+                    variant_index,
+                }: Parts<F>,
+            ) -> Self
+            where
+                F: Fields,
+            {
+                debug_assert_eq!(variant_index, None, "unsigned integers are literals");
+                fields.field()
+            }
+
+            #[inline]
+            fn deconstruct(self) -> Parts<Store> {
+                let mut fields = Store::new();
+                let () = fields.push(self);
+                Parts {
+                    fields,
+                    variant_index: None,
+                }
+            }
+
+            #[inline]
+            fn register(_registration: &mut Registration<'_>) -> Variants<Self> {
+                Variants::Literal {
+                    deserialize: |json| {
+                        let serde_json::Value::String(ref s) = *json else {
+                            return None;
+                        };
+                        s.parse().ok()
+                    },
+                    generators: vec![
+                        |prng| {
+                            #[allow(
+                                clippy::allow_attributes,
+                                clippy::as_conversions,
+                                clippy::cast_possible_truncation,
+                                reason = "intentional: bit width checked above"
+                            )]
+                            (prng.rand() as Self)
+                        },
+                        small!($u),
+                    ],
+                    serialize: |&i| i.to_string().into(),
+                    shrink: shrink!($u),
+                }
+            }
+        }
+    };
+}
+
+impl_unsigned!(u8);
+impl_unsigned!(u16);
+impl_unsigned!(u32);
+impl_unsigned!(u64);
+
 impl Pbt for usize {
     #[inline]
     fn construct<F>(
@@ -45,57 +154,11 @@ impl Pbt for usize {
                 };
                 s.parse().ok()
             },
-            generators: vec![uniform, small],
+            generators: vec![uniform, small!(usize)],
             serialize: |&i| i.to_string().into(),
-            shrink,
+            shrink: shrink!(usize),
         }
     }
-}
-
-/// Shrink an integer by repeatedly subtracting half the previous shrunk amount.
-#[inline]
-fn shrink(n: usize) -> Box<dyn Iterator<Item = usize>> {
-    let mut shift = 0;
-    Box::new(iter::from_fn(move || {
-        let delta = n.checked_shr(shift)?;
-        if delta == 0 {
-            return None;
-        }
-        shift = shift.checked_add(1)?;
-        n.checked_sub(delta)
-    }))
-}
-
-/// Generate small integers using a geometric-ish bit-by-bit distribution.
-#[inline]
-fn small(prng: &mut WyRand) -> usize {
-    let mut bit_reservoir = prng.rand();
-    let mut remaining_bits: u8 = 64;
-    let mut coin_flip = || -> bool {
-        if let Some(decrement) = remaining_bits.checked_sub(1) {
-            remaining_bits = decrement;
-        } else {
-            bit_reservoir = prng.rand();
-            remaining_bits = 63;
-        }
-        let bit = (bit_reservoir & 1) != 0;
-        bit_reservoir >>= 1_u8;
-        bit
-    };
-
-    if coin_flip() {
-        return 0;
-    }
-    let mut acc: usize = 1;
-    #[expect(
-        clippy::as_conversions,
-        clippy::cast_lossless,
-        reason = "truncation is impossible: `usize` can't be 1 bit and run Rust"
-    )]
-    while coin_flip() {
-        acc = acc.wrapping_shl(1) | (coin_flip() as usize);
-    }
-    acc
 }
 
 /// Generate integers uniformly over the target machine word.
@@ -136,7 +199,25 @@ mod tests {
     };
 
     #[test]
-    fn deterministic() {
+    fn u8_deterministic() {
+        let mut prng = WyRand::new(42);
+        let generated: Vec<u8> = arbitrary(&mut prng).unwrap().take(10).collect();
+        let expected: Vec<u8> = vec![9, 6, 6, 230, 88, 168, 3, 0, 1, 0];
+        assert_eq!(generated, expected);
+    }
+
+    #[test]
+    fn u8_eta_expansion() {
+        let () = check_eta_expansion::<u8>();
+    }
+
+    #[test]
+    fn u8_serialization() {
+        let () = check_serialization::<u8>();
+    }
+
+    #[test]
+    fn usize_deterministic() {
         let mut prng = WyRand::new(42);
         let generated: Vec<usize> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected = vec![
@@ -155,12 +236,12 @@ mod tests {
     }
 
     #[test]
-    fn eta_expansion() {
+    fn usize_eta_expansion() {
         let () = check_eta_expansion::<usize>();
     }
 
     #[test]
-    fn serialization() {
+    fn usize_serialization() {
         let () = check_serialization::<usize>();
     }
 }
