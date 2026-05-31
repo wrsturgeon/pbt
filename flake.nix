@@ -37,7 +37,7 @@
           pkgs: pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml
         );
 
-        src = crane.cleanCargoSource ./.;
+        src = ./.;
 
         env = {
           MIRIFLAGS = "-Zmiri-disable-isolation";
