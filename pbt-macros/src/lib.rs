@@ -8,3 +8,10 @@ use proc_macro::TokenStream;
 pub fn derive_pbt(ts: TokenStream) -> TokenStream {
     pbt_macro2::derive_pbt(ts.into()).into()
 }
+
+/// Turn a function into a test by throwing inputs at it until it panics.
+#[inline]
+#[proc_macro_attribute(pbt)]
+pub fn pbt(ts: TokenStream) -> TokenStream {
+    pbt_macro2::pbt(ts.into()).into()
+}

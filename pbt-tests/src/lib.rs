@@ -28,21 +28,13 @@ pub enum LambdaCalculus {
 
 #[cfg(test)]
 mod tests {
-    use {super::*, wyrand::WyRand};
+    use super::*;
 
-    #[test]
-    fn at_least_42() {
-        let mut prng = WyRand::new(42);
-        assert_eq!(
-            pbt::witness(
-                |lc: &LambdaCalculus| match *lc {
-                    LambdaCalculus::Variable { de_bruijn } => de_bruijn >= 42,
-                    _ => false,
-                },
-                1_000,
-                &mut prng,
-            ),
-            Some(LambdaCalculus::Variable { de_bruijn: 42 }),
-        );
+    #[pbt] // TODO: `#[pbt(1_000)]`
+    #[should_panic(expected = "TODO: fill this in")]
+    fn less_than_42(lc: &LambdaCalculus) {
+        if let LambdaCalculus::Variable { de_bruijn } = *lc {
+            assert!(de_bruijn < 42)
+        }
     }
 }

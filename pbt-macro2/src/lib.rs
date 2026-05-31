@@ -8,11 +8,16 @@ pub fn derive_pbt(ts: TokenStream) -> TokenStream {
     try_derive_pbt(ts).unwrap_or_else(syn::Error::into_compile_error)
 }
 
+#[inline]
+pub fn pbt(ts: TokenStream) -> TokenStream {
+    try_pbt(ts).unwrap_or_else(syn::Error::into_compile_error)
+}
+
 /// Derive `::pbt::Pbt` for an arbitrary type.
 ///
 /// # Errors
 ///
-/// If the input type is not up to the task.
+/// If the input is not up to the task.
 #[inline]
 pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
     struct Pattern {
@@ -210,6 +215,14 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
     })
 }
 
+/// Turn a function into a test by throwing inputs at it until it panics.
+///
+/// # Errors
+///
+/// If the input is not up to the task.
+#[inline]
+pub fn try_pbt(ts: TokenStream) -> syn::Result<TokenStream> {}
+
 #[cfg(test)]
 mod tests {
     #![expect(clippy::expect_used, reason = "Failing tests ought to panic.")]
@@ -218,8 +231,8 @@ mod tests {
     use {super::*, pretty_assertions::assert_eq};
 
     #[inline]
-    fn expect_test(input: &str, output: &str) {
-        let unformatted = syn::parse2(derive_pbt(input.parse().expect("input couldn't be parsed")))
+    fn expect_test(input: &str, function: fn(TokenStream) -> TokenStream, output: &str) {
+        let unformatted = syn::parse2(function(input.parse().expect("input couldn't be parsed")))
             .expect("derived output couldn't be parsed");
         let formatted = prettyplease::unparse(&unformatted);
         let actual = formatted.trim();
@@ -236,6 +249,7 @@ enum Bool {
     True,
 }
 "#,
+            derive_pbt,
             r#"
 impl ::pbt::Pbt for Bool {
     #[inline]
@@ -312,6 +326,7 @@ impl ::pbt::Pbt for Bool {
             r#"
 struct Unit;
 "#,
+            derive_pbt,
             r#"
 impl ::pbt::Pbt for Unit {
     #[inline]
@@ -379,6 +394,7 @@ enum LambdaCalculus {
     },
 }
 "#,
+            derive_pbt,
             r#"
 impl ::pbt::Pbt for LambdaCalculus {
     #[inline]
@@ -496,6 +512,7 @@ impl ::pbt::Pbt for LambdaCalculus {
             r#"
 struct Generic<A, B, C>;
 "#,
+            derive_pbt,
             r#"
 impl<A: ::pbt::Pbt, B: ::pbt::Pbt, C: ::pbt::Pbt> ::pbt::Pbt for Generic<A, B, C> {
     #[inline]
@@ -543,6 +560,40 @@ impl<A: ::pbt::Pbt, B: ::pbt::Pbt, C: ::pbt::Pbt> ::pbt::Pbt for Generic<A, B, C
                 },
             });
         ::pbt::reflection::Variants::Algebraic(acc)
+    }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn at_least_42() {
+        expect_test(
+            r#"
+fn less_than_42(lc: &LambdaCalculus) {
+    if let LambdaCalculus::Variable { de_bruijn } = *lc {
+        assert!(de_bruijn < 42)
+    }
+}
+"#,
+            pbt,
+            r#"
+#[test]
+fn less_than_42() {
+    let mut prng = WyRand::new(42);
+    let maybe_witness = pbt::witness(
+        |lc: &LambdaCalculus| {
+            ::std::panic::catch_unwind(move || {
+                if let LambdaCalculus::Variable { de_bruijn } = *lc {
+                    assert!(de_bruijn < 42)
+                }
+            }).is_err()
+        },
+        1_000,
+        &mut prng,
+    );
+    if let Some(witness) = maybe_witness {
+        panic!("Property does not always hold: for example, consider the input `{witness:#?}`");
     }
 }
 "#,
