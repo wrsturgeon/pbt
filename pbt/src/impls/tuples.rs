@@ -10,6 +10,16 @@ use {
     core::{any::TypeId, num::NonZero},
 };
 
+/// Push tuple fields into a `Store` from right to left.
+macro_rules! push_tuple_fields_reversed {
+    ($fields:ident;) => {};
+
+    ($fields:ident; $head:ident, $($tail:ident,)*) => {
+        push_tuple_fields_reversed!($fields; $($tail,)*);
+        let () = $fields.push($head);
+    };
+}
+
 /// Implement `Pbt` for a generic tuple of types.
 macro_rules! impl_for_tuple {
     ($($id:ident,)*) => {
@@ -47,7 +57,7 @@ macro_rules! impl_for_tuple {
                 let mut fields = Store::new();
                 // #[expect(clippy::lowercase, reason = "automatically generated")]
                 let ($($id,)*) = self;
-                $(let () = fields.push($id);)* // TODO: how do we reverse this?
+                push_tuple_fields_reversed!(fields; $($id,)*);
                 Parts {
                     fields,
                     variant_index: Some(const { NonZero::new(1).unwrap() }),
@@ -160,5 +170,34 @@ mod tests {
     #[test]
     fn serialization_pair() {
         let () = check_serialization::<(usize, bool)>();
+    }
+
+    #[test]
+    fn deterministic_triple() {
+        let mut prng = WyRand::new(42);
+        let generated: Vec<(usize, bool, bool)> = arbitrary(&mut prng).unwrap().take(10).collect();
+        let expected: Vec<(usize, bool, bool)> = vec![
+            (1, true, false),
+            (13_639_797_723_846_260_844, false, true),
+            (367_415_042_230_254_170, false, true),
+            (14_075_417_872_264_614_812, false, false),
+            (15_963_154_638_716_436_219, false, false),
+            (5_536_629_187_452_512_295, false, false),
+            (0, false, false),
+            (0, false, false),
+            (0, false, false),
+            (11, false, false),
+        ];
+        assert_eq!(generated, expected);
+    }
+
+    #[test]
+    fn eta_expansion_triple() {
+        let () = check_eta_expansion::<(usize, bool, bool)>();
+    }
+
+    #[test]
+    fn serialization_triple() {
+        let () = check_serialization::<(usize, bool, bool)>();
     }
 }

@@ -369,11 +369,11 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
             if let Some((witness, maybe_panic_msg)) = maybe_witness {
                 if let Some(panic_msg) = maybe_panic_msg {
                     panic!(
-                        "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
+                        "\r\nConsider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
                     );
                 } else {
                     panic!(
-                        "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
+                        "\r\nConsider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
                     );
                 }
             }
@@ -778,11 +778,11 @@ fn less_than_42() {
     if let Some((witness, maybe_panic_msg)) = maybe_witness {
         if let Some(panic_msg) = maybe_panic_msg {
             panic!(
-                "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
+                "\r\nConsider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
             );
         } else {
             panic!(
-                "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
+                "\r\nConsider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
             );
         }
     }
@@ -826,11 +826,11 @@ fn lhs_at_most_rhs() {
     if let Some((witness, maybe_panic_msg)) = maybe_witness {
         if let Some(panic_msg) = maybe_panic_msg {
             panic!(
-                "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
+                "\r\nConsider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
             );
         } else {
             panic!(
-                "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
+                "\r\nConsider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
             );
         }
     }

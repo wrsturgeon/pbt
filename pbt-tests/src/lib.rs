@@ -1,8 +1,11 @@
+#![cfg_attr(
+    test,
+    expect(clippy::tests_outside_test_module, reason = "This is a test module.")
+)]
+
 //! Tests for `pbt` as seen by downstream crates.
 
-//! End-to-end tests of the public `pbt` API.
-
-use pbt::Pbt;
+use pbt::{Pbt, pbt};
 
 /// The lambda calculus with de Bruijn indices.
 #[derive(Clone, Debug, PartialEq, Pbt)]
@@ -30,20 +33,23 @@ pub enum LambdaCalculus {
 #[derive(Clone, Debug, PartialEq, Pbt)]
 pub struct SccRepro(Vec<(bool, usize)>);
 
-#[cfg(test)]
-mod tests {
-    use {super::*, pbt::pbt};
-
-    #[pbt(1_000)]
-    #[should_panic(
-        expected = "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\nVariable {\n    de_bruijn: 42,\n}\r\n```\r\n\r\nassertion failed: de_bruijn < 42"
-    )]
-    fn less_than_42(lc: &LambdaCalculus) {
-        if let LambdaCalculus::Variable { de_bruijn } = *lc {
-            assert!(de_bruijn < 42);
-        }
+#[pbt]
+#[should_panic(
+    expected = "\r\nConsider the following input:\r\n\r\n```\r\nVariable {\n    de_bruijn: 42,\n}\r\n```\r\n\r\nassertion failed: de_bruijn < 42"
+)]
+fn less_than_42(lc: &LambdaCalculus) {
+    if let LambdaCalculus::Variable { de_bruijn } = *lc {
+        assert!(de_bruijn < 42);
     }
+}
 
-    #[pbt(1)]
-    fn scc_missing_repro(_: &SccRepro) {}
+#[pbt(1)]
+fn scc_missing_repro(_: &SccRepro) {}
+
+#[pbt]
+#[should_panic(
+    expected = "\r\nConsider the following input:\r\n\r\n```\r\n(\n    1,\n    0,\n)\r\n```\r\n\r\nassertion failed: lhs <= rhs"
+)]
+fn lhs_at_most_rhs(lhs: &usize, rhs: &usize) {
+    assert!(lhs <= rhs);
 }
