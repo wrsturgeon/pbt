@@ -18,7 +18,79 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
     struct Pattern {
         construction: TokenStream,
         deconstruction: TokenStream,
+        field_pushes: Vec<TokenStream>,
+        field_type_inserts: Vec<TokenStream>,
         span: proc_macro2::Span,
+    }
+
+    fn pattern(
+        head: TokenStream,
+        fields: &syn::Fields,
+        span: proc_macro2::Span,
+    ) -> syn::Result<Pattern> {
+        match *fields {
+            syn::Fields::Unit => Ok(Pattern {
+                construction: head.clone(),
+                deconstruction: head,
+                field_pushes: Vec::new(),
+                field_type_inserts: Vec::new(),
+                span,
+            }),
+            syn::Fields::Unnamed(ref unnamed_fields) => {
+                let mut field_bindings = Vec::new();
+                let mut field_constructions = Vec::new();
+                let mut field_pushes = Vec::new();
+                let mut field_type_inserts = Vec::new();
+                for (index, field) in unnamed_fields.unnamed.iter().enumerate() {
+                    let field_binding = quote::format_ident!("_anonymous_{index}");
+                    field_constructions.push(quote::quote! { fields.field() });
+                    let ty = &field.ty;
+                    field_type_inserts.push(quote::quote! {
+                        let () = acc.insert(::core::any::TypeId::of::<#ty>());
+                    });
+                    field_bindings.push(field_binding);
+                }
+                for field_binding in field_bindings.iter().rev() {
+                    field_pushes.push(quote::quote! {
+                        let () = acc.push(#field_binding);
+                    });
+                }
+                Ok(Pattern {
+                    construction: quote::quote! { #head(#(#field_constructions),*) },
+                    deconstruction: quote::quote! { #head(#(#field_bindings),*) },
+                    field_pushes,
+                    field_type_inserts,
+                    span,
+                })
+            }
+            syn::Fields::Named(ref named_fields) => {
+                let mut field_bindings = Vec::new();
+                let mut field_pushes = Vec::new();
+                let mut field_type_inserts = Vec::new();
+                for field in &named_fields.named {
+                    let Some(field_binding) = field.ident.clone() else {
+                        return Err(syn::Error::new_spanned(field, "missing field name"));
+                    };
+                    let ty = &field.ty;
+                    field_type_inserts.push(quote::quote! {
+                        let () = acc.insert(::core::any::TypeId::of::<#ty>());
+                    });
+                    field_bindings.push(field_binding);
+                }
+                for field_binding in field_bindings.iter().rev() {
+                    field_pushes.push(quote::quote! {
+                        let () = acc.push(#field_binding);
+                    });
+                }
+                Ok(Pattern {
+                    construction: quote::quote! { #head { #(#field_bindings: fields.field()),* } },
+                    deconstruction: quote::quote! { #head { #(#field_bindings),* } },
+                    field_pushes,
+                    field_type_inserts,
+                    span,
+                })
+            }
+        }
     }
 
     let DeriveInput {
@@ -31,36 +103,19 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
             .variants
             .iter()
             .map(|variant| {
-                if !matches!(variant.fields, syn::Fields::Unit) {
-                    return Err(syn::Error::new_spanned(
-                        variant,
-                        "`Pbt` can currently be derived only for fieldless variants",
-                    ));
-                }
                 let variant_ident = &variant.ident;
-                Ok(Pattern {
-                    construction: quote::quote! { Self::#variant_ident },
-                    deconstruction: quote::quote! { Self::#variant_ident },
-                    span: variant.ident.span(),
-                })
+                pattern(
+                    quote::quote! { Self::#variant_ident },
+                    &variant.fields,
+                    variant.ident.span(),
+                )
             })
             .collect::<syn::Result<Vec<_>>>()?,
-        syn::Data::Struct(struct_data) => {
-            match struct_data.fields {
-                syn::Fields::Unit => {}
-                fields => {
-                    return Err(syn::Error::new_spanned(
-                        fields,
-                        "`Pbt` can currently be derived only for fieldless structs",
-                    ));
-                }
-            }
-            vec![Pattern {
-                construction: quote::quote! { Self },
-                deconstruction: quote::quote! { Self },
-                span: ident.span(),
-            }]
-        }
+        syn::Data::Struct(struct_data) => vec![pattern(
+            quote::quote! { Self },
+            &struct_data.fields,
+            ident.span(),
+        )?],
         syn::Data::Union(_) => {
             return Err(syn::Error::new_spanned(
                 ident,
@@ -85,6 +140,8 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
         let deconstruct_index = syn::LitInt::new(&one_index_string, pattern.span);
         let construction = &pattern.construction;
         let deconstruction = &pattern.deconstruction;
+        let field_pushes = &pattern.field_pushes;
+        let field_type_inserts = &pattern.field_type_inserts;
         construct_arms.push(quote::quote! {
             #construct_index => #construction
         });
@@ -92,6 +149,7 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
             #deconstruction => ::pbt::reflection::Parts {
                 fields: {
                     let mut acc = ::pbt::fields::Store::new();
+                    #(#field_pushes)*
                     acc
                 },
                 variant_index: Some(const { ::core::num::NonZero::new(#deconstruct_index).unwrap() }),
@@ -99,7 +157,11 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
         });
         register_pushes.push(quote::quote! {
             let () = acc.push(::pbt::reflection::Variant {
-                field_types: ::pbt::multiset::Multiset::new(),
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
+                    #(#field_type_inserts)*
+                    acc
+                },
             });
         });
     }
@@ -209,11 +271,17 @@ impl ::pbt::Pbt for Bool {
         let mut acc = vec![];
         let () = acc
             .push(::pbt::reflection::Variant {
-                field_types: ::pbt::multiset::Multiset::new(),
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
+                    acc
+                },
             });
         let () = acc
             .push(::pbt::reflection::Variant {
-                field_types: ::pbt::multiset::Multiset::new(),
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
+                    acc
+                },
             });
         ::pbt::reflection::Variants::Algebraic(acc)
     }
@@ -266,7 +334,128 @@ impl ::pbt::Pbt for Unit {
         let mut acc = vec![];
         let () = acc
             .push(::pbt::reflection::Variant {
-                field_types: ::pbt::multiset::Multiset::new(),
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
+                    acc
+                },
+            });
+        ::pbt::reflection::Variants::Algebraic(acc)
+    }
+}
+"#,
+        );
+    }
+
+    #[test]
+    fn lambda_calculus() {
+        expect_test(
+            r#"
+enum LambdaCalculus {
+    Application(Box<Self>, Box<Self>),
+    Lambda {
+        body: Box<Self>,
+    },
+    Variable {
+        de_bruijn: usize,
+    },
+}
+"#,
+            r#"
+impl ::pbt::Pbt for LambdaCalculus {
+    #[inline]
+    fn construct<F>(
+        ::pbt::reflection::Parts { fields, variant_index }: ::pbt::reflection::Parts<F>,
+    ) -> Self
+    where
+        F: ::pbt::fields::Fields,
+    {
+        let algebraic_index: usize = variant_index
+            .expect("`LambdaCalculus` is not a literal")
+            .get();
+        match algebraic_index {
+            1 => Self::Application(fields.field(), fields.field()),
+            2 => {
+                Self::Lambda {
+                    body: fields.field(),
+                }
+            }
+            3 => {
+                Self::Variable {
+                    de_bruijn: fields.field(),
+                }
+            }
+            _ => {
+                panic!(
+                    "can't instantiate variant #{algebraic_index} of `LambdaCalculus`"
+                )
+            }
+        }
+    }
+    #[inline]
+    fn deconstruct(self) -> ::pbt::reflection::Parts<::pbt::fields::Store> {
+        match self {
+            Self::Application(_anonymous_0, _anonymous_1) => {
+                ::pbt::reflection::Parts {
+                    fields: {
+                        let mut acc = ::pbt::fields::Store::new();
+                        let () = acc.push(_anonymous_1);
+                        let () = acc.push(_anonymous_0);
+                        acc
+                    },
+                    variant_index: Some(const { ::core::num::NonZero::new(1).unwrap() }),
+                }
+            }
+            Self::Lambda { body } => {
+                ::pbt::reflection::Parts {
+                    fields: {
+                        let mut acc = ::pbt::fields::Store::new();
+                        let () = acc.push(body);
+                        acc
+                    },
+                    variant_index: Some(const { ::core::num::NonZero::new(2).unwrap() }),
+                }
+            }
+            Self::Variable { de_bruijn } => {
+                ::pbt::reflection::Parts {
+                    fields: {
+                        let mut acc = ::pbt::fields::Store::new();
+                        let () = acc.push(de_bruijn);
+                        acc
+                    },
+                    variant_index: Some(const { ::core::num::NonZero::new(3).unwrap() }),
+                }
+            }
+        }
+    }
+    #[inline]
+    fn register(
+        registration: &mut ::pbt::registration::Registration<'_>,
+    ) -> ::pbt::reflection::Variants<Self> {
+        let mut acc = vec![];
+        let () = acc
+            .push(::pbt::reflection::Variant {
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
+                    let () = acc.insert(::core::any::TypeId::of::<Box<Self>>());
+                    let () = acc.insert(::core::any::TypeId::of::<Box<Self>>());
+                    acc
+                },
+            });
+        let () = acc
+            .push(::pbt::reflection::Variant {
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
+                    let () = acc.insert(::core::any::TypeId::of::<Box<Self>>());
+                    acc
+                },
+            });
+        let () = acc
+            .push(::pbt::reflection::Variant {
+                field_types: {
+                    let mut acc = ::pbt::multiset::Multiset::new();
+                    let () = acc.insert(::core::any::TypeId::of::<usize>());
+                    acc
+                },
             });
         ::pbt::reflection::Variants::Algebraic(acc)
     }
