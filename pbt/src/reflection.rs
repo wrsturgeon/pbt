@@ -520,8 +520,6 @@ impl Parts<Store> {
     where
         T: Pbt,
     {
-        let () = register_globally::<T>();
-
         let ty = TypeId::of::<T>();
         let ctors = match constructors_of(ty) {
             Constructors::Algebraic(ref arc_ctors) => Arc::clone(arc_ctors),

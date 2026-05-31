@@ -6,7 +6,7 @@ use {
         Pbt,
         hash::map,
         multiset::Multiset,
-        reflection::{BucketOps, Erased, bucket_ops_of, is_literal, register_globally},
+        reflection::{BucketOps, Erased, bucket_ops_of, is_literal},
         size::{self, Size},
         swarm::Swarm,
     },
@@ -310,7 +310,6 @@ impl Store {
     where
         T: Pbt,
     {
-        let () = register_globally::<T>();
         let () = self.push_erased(
             TypeId::of::<T>(),
             ptr::NonNull::from_mut(Box::leak(Box::new(t))).cast(),

@@ -1,7 +1,14 @@
 //! Generate an arbitrary term of any type `T`.
 
 use {
-    crate::{Pbt, hash::map, persist, reflection::Uninstantiable, size::Size, swarm::Swarm},
+    crate::{
+        Pbt,
+        hash::map,
+        persist,
+        reflection::{Uninstantiable, register_globally},
+        size::Size,
+        swarm::Swarm,
+    },
     wyrand::WyRand,
 };
 
@@ -19,6 +26,7 @@ pub(crate) fn arbitrary<T>(prng: &mut WyRand) -> Result<impl Iterator<Item = T>,
 where
     T: Pbt,
 {
+    let () = register_globally::<T>();
     let mut swarm_cache = map();
     let mut swarm = Swarm::new::<T>(prng, &mut swarm_cache)?;
     let mut batch_size = 1_usize; // Increases over time.

@@ -5,10 +5,7 @@ use {
         Pbt,
         fields::Store,
         persist,
-        reflection::{
-            BucketOps, Constructors, Erased, Parts, bucket_ops_of, constructors_of,
-            register_globally,
-        },
+        reflection::{BucketOps, Constructors, Erased, Parts, bucket_ops_of, constructors_of},
     },
     alloc::sync::Arc,
     core::{any::TypeId, mem, ptr},
@@ -194,7 +191,6 @@ pub(crate) fn candidates<T>(t: T) -> Box<dyn Iterator<Item = T>>
 where
     T: Pbt,
 {
-    let () = register_globally::<T>();
     let ty = TypeId::of::<T>();
 
     let ctors = match constructors_of(ty) {

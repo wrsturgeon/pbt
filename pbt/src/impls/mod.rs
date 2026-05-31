@@ -4,7 +4,9 @@
 mod arcs;
 mod booleans;
 mod boxes;
+mod chars;
 mod integers;
 mod options;
+mod strings;
 mod tuples;
 mod vectors;

@@ -7,10 +7,7 @@ use {
         hash::map,
         instantiability,
         multiset::Multiset,
-        reflection::{
-            Constructor, Constructors, Erased, Parts, Uninstantiable, constructors_of,
-            register_globally,
-        },
+        reflection::{Constructor, Constructors, Erased, Parts, Uninstantiable, constructors_of},
         scc,
         size::Size,
         unavoidability,
@@ -210,7 +207,6 @@ impl Swarm {
     where
         T: Pbt,
     {
-        let () = register_globally::<T>();
         let ty = TypeId::of::<T>();
 
         // Check if this type is instantiable *before* masking:
