@@ -53,3 +53,11 @@ fn scc_missing_repro(_: &SccRepro) {}
 fn lhs_at_most_rhs(lhs: &usize, rhs: &usize) {
     assert!(lhs <= rhs);
 }
+
+#[pbt]
+#[should_panic(
+    expected = "\r\nConsider the following input:\r\n\r\n```\r\n\"\\u{80}\"\r\n```\r\n\r\nassertion `left == right` failed\n  left: 2\n right: 1"
+)]
+fn string_len_is_char_count(s: &String) {
+    assert_eq!(s.len(), s.chars().count());
+}

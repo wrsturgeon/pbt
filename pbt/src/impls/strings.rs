@@ -87,12 +87,12 @@ mod tests {
         let mut prng = WyRand::new(42);
         let generated: Vec<String> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected: Vec<String> = vec![
+            "\u{80}".to_owned(), // <-- persisted to `.pbt/` and replayed
             String::new(),
             String::new(),
             "\u{fb8e8}\u{9bf28}\u{7ea5b}".to_owned(),
             "\u{100fee}\u{bdb4}".to_owned(),
             "\u{67457}\u{6db20}".to_owned(),
-            String::new(),
             String::new(),
             String::new(),
             String::new(),

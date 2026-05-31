@@ -8,6 +8,35 @@ This is a property-based testing library designed from the ground up with three 
 
 `pbt` also enables [swarm testing](https://dl.acm.org/doi/pdf/10.1145/2338965.2336763) by default.
 
+```rust
+#[pbt]
+fn string_len_is_char_count(s: &String) {
+    assert_eq!(s.len(), s.chars().count());
+}
+```
+
+````text
+$ cargo test
+running 1 test
+test string_len_is_char_count ... FAILED
+
+failures:
+
+---- string_len_is_char_count stdout ----
+
+thread 'string_len_is_char_count' (522622) panicked at pbt-tests/src/lib.rs:57:1:
+
+Consider the following input:
+
+```
+"\u{80}"
+```
+
+assertion `left == right` failed
+  left: 2
+ right: 1
+````
+
 ## Example
 
 ```rust
