@@ -277,10 +277,11 @@ where
 
 #[cfg(test)]
 mod tests {
-    use {super::*, pretty_assertions::assert_eq};
+    use {super::*, crate::reflection::register_globally, pretty_assertions::assert_eq};
 
     #[test]
     fn shrink_triple() {
+        let () = register_globally::<Vec<usize>>();
         let v: Vec<usize> = vec![2, 2, 2];
         let shrunk: Vec<Vec<usize>> = candidates(v).collect();
         let expected: Vec<Vec<usize>> = vec![
