@@ -7,6 +7,35 @@
 
 use pbt::{Pbt, pbt};
 
+//                                    vvv
+#[derive(Clone, Debug, Eq, PartialEq, Pbt)]
+#[expect(missing_docs, reason = "nonsense")]
+#[non_exhaustive]
+pub enum Foo {
+    Bar,
+    Baz { a: u64, b: u64, c: Vec<Foo> },
+}
+
+impl Foo {
+    #[inline]
+    #[must_use]
+    #[expect(missing_docs, reason = "nonsense")]
+    pub fn qux(&self) -> usize {
+        match *self {
+            Self::Bar => 0,
+            Self::Baz { ref c, .. } => c.len(),
+        }
+    }
+}
+
+#[pbt]
+#[should_panic(
+    expected = "\r\nConsider the following input:\r\n\r\n```\r\nBaz {\n    a: 0,\n    b: 0,\n    c: [\n        Bar,\n        Bar,\n        Bar,\n    ],\n}\r\n```\r\n\r\nassertion failed: foo.qux() < 3"
+)]
+fn search_and_minimize(foo: &Foo) {
+    assert!(foo.qux() < 3);
+}
+
 /// The lambda calculus with de Bruijn indices.
 #[derive(Clone, Debug, PartialEq, Pbt)]
 #[expect(

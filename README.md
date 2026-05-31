@@ -8,6 +8,11 @@ This is a property-based testing library designed from the ground up with three 
 
 `pbt` also enables [swarm testing](https://dl.acm.org/doi/pdf/10.1145/2338965.2336763) by default.
 
+In short, this crate is mainly a just-in-time state machine compiler for generating algebraic data types,
+and standard property-based testing algorithms (remarkably!) fall out as trivial graph operations.
+
+## Quick example
+
 ```rust
 #[pbt]
 fn string_len_is_char_count(s: &String) {
@@ -37,21 +42,20 @@ assertion `left == right` failed
  right: 1
 ````
 
-## Example
+See `./pbt-tests/src/lib.rs` to run this example and a few others.
+
+## Using `derive` on custom types
 
 ```rust
+//                                    vvv
 #[derive(Clone, Debug, Eq, PartialEq, Pbt)]
 pub enum Foo {
     Bar,
-    Baz {
-        a: u64,
-        b: u64,
-        c: Vec<Foo>,
-    },
+    Baz { a: u64, b: u64, c: Vec<Foo> },
 }
 
 impl Foo {
-    pub fn bus_factor(&self) -> usize {
+    pub fn qux(&self) -> usize {
         match *self {
             Self::Bar => 0,
             Self::Baz { ref c, .. } => c.len(),
@@ -59,20 +63,39 @@ impl Foo {
     }
 }
 
-#[test]
-fn search_and_minimize() {
-    let maybe_witness: Option<Foo> =
-        search::witness(1_000, |foo: &Foo| foo.bus_factor() >= 3);
-    assert_eq!(
-        maybe_witness,
-        Some(Foo::Baz {
-            a: 0,
-            b: 0,
-            c: vec![Foo::Bar, Foo::Bar, Foo::Bar],
-        }),
-    );
+#[pbt]
+fn search_and_minimize(foo: &Foo) {
+    assert!(foo.qux() < 3);
 }
 ```
+
+````text
+$ cargo test
+running 1 test
+test search_and_minimize ... FAILED
+
+failures:
+
+---- search_and_minimize stdout ----
+
+thread 'search_and_minimize' (536547) panicked at pbt-tests/src/lib.rs:30:5:
+
+Consider the following input:
+
+```
+Baz {
+    a: 0,
+    b: 0,
+    c: [
+        Bar,
+        Bar,
+        Bar,
+    ],
+}
+```
+
+assertion failed: foo.qux() < 3
+````
 
 See `./pbt-tests/src/lib.rs` to run this example and a few others.
 
@@ -86,7 +109,9 @@ Furthermore, uninstantiable types (e.g. `!` or `core::convert::Infallible`) will
 satisfying expected properties (e.g., a predicate with an argument of type `!` holds vacuously).
 
 To avoid these pitfalls and reap the benefits of a simpler approach,
-this library is built around a small, trusted core based on standard graph theory.
+this library is built around a small, trusted core based on graph theory:
+in short, this crate is mainly a just-in-time state machine compiler for generating algebraic data types,
+and standard property-based testing algorithms (remarkably!) fall out as trivial graph operations.
 Each type used in a `pbt` function is registered with a global type graph:
 iff a type `T` has a constructor (e.g. an enum variant or an entire `struct`)
 with a field of type `U`, then this graph contains a directed edge from `T` to `U`.
