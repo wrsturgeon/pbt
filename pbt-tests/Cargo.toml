@@ -12,7 +12,7 @@ repository.workspace = true
 version.workspace = true
 
 [dependencies]
-pbt = { path = "../pbt", version = "*" }
+pbt = { path = "../pbt", version = "~0" }
 
 [lints]
 workspace = true
