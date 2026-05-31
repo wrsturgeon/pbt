@@ -317,16 +317,31 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
         fn #ident() {
             let mut prng = WyRand::new(42);
             let maybe_witness = pbt::witness(
-                |#pat: #ty| {
-                    ::std::panic::catch_unwind(move || #block).is_err()
+                |#pat: #ty| -> Option<Option<String>> {
+                    let panic = ::std::panic::catch_unwind(move || #block).err()?;
+                    Some(
+                        if let Some(s) = panic.downcast_ref::<&'static str>() {
+                            Some(s.to_string())
+                        } else if let Some(s) = panic.downcast_ref::<String>() {
+                            Some(s.clone())
+                        } else {
+                            None
+                        },
+                    )
                 },
                 #n_cases_literal,
                 &mut prng,
             );
-            if let Some(witness) = maybe_witness {
-                panic!(
-                    "Property does not always hold. For example, consider the following input:\r\n```\r\n{witness:#?}\r\n```",
-                );
+            if let Some((witness, maybe_panic_msg)) = maybe_witness {
+                if let Some(panic_msg) = maybe_panic_msg {
+                    panic!(
+                        "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
+                    );
+                } else {
+                    panic!(
+                        "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
+                    );
+                }
             }
         }
     })
@@ -706,21 +721,36 @@ fn less_than_42(lc: &LambdaCalculus) {
 fn less_than_42() {
     let mut prng = WyRand::new(42);
     let maybe_witness = pbt::witness(
-        |lc: &LambdaCalculus| {
-            ::std::panic::catch_unwind(move || {
+        |lc: &LambdaCalculus| -> Option<Option<String>> {
+            let panic = ::std::panic::catch_unwind(move || {
                     if let LambdaCalculus::Variable { de_bruijn } = *lc {
                         assert!(de_bruijn < 42)
                     }
                 })
-                .is_err()
+                .err()?;
+            Some(
+                if let Some(s) = panic.downcast_ref::<&'static str>() {
+                    Some(s.to_string())
+                } else if let Some(s) = panic.downcast_ref::<String>() {
+                    Some(s.clone())
+                } else {
+                    None
+                },
+            )
         },
         1_000,
         &mut prng,
     );
-    if let Some(witness) = maybe_witness {
-        panic!(
-            "Property does not always hold. For example, consider the following input:\r\n```\r\n{witness:#?}\r\n```",
-        );
+    if let Some((witness, maybe_panic_msg)) = maybe_witness {
+        if let Some(panic_msg) = maybe_panic_msg {
+            panic!(
+                "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\n{panic_msg}",
+            );
+        } else {
+            panic!(
+                "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\n{witness:#?}\r\n```\r\n\r\nThis panicked, but the payload was not recoverable.",
+            );
+        }
     }
 }
 "#,

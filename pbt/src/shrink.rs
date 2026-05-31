@@ -257,20 +257,25 @@ where
 /// Find an approximately-global minimum for a given property,
 /// starting from a witness that is probably far larger than necessary.
 #[inline]
-pub(crate) fn to_minimal_witness<T, Property>(mut best_yet: T, property: &Property) -> T
+pub(crate) fn to_minimal_witness<T, Property, Proof>(
+    property: &Property,
+    mut best_yet: T,
+    mut proof: Proof,
+) -> (T, Proof)
 where
-    Property: Fn(&T) -> bool,
+    Property: Fn(&T) -> Option<Proof>,
     T: Pbt,
 {
     'giant_leaps: loop {
         for candidate in candidates::<T>(best_yet.clone()) {
-            if property(&candidate) {
+            if let Some(next_proof) = property(&candidate) {
                 best_yet = candidate;
+                proof = next_proof;
                 continue 'giant_leaps;
             }
         }
         let () = persist::witness(&best_yet);
-        return best_yet;
+        return (best_yet, proof);
     }
 }
 

@@ -36,7 +36,7 @@ mod tests {
 
     #[pbt(1_000)]
     #[should_panic(
-        expected = "Property does not always hold. For example, consider the following input:\r\n```\r\nVariable {\n    de_bruijn: 42,\n}\r\n```"
+        expected = "\r\nProperty does not always hold. For example, consider the following input:\r\n\r\n```\r\nVariable {\n    de_bruijn: 42,\n}\r\n```\r\n\r\nassertion failed: de_bruijn < 42"
     )]
     fn less_than_42(lc: &LambdaCalculus) {
         if let LambdaCalculus::Variable { de_bruijn } = *lc {

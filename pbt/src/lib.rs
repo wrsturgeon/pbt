@@ -107,19 +107,19 @@ where
 /// If this fails, this does not mean that the property never holds;
 /// instead, it simply means we didn't find a property in `cases` cases.
 #[inline]
-pub fn witness<T, Property>(
+pub fn witness<T, Property, Proof>(
     property: Property,
     cases: usize,
     prng: &mut wyrand::WyRand,
-) -> Option<T>
+) -> Option<(T, Proof)>
 where
-    Property: Fn(&T) -> bool,
+    Property: Fn(&T) -> Option<Proof>,
     T: Pbt,
 {
     let arbitrary = arbitrary::arbitrary::<T>(prng).ok()?;
     for t in arbitrary.take(cases) {
-        if property(&t) {
-            return Some(shrink::to_minimal_witness(t, &property));
+        if let Some(proof) = property(&t) {
+            return Some(shrink::to_minimal_witness(&property, t, proof));
         }
     }
     None
@@ -132,6 +132,9 @@ mod tests {
     #[test]
     fn witness_at_least_42() {
         let mut prng = WyRand::new(42);
-        assert_eq!(witness(|i: &usize| *i >= 42, 1_000, &mut prng), Some(42));
+        assert_eq!(
+            witness(|i: &usize| i.checked_sub(42), 1_000, &mut prng),
+            Some((42, 0))
+        );
     }
 }
