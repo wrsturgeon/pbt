@@ -16,7 +16,7 @@ proc-macro = true
 
 
 [dependencies]
-pbt-macro2 = { path = "../pbt-macro2" }
+pbt-macro2 = { path = "../pbt-macro2", version = "*" }
 proc-macro2 = "~1.0"
 
 
