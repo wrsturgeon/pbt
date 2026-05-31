@@ -11,7 +11,7 @@ pub fn derive_pbt(ts: TokenStream) -> TokenStream {
 
 /// Turn a function into a test by throwing inputs at it until it panics.
 #[inline]
-#[proc_macro_attribute(pbt)]
-pub fn pbt(ts: TokenStream) -> TokenStream {
-    pbt_macro2::pbt(ts.into()).into()
+#[proc_macro_attribute]
+pub fn pbt(args: TokenStream, item: TokenStream) -> TokenStream {
+    pbt_macro2::pbt(item.into(), args.into()).into()
 }

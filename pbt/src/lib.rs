@@ -19,10 +19,14 @@ mod swarm;
 mod unavoidability;
 mod union_find;
 
-pub use pbt_macros::Pbt;
+pub use pbt_macros::{Pbt, pbt};
 
 /// The main property-based testing trait.
-pub trait Pbt: 'static + Clone {
+#[expect(
+    clippy::absolute_paths,
+    reason = "to avoid polluting the top-level namespace"
+)]
+pub trait Pbt: 'static + Clone + core::fmt::Debug {
     /// Instantiate a specific variant of this type
     /// by providing its index and its fields.
     ///
@@ -58,13 +62,9 @@ pub trait Pbt: 'static + Clone {
 
 /// Check that deconstructing and then immediately reconstructing a value is a no-op.
 #[inline]
-#[expect(
-    clippy::absolute_paths,
-    reason = "to avoid polluting the top-level namespace"
-)]
 pub fn check_eta_expansion<T>()
 where
-    T: core::fmt::Debug + PartialEq + Pbt,
+    T: PartialEq + Pbt,
 {
     let mut prng = wyrand::WyRand::new(42);
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
@@ -83,13 +83,9 @@ where
 
 /// Check that serializing and then immediately deserializing a value is a no-op.
 #[inline]
-#[expect(
-    clippy::absolute_paths,
-    reason = "to avoid polluting the top-level namespace"
-)]
 pub fn check_serialization<T>()
 where
-    T: core::fmt::Debug + PartialEq + Pbt,
+    T: PartialEq + Pbt,
 {
     let mut prng = wyrand::WyRand::new(42);
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {

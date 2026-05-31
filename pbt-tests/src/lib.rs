@@ -28,13 +28,15 @@ pub enum LambdaCalculus {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use {super::*, pbt::pbt, wyrand::WyRand};
 
-    #[pbt] // TODO: `#[pbt(1_000)]`
-    #[should_panic(expected = "TODO: fill this in")]
+    #[pbt(1_000)]
+    #[should_panic(
+        expected = "Property does not always hold. For example, consider the following input:\r\n```\r\nVariable {\n    de_bruijn: 42,\n}\r\n```"
+    )]
     fn less_than_42(lc: &LambdaCalculus) {
         if let LambdaCalculus::Variable { de_bruijn } = *lc {
-            assert!(de_bruijn < 42)
+            assert!(de_bruijn < 42);
         }
     }
 }

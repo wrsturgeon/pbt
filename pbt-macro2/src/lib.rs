@@ -8,9 +8,10 @@ pub fn derive_pbt(ts: TokenStream) -> TokenStream {
     try_derive_pbt(ts).unwrap_or_else(syn::Error::into_compile_error)
 }
 
+/// Turn a function into a test by throwing inputs at it until it panics.
 #[inline]
-pub fn pbt(ts: TokenStream) -> TokenStream {
-    try_pbt(ts).unwrap_or_else(syn::Error::into_compile_error)
+pub fn pbt(item: TokenStream, args: TokenStream) -> TokenStream {
+    try_pbt(item, args).unwrap_or_else(syn::Error::into_compile_error)
 }
 
 /// Derive `::pbt::Pbt` for an arbitrary type.
@@ -221,14 +222,137 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
 ///
 /// If the input is not up to the task.
 #[inline]
-pub fn try_pbt(ts: TokenStream) -> syn::Result<TokenStream> {}
+pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenStream> {
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "A character index from `enumerate` cannot exceed the string's length."
+    )]
+    fn literal(n: usize) -> syn::LitInt {
+        let digits = n.to_string();
+        let mut grouped = String::new();
+        for (index, ch) in digits.chars().enumerate() {
+            if index != 0 && (digits.len() - index).is_multiple_of(3) {
+                grouped.push('_');
+            }
+            grouped.push(ch);
+        }
+        syn::LitInt::new(&grouped, proc_macro2::Span::call_site())
+    }
+
+    let n_cases_literal = literal(n_cases);
+    let syn::ItemFn {
+        attrs, block, sig, ..
+    } = syn::parse2(ts)?;
+    if sig.constness.is_some() {
+        return Err(syn::Error::new_spanned(
+            sig.constness,
+            "`#[pbt]` does not support `const fn`",
+        ));
+    }
+    if sig.asyncness.is_some() {
+        return Err(syn::Error::new_spanned(
+            sig.asyncness,
+            "`#[pbt]` does not support `async fn`",
+        ));
+    }
+    if sig.unsafety.is_some() {
+        return Err(syn::Error::new_spanned(
+            sig.unsafety,
+            "`#[pbt]` does not support `unsafe fn`",
+        ));
+    }
+    if sig.abi.is_some() {
+        return Err(syn::Error::new_spanned(
+            sig.abi,
+            "`#[pbt]` does not support explicit ABIs",
+        ));
+    }
+    if !sig.generics.params.is_empty() || sig.generics.where_clause.is_some() {
+        return Err(syn::Error::new_spanned(
+            sig.generics,
+            "`#[pbt]` does not support generic functions",
+        ));
+    }
+    if !matches!(sig.output, syn::ReturnType::Default) {
+        return Err(syn::Error::new_spanned(
+            sig.output,
+            "`#[pbt]` test functions must return `()`",
+        ));
+    }
+    let mut inputs = sig.inputs.iter();
+    let Some(input_arg) = inputs.next() else {
+        return Err(syn::Error::new_spanned(
+            sig.ident,
+            "`#[pbt]` test functions must accept exactly one input",
+        ));
+    };
+    if let Some(extra) = inputs.next() {
+        return Err(syn::Error::new_spanned(
+            extra,
+            "`#[pbt]` test functions must accept exactly one input",
+        ));
+    }
+    let input = match *input_arg {
+        syn::FnArg::Typed(ref input) => input,
+        syn::FnArg::Receiver(_) => {
+            return Err(syn::Error::new_spanned(
+                input_arg,
+                "`#[pbt]` test functions cannot accept `self`",
+            ));
+        }
+    };
+    if let Some(attribute) = input.attrs.first() {
+        return Err(syn::Error::new_spanned(
+            attribute,
+            "`#[pbt]` test function inputs cannot have attributes",
+        ));
+    }
+    let pat = &input.pat;
+    let ty = &input.ty;
+    let ident = sig.ident;
+
+    Ok(quote::quote! {
+        #[test]
+        #(#attrs)*
+        fn #ident() {
+            let mut prng = WyRand::new(42);
+            let maybe_witness = pbt::witness(
+                |#pat: #ty| {
+                    ::std::panic::catch_unwind(move || #block).is_err()
+                },
+                #n_cases_literal,
+                &mut prng,
+            );
+            if let Some(witness) = maybe_witness {
+                panic!(
+                    "Property does not always hold. For example, consider the following input:\r\n```\r\n{witness:#?}\r\n```",
+                );
+            }
+        }
+    })
+}
+
+/// Turn a function into a test by throwing inputs at it until it panics.
+///
+/// # Errors
+///
+/// If the input is not up to the task.
+#[inline]
+pub fn try_pbt(item: TokenStream, args: TokenStream) -> syn::Result<TokenStream> {
+    let n_cases = if args.is_empty() {
+        1_000
+    } else {
+        syn::parse2::<syn::LitInt>(args)?.base10_parse()?
+    };
+    try_pbt_with_cases(item, n_cases)
+}
 
 #[cfg(test)]
 mod tests {
     #![expect(clippy::expect_used, reason = "Failing tests ought to panic.")]
     #![expect(clippy::needless_raw_strings, reason = "Consistency.")]
 
-    use {super::*, pretty_assertions::assert_eq};
+    use {super::*, pretty_assertions::assert_eq, quote::ToTokens as _};
 
     #[inline]
     fn expect_test(input: &str, function: fn(TokenStream) -> TokenStream, output: &str) {
@@ -576,7 +700,7 @@ fn less_than_42(lc: &LambdaCalculus) {
     }
 }
 "#,
-            pbt,
+            |ts| pbt(ts, 1_000_usize.into_token_stream()),
             r#"
 #[test]
 fn less_than_42() {
@@ -584,16 +708,19 @@ fn less_than_42() {
     let maybe_witness = pbt::witness(
         |lc: &LambdaCalculus| {
             ::std::panic::catch_unwind(move || {
-                if let LambdaCalculus::Variable { de_bruijn } = *lc {
-                    assert!(de_bruijn < 42)
-                }
-            }).is_err()
+                    if let LambdaCalculus::Variable { de_bruijn } = *lc {
+                        assert!(de_bruijn < 42)
+                    }
+                })
+                .is_err()
         },
         1_000,
         &mut prng,
     );
     if let Some(witness) = maybe_witness {
-        panic!("Property does not always hold: for example, consider the input `{witness:#?}`");
+        panic!(
+            "Property does not always hold. For example, consider the following input:\r\n```\r\n{witness:#?}\r\n```",
+        );
     }
 }
 "#,
