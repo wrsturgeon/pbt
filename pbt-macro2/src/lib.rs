@@ -3,9 +3,7 @@
 use {
     proc_macro2::TokenStream,
     quote::quote,
-    syn::{
-        Data, DeriveInput, Expr, ExprLit, Fields, FnArg, ItemFn, Lit, LitInt, Pat, ReturnType, Type,
-    },
+    syn::{Data, DeriveInput, Expr, Fields, FnArg, ItemFn, LitInt, Pat, ReturnType, Type},
 };
 
 /// Derive `::pbt::Pbt` for an arbitrary type.
@@ -226,27 +224,8 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
 ///
 /// If the input is not up to the task.
 #[inline]
-pub fn try_pbt_with_cases(ts: TokenStream, n_cases: Option<usize>) -> syn::Result<TokenStream> {
-    let n_cases_expr = if let Some(n) = n_cases {
-        let digits = n.to_string();
-        let mut grouped = String::new();
-        for (index, ch) in digits.chars().enumerate() {
-            #[expect(
-                clippy::arithmetic_side_effects,
-                reason = "A character index from `enumerate` cannot exceed the string's length."
-            )]
-            if index != 0 && (digits.len() - index).is_multiple_of(3) {
-                grouped.push('_');
-            }
-            grouped.push(ch);
-        }
-        Expr::Lit(ExprLit {
-            attrs: vec![],
-            lit: Lit::Int(LitInt::new(&grouped, proc_macro2::Span::call_site())),
-        })
-    } else {
-        Expr::Verbatim(quote! { if cfg!(miri) { 100 } else { 10_000 } })
-    };
+pub fn try_pbt_with_cases(ts: TokenStream, n_cases: Option<Expr>) -> syn::Result<TokenStream> {
+    let n_cases_expr = n_cases.unwrap_or_else(|| Expr::Verbatim(quote! { ::pbt::DEFAULT_N_CASES }));
     let ItemFn {
         attrs, block, sig, ..
     } = syn::parse2(ts)?;
@@ -353,7 +332,7 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: Option<usize>) -> syn::Resul
         #[test]
         #(#attrs)*
         fn #ident() {
-            let mut prng = ::pbt::WyRand::new(42);
+            let mut prng = ::pbt::WyRand::new(::pbt::getrandom());
             let maybe_witness = pbt::witness(
                 |#pat: #ty| -> Option<Option<String>> {
                     ::pbt::panic::catch(move || #block).err()
@@ -386,7 +365,7 @@ pub fn try_pbt(item: TokenStream, args: TokenStream) -> syn::Result<TokenStream>
     let n_cases = if args.is_empty() {
         None
     } else {
-        Some(syn::parse2::<LitInt>(args)?.base10_parse()?)
+        Some(syn::parse2::<Expr>(args)?)
     };
     try_pbt_with_cases(item, n_cases)
 }
@@ -744,11 +723,11 @@ fn less_than_42(lc: &LambdaCalculus) {
     }
 }
 "#,
-            |ts| pbt(ts, 1_000_usize.into_token_stream()),
+            |ts| pbt(ts, 42_usize.into_token_stream()),
             r#"
 #[test]
 fn less_than_42() {
-    let mut prng = ::pbt::WyRand::new(42);
+    let mut prng = ::pbt::WyRand::new(::pbt::getrandom());
     let maybe_witness = pbt::witness(
         |lc: &LambdaCalculus| -> Option<Option<String>> {
             ::pbt::panic::catch(move || {
@@ -758,7 +737,7 @@ fn less_than_42() {
                 })
                 .err()
         },
-        1_000,
+        42usize,
         &mut prng,
     );
     if let Some((witness, maybe_panic_msg)) = maybe_witness {
@@ -785,11 +764,11 @@ fn lhs_at_most_rhs(lhs: &usize, rhs: &usize) {
     assert!(*lhs <= *rhs);
 }
 "#,
-            |ts| pbt(ts, 1_000_usize.into_token_stream()),
+            |ts| pbt(ts, 42_usize.into_token_stream()),
             r#"
 #[test]
 fn lhs_at_most_rhs() {
-    let mut prng = ::pbt::WyRand::new(42);
+    let mut prng = ::pbt::WyRand::new(::pbt::getrandom());
     let maybe_witness = pbt::witness(
         |&(ref lhs, ref rhs): &(usize, usize)| -> Option<Option<String>> {
             ::pbt::panic::catch(move || {
@@ -797,7 +776,7 @@ fn lhs_at_most_rhs() {
                 })
                 .err()
         },
-        1_000,
+        42usize,
         &mut prng,
     );
     if let Some((witness, maybe_panic_msg)) = maybe_witness {

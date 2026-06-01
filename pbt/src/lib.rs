@@ -25,6 +25,14 @@ pub use {
     wyrand::WyRand,
 };
 
+/// The default number of cases to check if no alternate is specified.
+#[cfg(not(miri))]
+pub const DEFAULT_N_CASES: usize = 1_000;
+
+/// The default number of cases to check if no alternate is specified.
+#[cfg(miri)]
+pub const DEFAULT_N_CASES: usize = 50;
+
 /// The main property-based testing trait.
 #[expect(
     clippy::absolute_paths,
@@ -74,7 +82,7 @@ where
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
         return;
     };
-    for t in arbitrary.take(42) {
+    for t in arbitrary.take(DEFAULT_N_CASES) {
         let parts = t.clone().deconstruct();
         let reconstructed = T::construct(parts);
         pretty_assertions::assert_eq!(
@@ -95,7 +103,7 @@ where
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
         return;
     };
-    for t in arbitrary.take(16) {
+    for t in arbitrary.take(DEFAULT_N_CASES) {
         let json = t.clone().deconstruct().serialize();
         let reconstructed: Option<T> = reflection::Parts::deserialize(&json);
         pretty_assertions::assert_eq!(
@@ -104,6 +112,12 @@ where
             "\r\n\r\n{t:?} -> {json:?} -> {reconstructed:?} =/= Some({t:?})",
         );
     }
+}
+
+/// Get a(n expensive) random `u64` from the OS via the `getrandom` crate.
+#[inline]
+pub fn getrandom() -> u64 {
+    getrandom::u64().expect("INTERNAL ERROR (`pbt`): `getrandom` failed")
 }
 
 /// Search for the smallest witness of an arbitrary property, if one exists.
@@ -137,7 +151,7 @@ mod tests {
     fn witness_at_least_42() {
         let mut prng = WyRand::new(42);
         assert_eq!(
-            witness(|i: &usize| i.checked_sub(42), 1_000, &mut prng),
+            witness(|i: &usize| i.checked_sub(42), DEFAULT_N_CASES, &mut prng),
             Some((42, 0))
         );
     }
