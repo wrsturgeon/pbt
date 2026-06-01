@@ -28,7 +28,7 @@ pub(crate) struct Partition {
 /// Instead, size must merely be split/partitioned
 /// among fields of a chosen variant,
 /// all the way down to leaves (forced when size runs out).
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(crate) struct Size {
     /// Approximate AST size of a value to be generated,
     /// counting only inductive types and ignoring leaves.
@@ -153,18 +153,18 @@ impl Iterator for Partition {
         reason = "Internal invariants: violations should fail loudly."
     )]
     fn next(&mut self) -> Option<Self::Item> {
-        let separators = self
-            .separators
-            .as_mut()
-            .expect("INTERNAL ERROR (`pbt`): overdrawn size partition");
-        let cap = separators.pop().map_or(self.total, |cmp::Reverse(u)| u);
+        let separators = self.separators.as_mut()?;
+        let cap = if let Some(cmp::Reverse(u)) = separators.pop() {
+            u
+        } else {
+            self.separators = None;
+            self.total
+        };
         let used = mem::replace(&mut self.used, cap);
         Some(Size {
             // SAFETY: by sorted-`pop` invariant of `BinaryHeap`.
             total: unsafe { cap.unchecked_sub(used) },
         })
-        // This will continue to generate 0 ad aeternum
-        // after the heap has been exhausted.
     }
 }
 
@@ -173,30 +173,42 @@ impl Drop for Partition {
     fn drop(&mut self) {
         debug_assert_eq!(
             self.used, self.total,
-            "INTERNAL ERROR (`pbt`): unused size partition",
+            "INTERNAL ERROR (`pbt`): unused size partition (`self.separators = {:?}`)",
+            self.separators,
         );
     }
 }
 
 #[cfg(test)]
 mod test {
-    use {super::*, pretty_assertions::assert_eq};
+    use {
+        super::*,
+        crate::{DEFAULT_N_CASES, getrandom},
+        pretty_assertions::assert_eq,
+    };
 
     #[test]
-    fn partition_10() {
-        let mut prng = WyRand::new(0xBAAD_5EED_BAAD_C0DE);
+    fn partition_adds_up_to_original_over_branching_factor() {
+        let mut prng = WyRand::new(getrandom());
+        for size in Size::increasing().take(DEFAULT_N_CASES) {
+            let total = size.total;
+            let into_how_many = 1 + (prng.rand() as usize % 10);
+            let expected = total / into_how_many;
+            let partitioned: Vec<Size> = size.partition(into_how_many, &mut prng).collect();
+            let actual: usize = partitioned.iter().map(|size| size.total).sum();
+            assert_eq!(
+                actual, expected,
+                "{expected} -> {partitioned:?} -> {actual} =/= {expected}",
+            );
+        }
+    }
+
+    #[test]
+    fn deterministic_partition() {
+        let mut prng = WyRand::new(42); // deterministic
         assert_eq!(
             Size { total: 10 }
                 .partition(3, &mut prng)
-                .take(3)
-                .map(|Size { total }| total)
-                .collect::<Vec<usize>>(),
-            vec![0, 2, 1],
-        );
-        assert_eq!(
-            Size { total: 10 }
-                .partition(3, &mut prng)
-                .take(3)
                 .map(|Size { total }| total)
                 .collect::<Vec<usize>>(),
             vec![1, 1, 1],
@@ -204,10 +216,16 @@ mod test {
         assert_eq!(
             Size { total: 10 }
                 .partition(3, &mut prng)
-                .take(10)
                 .map(|Size { total }| total)
                 .collect::<Vec<usize>>(),
-            vec![0, 2, 1, 0, 0, 0, 0, 0, 0, 0],
+            vec![0, 3, 0],
+        );
+        assert_eq!(
+            Size { total: 10 }
+                .partition(3, &mut prng)
+                .map(|Size { total }| total)
+                .collect::<Vec<usize>>(),
+            vec![1, 0, 2],
         );
     }
 }

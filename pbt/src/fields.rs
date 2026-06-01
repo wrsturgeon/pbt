@@ -99,9 +99,9 @@ impl Fields for Lazy<'_, '_> {
         T: Pbt,
     {
         let size = if self.swarm.is_inductive::<T>() {
-            // SAFETY: `Partition::next` always returns `Some(_)`,
-            // since it returns endless zeros after its assigned cardinality.
-            unsafe { self.sizes.next().unwrap_unchecked() }
+            self.sizes
+                .next()
+                .expect("INTERNAL ERROR (`pbt`): overdrawn size partition")
         } else {
             Size::zero()
         };

@@ -78,7 +78,7 @@ pub fn check_eta_expansion<T>()
 where
     T: PartialEq + Pbt,
 {
-    let mut prng = wyrand::WyRand::new(42);
+    let mut prng = wyrand::WyRand::new(getrandom());
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
         return;
     };
@@ -99,7 +99,7 @@ pub fn check_serialization<T>()
 where
     T: PartialEq + Pbt,
 {
-    let mut prng = wyrand::WyRand::new(42);
+    let mut prng = wyrand::WyRand::new(getrandom());
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
         return;
     };
@@ -149,7 +149,7 @@ mod tests {
 
     #[test]
     fn witness_at_least_42() {
-        let mut prng = WyRand::new(42);
+        let mut prng = WyRand::new(42); // deterministic
         assert_eq!(
             witness(|i: &usize| i.checked_sub(42), DEFAULT_N_CASES, &mut prng),
             Some((42, 0))
