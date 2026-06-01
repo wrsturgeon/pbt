@@ -1,6 +1,12 @@
 //! Proc-macros for `pbt`, using the `proc-macro2` crate for reusability.
 
-use {proc_macro2::TokenStream, syn::DeriveInput};
+use {
+    proc_macro2::TokenStream,
+    quote::quote,
+    syn::{
+        Data, DeriveInput, Expr, ExprLit, Fields, FnArg, ItemFn, Lit, LitInt, Pat, ReturnType, Type,
+    },
+};
 
 /// Derive `::pbt::Pbt` for an arbitrary type.
 #[inline]
@@ -31,46 +37,46 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
 
     fn pattern(
         head: TokenStream,
-        fields: &syn::Fields,
+        fields: &Fields,
         span: proc_macro2::Span,
     ) -> syn::Result<Pattern> {
         match *fields {
-            syn::Fields::Unit => Ok(Pattern {
+            Fields::Unit => Ok(Pattern {
                 construction: head.clone(),
                 deconstruction: head,
                 field_pushes: Vec::new(),
                 field_type_inserts: Vec::new(),
                 span,
             }),
-            syn::Fields::Unnamed(ref unnamed_fields) => {
+            Fields::Unnamed(ref unnamed_fields) => {
                 let mut field_bindings = Vec::new();
                 let mut field_constructions = Vec::new();
                 let mut field_pushes = Vec::new();
                 let mut field_type_inserts = Vec::new();
                 for (index, field) in unnamed_fields.unnamed.iter().enumerate() {
                     let field_binding = quote::format_ident!("_anonymous_{index}");
-                    field_constructions.push(quote::quote! { fields.field() });
+                    field_constructions.push(quote! { fields.field() });
                     let ty = &field.ty;
-                    field_type_inserts.push(quote::quote! {
+                    field_type_inserts.push(quote! {
                         let () = registration.register::<#ty>();
                         let () = acc.insert(::core::any::TypeId::of::<#ty>());
                     });
                     field_bindings.push(field_binding);
                 }
                 for field_binding in field_bindings.iter().rev() {
-                    field_pushes.push(quote::quote! {
+                    field_pushes.push(quote! {
                         let () = acc.push(#field_binding);
                     });
                 }
                 Ok(Pattern {
-                    construction: quote::quote! { #head(#(#field_constructions),*) },
-                    deconstruction: quote::quote! { #head(#(#field_bindings),*) },
+                    construction: quote! { #head(#(#field_constructions),*) },
+                    deconstruction: quote! { #head(#(#field_bindings),*) },
                     field_pushes,
                     field_type_inserts,
                     span,
                 })
             }
-            syn::Fields::Named(ref named_fields) => {
+            Fields::Named(ref named_fields) => {
                 let mut field_bindings = Vec::new();
                 let mut field_pushes = Vec::new();
                 let mut field_type_inserts = Vec::new();
@@ -79,20 +85,20 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
                         return Err(syn::Error::new_spanned(field, "missing field name"));
                     };
                     let ty = &field.ty;
-                    field_type_inserts.push(quote::quote! {
+                    field_type_inserts.push(quote! {
                         let () = registration.register::<#ty>();
                         let () = acc.insert(::core::any::TypeId::of::<#ty>());
                     });
                     field_bindings.push(field_binding);
                 }
                 for field_binding in field_bindings.iter().rev() {
-                    field_pushes.push(quote::quote! {
+                    field_pushes.push(quote! {
                         let () = acc.push(#field_binding);
                     });
                 }
                 Ok(Pattern {
-                    construction: quote::quote! { #head { #(#field_bindings: fields.field()),* } },
-                    deconstruction: quote::quote! { #head { #(#field_bindings),* } },
+                    construction: quote! { #head { #(#field_bindings: fields.field()),* } },
+                    deconstruction: quote! { #head { #(#field_bindings),* } },
                     field_pushes,
                     field_type_inserts,
                     span,
@@ -108,24 +114,22 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
         ..
     } = syn::parse2(ts)?;
     let patterns = match input_data {
-        syn::Data::Enum(enum_data) => enum_data
+        Data::Enum(enum_data) => enum_data
             .variants
             .iter()
             .map(|variant| {
                 let variant_ident = &variant.ident;
                 pattern(
-                    quote::quote! { Self::#variant_ident },
+                    quote! { Self::#variant_ident },
                     &variant.fields,
                     variant.ident.span(),
                 )
             })
             .collect::<syn::Result<Vec<_>>>()?,
-        syn::Data::Struct(struct_data) => vec![pattern(
-            quote::quote! { Self },
-            &struct_data.fields,
-            ident.span(),
-        )?],
-        syn::Data::Union(_) => {
+        Data::Struct(struct_data) => {
+            vec![pattern(quote! { Self }, &struct_data.fields, ident.span())?]
+        }
+        Data::Union(_) => {
             return Err(syn::Error::new_spanned(
                 ident,
                 "`Pbt` can currently be derived only for structs and enums",
@@ -138,7 +142,7 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
         format!("can't instantiate variant #{{algebraic_index}} of `{ident}`");
     let mut bounded_generics = generics;
     for parameter in bounded_generics.type_params_mut() {
-        parameter.bounds.push(syn::parse_quote!(::pbt::Pbt));
+        parameter.bounds.push(syn::parse_quote! { ::pbt::Pbt });
     }
     let (impl_generics, ty_generics, where_clause) = bounded_generics.split_for_impl();
 
@@ -150,16 +154,16 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
             .checked_add(1)
             .ok_or_else(|| syn::Error::new_spanned(&ident, "too many patterns"))?;
         let one_index_string = one_index.to_string();
-        let construct_index = syn::LitInt::new(&one_index_string, pattern.span);
-        let deconstruct_index = syn::LitInt::new(&one_index_string, pattern.span);
+        let construct_index = LitInt::new(&one_index_string, pattern.span);
+        let deconstruct_index = LitInt::new(&one_index_string, pattern.span);
         let construction = &pattern.construction;
         let deconstruction = &pattern.deconstruction;
         let field_pushes = &pattern.field_pushes;
         let field_type_inserts = &pattern.field_type_inserts;
-        construct_arms.push(quote::quote! {
+        construct_arms.push(quote! {
             #construct_index => #construction
         });
-        deconstruct_arms.push(quote::quote! {
+        deconstruct_arms.push(quote! {
             #deconstruction => ::pbt::reflection::Parts {
                 fields: {
                     let mut acc = ::pbt::fields::Store::new();
@@ -169,7 +173,7 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
                 variant_index: Some(const { ::core::num::NonZero::new(#deconstruct_index).unwrap() }),
             }
         });
-        register_pushes.push(quote::quote! {
+        register_pushes.push(quote! {
             let () = acc.push(::pbt::reflection::Variant {
                 field_types: {
                     let mut acc = ::pbt::multiset::Multiset::new();
@@ -180,7 +184,7 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
         });
     }
 
-    Ok(quote::quote! {
+    Ok(quote! {
         impl #impl_generics ::pbt::Pbt for #ident #ty_generics #where_clause {
             #[inline]
             fn construct<F>(
@@ -222,25 +226,28 @@ pub fn try_derive_pbt(ts: TokenStream) -> syn::Result<TokenStream> {
 ///
 /// If the input is not up to the task.
 #[inline]
-pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenStream> {
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "A character index from `enumerate` cannot exceed the string's length."
-    )]
-    fn literal(n: usize) -> syn::LitInt {
+pub fn try_pbt_with_cases(ts: TokenStream, n_cases: Option<usize>) -> syn::Result<TokenStream> {
+    let n_cases_expr = if let Some(n) = n_cases {
         let digits = n.to_string();
         let mut grouped = String::new();
         for (index, ch) in digits.chars().enumerate() {
+            #[expect(
+                clippy::arithmetic_side_effects,
+                reason = "A character index from `enumerate` cannot exceed the string's length."
+            )]
             if index != 0 && (digits.len() - index).is_multiple_of(3) {
                 grouped.push('_');
             }
             grouped.push(ch);
         }
-        syn::LitInt::new(&grouped, proc_macro2::Span::call_site())
-    }
-
-    let n_cases_literal = literal(n_cases);
-    let syn::ItemFn {
+        Expr::Lit(ExprLit {
+            attrs: vec![],
+            lit: Lit::Int(LitInt::new(&grouped, proc_macro2::Span::call_site())),
+        })
+    } else {
+        Expr::Verbatim(quote! { if cfg!(miri) { 100 } else { 10_000 } })
+    };
+    let ItemFn {
         attrs, block, sig, ..
     } = syn::parse2(ts)?;
     if sig.constness.is_some() {
@@ -273,7 +280,7 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
             "`#[pbt]` does not support generic functions",
         ));
     }
-    if !matches!(sig.output, syn::ReturnType::Default) {
+    if !matches!(sig.output, ReturnType::Default) {
         return Err(syn::Error::new_spanned(
             sig.output,
             "`#[pbt]` test functions must return `()`",
@@ -284,8 +291,8 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
         .iter()
         .map(|input_arg| {
             let input = match *input_arg {
-                syn::FnArg::Typed(ref input) => input,
-                syn::FnArg::Receiver(_) => {
+                FnArg::Typed(ref input) => input,
+                FnArg::Receiver(_) => {
                     return Err(syn::Error::new_spanned(
                         input_arg,
                         "`#[pbt]` test functions cannot accept `self`",
@@ -310,18 +317,18 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
     let (pat, ty) = if let Some(input) = inputs.first().filter(|_| inputs.len() == 1) {
         let pat = &input.pat;
         let ty = &input.ty;
-        (quote::quote! { #pat }, quote::quote! { #ty })
+        (quote! { #pat }, quote! { #ty })
     } else {
         let mut pats = Vec::new();
         let mut tys = Vec::new();
         for input in inputs {
-            let syn::Pat::Ident(ref pat) = *input.pat else {
+            let Pat::Ident(ref pat) = *input.pat else {
                 return Err(syn::Error::new_spanned(
                     &input.pat,
                     "`#[pbt]` test functions with multiple inputs must use identifier patterns",
                 ));
             };
-            let syn::Type::Reference(ref reference) = *input.ty else {
+            let Type::Reference(ref reference) = *input.ty else {
                 return Err(syn::Error::new_spanned(
                     &input.ty,
                     "`#[pbt]` test function inputs must be shared references",
@@ -335,35 +342,23 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
             }
             let ident = &pat.ident;
             let ty = &reference.elem;
-            pats.push(quote::quote! { ref #ident });
-            tys.push(quote::quote! { #ty });
+            pats.push(quote! { ref #ident });
+            tys.push(quote! { #ty });
         }
-        (
-            quote::quote! { &(#(#pats),*) },
-            quote::quote! { &(#(#tys),*) },
-        )
+        (quote! { &(#(#pats),*) }, quote! { &(#(#tys),*) })
     };
     let ident = sig.ident;
 
-    Ok(quote::quote! {
+    Ok(quote! {
         #[test]
         #(#attrs)*
         fn #ident() {
             let mut prng = ::pbt::WyRand::new(42);
             let maybe_witness = pbt::witness(
                 |#pat: #ty| -> Option<Option<String>> {
-                    let panic = ::std::panic::catch_unwind(move || #block).err()?;
-                    Some(
-                        if let Some(s) = panic.downcast_ref::<&'static str>() {
-                            Some(s.to_string())
-                        } else if let Some(s) = panic.downcast_ref::<String>() {
-                            Some(s.clone())
-                        } else {
-                            None
-                        },
-                    )
+                    ::pbt::panic::catch(move || #block).err()
                 },
-                #n_cases_literal,
+                #n_cases_expr,
                 &mut prng,
             );
             if let Some((witness, maybe_panic_msg)) = maybe_witness {
@@ -389,9 +384,9 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: usize) -> syn::Result<TokenS
 #[inline]
 pub fn try_pbt(item: TokenStream, args: TokenStream) -> syn::Result<TokenStream> {
     let n_cases = if args.is_empty() {
-        1_000
+        None
     } else {
-        syn::parse2::<syn::LitInt>(args)?.base10_parse()?
+        Some(syn::parse2::<LitInt>(args)?.base10_parse()?)
     };
     try_pbt_with_cases(item, n_cases)
 }
@@ -756,21 +751,12 @@ fn less_than_42() {
     let mut prng = ::pbt::WyRand::new(42);
     let maybe_witness = pbt::witness(
         |lc: &LambdaCalculus| -> Option<Option<String>> {
-            let panic = ::std::panic::catch_unwind(move || {
+            ::pbt::panic::catch(move || {
                     if let LambdaCalculus::Variable { de_bruijn } = *lc {
                         assert!(de_bruijn < 42)
                     }
                 })
-                .err()?;
-            Some(
-                if let Some(s) = panic.downcast_ref::<&'static str>() {
-                    Some(s.to_string())
-                } else if let Some(s) = panic.downcast_ref::<String>() {
-                    Some(s.clone())
-                } else {
-                    None
-                },
-            )
+                .err()
         },
         1_000,
         &mut prng,
@@ -806,19 +792,10 @@ fn lhs_at_most_rhs() {
     let mut prng = ::pbt::WyRand::new(42);
     let maybe_witness = pbt::witness(
         |&(ref lhs, ref rhs): &(usize, usize)| -> Option<Option<String>> {
-            let panic = ::std::panic::catch_unwind(move || {
+            ::pbt::panic::catch(move || {
                     assert!(* lhs <= * rhs);
                 })
-                .err()?;
-            Some(
-                if let Some(s) = panic.downcast_ref::<&'static str>() {
-                    Some(s.to_string())
-                } else if let Some(s) = panic.downcast_ref::<String>() {
-                    Some(s.clone())
-                } else {
-                    None
-                },
-            )
+                .err()
         },
         1_000,
         &mut prng,
