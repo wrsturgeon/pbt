@@ -66,7 +66,15 @@ impl Size {
         let Some(branching_factor) = NonZero::new(into_how_many) else {
             return Partition::empty();
         };
-        self.total /= branching_factor;
+        let Some(decremented) = self.total.checked_sub(1) else {
+            return Partition {
+                total: 0,
+                used: 0,
+                separators: Some(iter::repeat_n(cmp::Reverse(0), into_how_many).collect()),
+            };
+        };
+        #[expect(clippy::integer_division, reason = "intentional")]
+        let () = { self.total = decremented / branching_factor };
 
         // TODO: switch algorithm if `into_how_many < self.total`
 
@@ -147,11 +155,6 @@ impl Iterator for Partition {
     type Item = Size;
 
     #[inline]
-    #[expect(
-        clippy::expect_used,
-        clippy::unwrap_in_result,
-        reason = "Internal invariants: violations should fail loudly."
-    )]
     fn next(&mut self) -> Option<Self::Item> {
         let separators = self.separators.as_mut()?;
         let cap = if let Some(cmp::Reverse(u)) = separators.pop() {
@@ -192,10 +195,21 @@ mod test {
         let mut prng = WyRand::new(getrandom());
         for size in Size::increasing().take(DEFAULT_N_CASES) {
             let total = size.total;
+            #[expect(
+                clippy::as_conversions,
+                clippy::cast_possible_truncation,
+                reason = "usize::MAX > 10"
+            )]
+            #[expect(clippy::integer_division_remainder_used, reason = "10 > 0")]
             let into_how_many = 1 + (prng.rand() as usize % 10);
-            let expected = total / into_how_many;
+            #[expect(
+                clippy::integer_division,
+                clippy::integer_division_remainder_used,
+                reason = "intentional"
+            )]
+            let expected = total.saturating_sub(1) / into_how_many;
             let partitioned: Vec<Size> = size.partition(into_how_many, &mut prng).collect();
-            let actual: usize = partitioned.iter().map(|size| size.total).sum();
+            let actual: usize = partitioned.iter().map(|s| s.total).sum();
             assert_eq!(
                 actual, expected,
                 "{expected} -> {partitioned:?} -> {actual} =/= {expected}",

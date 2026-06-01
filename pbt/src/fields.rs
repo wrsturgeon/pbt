@@ -94,6 +94,10 @@ struct Visitor<T> {
 
 impl Fields for Lazy<'_, '_> {
     #[inline]
+    #[expect(
+        clippy::expect_used,
+        reason = "Internal invariants: violations should fail loudly."
+    )]
     fn field<T>(&mut self) -> T
     where
         T: Pbt,

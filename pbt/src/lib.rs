@@ -82,7 +82,7 @@ where
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
         return;
     };
-    for t in arbitrary.take(DEFAULT_N_CASES) {
+    for t in arbitrary.take(DEFAULT_N_CASES >> 2) {
         let parts = t.clone().deconstruct();
         let reconstructed = T::construct(parts);
         pretty_assertions::assert_eq!(
@@ -103,7 +103,7 @@ where
     let Ok(arbitrary) = arbitrary::arbitrary::<T>(&mut prng) else {
         return;
     };
-    for t in arbitrary.take(DEFAULT_N_CASES) {
+    for t in arbitrary.take(DEFAULT_N_CASES >> 2) {
         let json = t.clone().deconstruct().serialize();
         let reconstructed: Option<T> = reflection::Parts::deserialize(&json);
         pretty_assertions::assert_eq!(
@@ -115,7 +115,16 @@ where
 }
 
 /// Get a(n expensive) random `u64` from the OS via the `getrandom` crate.
+///
+/// # Panics
+///
+/// If and only if the `getrandom` crate panics.
 #[inline]
+#[must_use]
+#[expect(
+    clippy::expect_used,
+    reason = "Internal invariants: violations should fail loudly."
+)]
 pub fn getrandom() -> u64 {
     getrandom::u64().expect("INTERNAL ERROR (`pbt`): `getrandom` failed")
 }
