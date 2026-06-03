@@ -45,8 +45,33 @@ impl Size {
     /// An infinite iterator of increasing sizes,
     /// starting from zero.
     #[inline]
+    #[expect(
+        clippy::expect_used,
+        reason = "The hardware will die before the test index overflows."
+    )]
     pub(crate) fn increasing() -> impl Iterator<Item = Self> {
-        (0..).map(|total| Self { total })
+        let mut index = 0_usize;
+        let mut next_square = 1_usize;
+        let mut root = 0_usize;
+
+        iter::from_fn(move || {
+            if index == next_square {
+                root = root
+                    .checked_add(1)
+                    .expect("PSA from `pbt`: your hardware cannot run this many tests.");
+                let next_root = root
+                    .checked_add(1)
+                    .expect("PSA from `pbt`: your hardware cannot run this many tests.");
+                next_square = next_root
+                    .checked_mul(next_root)
+                    .expect("PSA from `pbt`: your hardware cannot run this many tests.");
+            }
+            let size = Self { total: root };
+            index = index
+                .checked_add(1)
+                .expect("PSA from `pbt`: your hardware cannot run this many tests.");
+            Some(size)
+        })
     }
 
     /// Partition this size into a known number of sizes
@@ -189,6 +214,17 @@ mod test {
         crate::{DEFAULT_N_CASES, getrandom},
         pretty_assertions::assert_eq,
     };
+
+    #[test]
+    fn increasing_takes_square_root() {
+        assert_eq!(
+            Size::increasing()
+                .take(10)
+                .map(|Size { total }| total)
+                .collect::<Vec<usize>>(),
+            vec![0, 1, 1, 1, 2, 2, 2, 2, 2, 3],
+        );
+    }
 
     #[test]
     fn partition_adds_up_to_original_over_branching_factor() {

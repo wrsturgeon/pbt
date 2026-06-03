@@ -27,11 +27,11 @@ pub use {
 
 /// The default number of cases to check if no alternate is specified.
 #[cfg(not(miri))]
-pub const DEFAULT_N_CASES: usize = 1_000;
+pub const DEFAULT_N_CASES: usize = 10_000;
 
 /// The default number of cases to check if no alternate is specified.
 #[cfg(miri)]
-pub const DEFAULT_N_CASES: usize = 50;
+pub const DEFAULT_N_CASES: usize = 100;
 
 /// The main property-based testing trait.
 #[expect(

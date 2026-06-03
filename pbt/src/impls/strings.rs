@@ -92,11 +92,11 @@ mod tests {
             String::new(),
             "\u{fb8e8}".to_owned(),
             String::new(),
-            "\u{9bf28}\u{7ea5b}\u{100fee}\u{bdb4}".to_owned(),
-            "\u{67457}\u{6db20}\u{f7975}".to_owned(),
-            "\u{8a8c1}\u{fdc56}\u{96fe3}\u{19597}\u{7f69}\u{3c1c9}".to_owned(),
-            "\u{166aa}\u{dafe8}\u{1b7cf}\u{18030}\u{32e74}\u{487bf}\u{2b654}".to_owned(),
-            "\u{f728c}\u{195c2}\u{3594c}\u{103693}\u{105d68}\u{72c71}\u{ab023}".to_owned(),
+            String::new(),
+            "\u{9bf28}\u{7ea5b}".to_owned(),
+            "\u{100fee}".to_owned(),
+            "\u{bdb4}".to_owned(),
+            "\u{67457}\u{6db20}".to_owned(),
         ];
         assert_eq!(generated, expected);
     }
