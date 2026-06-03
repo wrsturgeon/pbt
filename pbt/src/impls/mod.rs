@@ -5,6 +5,7 @@ mod arcs;
 mod booleans;
 mod boxes;
 mod chars;
+mod hash_collections;
 mod infallible;
 mod integers;
 mod options;
