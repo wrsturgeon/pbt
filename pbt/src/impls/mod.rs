@@ -9,6 +9,7 @@ mod hash_collections;
 mod infallible;
 mod integers;
 mod options;
+mod phantoms;
 mod strings;
 mod tuples;
 mod vectors;
