@@ -52,7 +52,7 @@ impl Pbt for char {
     }
 }
 
-/// Shrink an integer by repeatedly subtracting half the previous shrunk amount.
+/// Shrink a `char` by repeatedly subtracting half the previous shrunk amount.
 #[inline]
 fn shrink(c: char) -> Box<dyn Iterator<Item = char>> {
     let n = u32::from(c);
@@ -92,6 +92,7 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
+        super::*,
         crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
         pretty_assertions::assert_eq,
         wyrand::WyRand,
@@ -114,6 +115,19 @@ mod tests {
             '\u{fdc56}',
         ];
         assert_eq!(generated, expected);
+    }
+
+    #[test]
+    fn deterministic_shrink() {
+        let mut iter = shrink('z');
+        assert_eq!(iter.next(), Some('\0'));
+        assert_eq!(iter.next(), Some('='));
+        assert_eq!(iter.next(), Some('\\'));
+        assert_eq!(iter.next(), Some('k'));
+        assert_eq!(iter.next(), Some('s'));
+        assert_eq!(iter.next(), Some('w'));
+        assert_eq!(iter.next(), Some('y'));
+        assert_eq!(iter.next(), None);
     }
 
     #[test]

@@ -74,7 +74,7 @@ pub trait Pbt: 'static + Clone + core::fmt::Debug {
 
 /// Check that deconstructing and then immediately reconstructing a value is a no-op.
 #[inline]
-#[cfg_attr(test, mutants::skip)]
+#[mutants::skip]
 pub fn check_eta_expansion<T>()
 where
     T: PartialEq + Pbt,
@@ -96,7 +96,7 @@ where
 
 /// Check that serializing and then immediately deserializing a value is a no-op.
 #[inline]
-#[cfg_attr(test, mutants::skip)]
+#[mutants::skip]
 pub fn check_serialization<T>()
 where
     T: PartialEq + Pbt,
@@ -127,7 +127,7 @@ where
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-#[cfg_attr(test, mutants::skip)]
+#[mutants::skip]
 pub fn getrandom() -> u64 {
     getrandom::u64().expect("INTERNAL ERROR (`pbt`): `getrandom` failed")
 }

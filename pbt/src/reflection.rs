@@ -780,3 +780,32 @@ where
     };
     let () = registration.register::<T>();
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn literal_constructors_eq_iff_generators_eq() {
+        let f: for<'a> fn(&'a mut _) -> _ = |_| todo!();
+        let g: for<'a> fn(&'a mut _) -> _ = |_| todo!();
+
+        let ctors_f = Constructors::Literal {
+            deserialize: |_| todo!(),
+            generators: Arc::new([f]),
+            serialize: |_| todo!(),
+            shrink: |_| todo!(),
+        };
+        let ctors_g = Constructors::Literal {
+            deserialize: |_| todo!(),
+            generators: Arc::new([g]),
+            serialize: |_| todo!(),
+            shrink: |_| todo!(),
+        };
+
+        assert_eq!(ctors_f, ctors_f);
+        assert_eq!(ctors_g, ctors_g);
+        assert_ne!(ctors_f, ctors_g);
+        assert_ne!(ctors_g, ctors_f);
+    }
+}

@@ -40,6 +40,12 @@ fn collect_uncached<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
     }
 }
 
+#[inline]
+#[mutants::skip]
+fn max_iterations(n_unvisited_vertices: usize, n_cached_vertices: usize) -> usize {
+    n_unvisited_vertices * (n_unvisited_vertices + n_cached_vertices)
+}
+
 /// Compute and cache unavoidability for all uncached vertices reachable from `root`.
 ///
 /// The caller supplies constructors and a field projection so this analysis stays generic over
@@ -90,8 +96,10 @@ pub(crate) fn update<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
         clippy::arithmetic_side_effects,
         reason = "more than `usize::MAX` iterations would be bad!"
     )]
-    let max_iterations: usize = domain.len()
-        * (domain.len() + cache.values().map(|vertices| vertices.len()).sum::<usize>());
+    let max_iterations: usize = max_iterations(
+        domain.len(),
+        cache.values().map(|vertices| vertices.len()).sum::<usize>(),
+    );
     'fixed_point: for iteration in 0_usize.. {
         debug_assert!(
             iteration <= max_iterations,

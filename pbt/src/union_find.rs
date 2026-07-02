@@ -287,4 +287,23 @@ mod tests {
         assert_eq!(uf.upward.get(&4), Some(&Upward::Parent { parent: 2 }));
         assert_eq!(uf.upward.get(&5), Some(&Upward::Parent { parent: 2 })); // <-- here
     }
+
+    #[test]
+    fn merge_keeps_larger_set_as_root() {
+        let mut uf = UnionFind::new();
+        uf.insert_singleton(1);
+        uf.insert_singleton(2);
+        uf.insert_singleton(3);
+
+        // Root 1 now represents {1, 2}.
+        uf.merge(1, 2);
+
+        // RHS is larger, so correct code swaps and keeps root 1.
+        uf.merge(3, 1);
+
+        assert_eq!(uf.root(1).unwrap().element, RootElement(1));
+        assert_eq!(uf.root(2).unwrap().element, RootElement(1));
+        assert_eq!(uf.root(3).unwrap().element, RootElement(1));
+        assert_eq!(uf.root(1).unwrap().cardinality.get(), 3);
+    }
 }

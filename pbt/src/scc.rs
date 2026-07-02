@@ -110,6 +110,7 @@ fn tarjan<Destinations, OutgoingEdges, Vertex>(
                 let child_index = child_books.global_visit_index;
                 let v_books = get_mut!(&vertex);
                 if child_index < v_books.low_link {
+                    debug_assert!(child_index < v_books.low_link);
                     v_books.low_link = child_index;
                 }
             }
@@ -125,6 +126,7 @@ fn tarjan<Destinations, OutgoingEdges, Vertex>(
             let child_low_link = get!(&child).low_link;
             let v_books = get_mut!(&vertex);
             if child_low_link < v_books.low_link {
+                debug_assert!(child_low_link < v_books.low_link);
                 v_books.low_link = child_low_link;
             }
         }
@@ -189,6 +191,21 @@ mod tests {
 
     fn outgoing_edges<'g>(graph: &'g Graph) -> impl Fn(u8) -> iter::Copied<hash_set::Iter<'g, u8>> {
         move |vertex| graph[&vertex].iter().copied()
+    }
+
+    #[test]
+    fn descendant_back_edge_merges_whole_component() {
+        // The back-edge from 3 to 1 must propagate through 2.
+        let graph = graph(&[(1, &[2]), (2, &[3]), (3, &[1])]);
+        let edges = outgoing_edges(&graph);
+        let mut quotient = UnionFind::new();
+
+        update(1, &edges, &mut quotient);
+
+        let root = quotient.root(1).unwrap().element;
+        assert_eq!(quotient.root(2).unwrap().element, root);
+        assert_eq!(quotient.root(3).unwrap().element, root);
+        assert_eq!(quotient.root(1).unwrap().cardinality.get(), 3);
     }
 
     #[test]

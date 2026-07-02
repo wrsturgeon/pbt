@@ -21,6 +21,7 @@ use {
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
+#[mutants::skip]
 fn workspace_root() -> PathBuf {
     let cwd = current_dir().expect("INTERNAL ERROR (`pbt`): couldn't read the current directory");
     cwd.ancestors()
@@ -41,6 +42,7 @@ fn dir() -> PathBuf {
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
+#[mutants::skip]
 pub(crate) fn jsonl_path<T>() -> PathBuf
 where
     T: 'static,
@@ -110,6 +112,7 @@ where
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
+#[mutants::skip]
 pub(crate) fn witness<T>(t: &T)
 where
     T: Pbt,

@@ -160,3 +160,32 @@ where
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use {super::*, core::iter, pretty_assertions::assert_eq};
+
+    #[test]
+    fn insert_42_42_42() {
+        let mut acc = Multiset::<usize>::new();
+        let () = acc.insert(42);
+        let () = acc.insert(42);
+        let () = acc.insert(42);
+        assert_eq!(
+            acc,
+            Multiset {
+                counts: iter::once((42, const { NonZero::new(3).unwrap() })).collect()
+            }
+        );
+        assert_eq!(acc.total(), 3);
+    }
+
+    #[test]
+    fn zero_removes_key() {
+        let mut acc = Multiset::<usize>::new();
+        let () = acc.insert(42);
+        let () = acc.remove(&42);
+        assert_eq!(acc, Multiset { counts: map() });
+        assert_eq!(acc.total(), 0);
+    }
+}

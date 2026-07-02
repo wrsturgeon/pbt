@@ -278,4 +278,16 @@ mod test {
             vec![1, 0, 2],
         );
     }
+
+    #[test]
+    #[should_panic(expected = "INTERNAL ERROR (`pbt`): unused size partition")]
+    fn unused_partition() {
+        let mut prng = WyRand::new(42); // deterministic
+        let mut partition = Size { total: 10 }
+            .partition(3, &mut prng)
+            .map(|Size { total }| total);
+        assert_eq!(partition.next(), Some(1));
+        assert_eq!(partition.next(), Some(1));
+        // dropped without using the third item
+    }
 }
