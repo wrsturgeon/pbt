@@ -302,7 +302,7 @@ impl Swarm {
     clippy::arithmetic_side_effects,
     reason = "if there were more than `usize::MAX` fields, they wouldn't have compiled"
 )]
-fn how_many_features_to_mask_out_of(n_total: usize, prng: &mut WyRand) -> usize {
+fn n_features_to_mask(n_total: usize, prng: &mut WyRand) -> usize {
     // Usually in programming we deal with [0, n),
     // but here we want [0, n], in which `n` itself is an option.
     // SAFETY: `n_total` is the length of an in-memory array,
@@ -319,6 +319,10 @@ fn how_many_features_to_mask_out_of(n_total: usize, prng: &mut WyRand) -> usize 
 
         // Reject above the diagonal:
         if x > y {
+            debug_assert!(
+                x < inclusive.get(),
+                "INTERNAL ERROR (`pbt`): invalid rejection-sampling candidate",
+            );
             continue 'rejection_sampling;
         }
 
@@ -336,7 +340,7 @@ fn how_many_features_to_mask_out_of(n_total: usize, prng: &mut WyRand) -> usize 
     reason = "OK: `u64` is already huge"
 )]
 fn mask_for(n_total: usize, prng: &mut WyRand) -> Vec<bool> {
-    let n_to_mask = how_many_features_to_mask_out_of(n_total, prng);
+    let n_to_mask = n_features_to_mask(n_total, prng);
     let mut mask = vec![true; n_total];
     for _ in 0..n_to_mask {
         'rejection_sampling: loop {
@@ -468,5 +472,17 @@ fn mask_all_constructors_reachable_from(
                 },
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use {super::*, pretty_assertions::assert_eq};
+
+    #[test]
+    fn deterministic_mask_for() {
+        let mut prng = WyRand::new(42);
+        let mask = mask_for(5, &mut prng);
+        assert_eq!(mask, vec![true, true, false, true, true]);
     }
 }

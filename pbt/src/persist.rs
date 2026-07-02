@@ -75,7 +75,6 @@ where
 )]
 #[expect(
     clippy::absolute_paths,
-    clippy::std_instead_of_core,
     reason = "`core::io::ErrorKind` is unstable; filesystem errors use stable `std::io`."
 )]
 pub(crate) fn replay<T>() -> impl Iterator<Item = T>
@@ -109,7 +108,6 @@ where
 #[expect(
     clippy::absolute_paths,
     clippy::expect_used,
-    clippy::std_instead_of_core,
     reason = "Internal invariants: violations should fail loudly."
 )]
 pub(crate) fn witness<T>(t: &T)

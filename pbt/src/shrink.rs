@@ -283,8 +283,8 @@ mod tests {
     fn shrink_triple() {
         let () = register_globally::<Vec<usize>>();
         let v: Vec<usize> = vec![2, 2, 2];
-        let shrunk: Vec<Vec<usize>> = candidates(v).collect();
-        let expected: Vec<Vec<usize>> = vec![
+        let mut iter_candidates = candidates(v);
+        for expected in [
             vec![2, 2],
             vec![2],
             vec![],
@@ -342,7 +342,9 @@ mod tests {
             vec![2, 1, 2],
             vec![2, 2, 1],
             vec![1, 2, 2],
-        ];
-        assert_eq!(shrunk, expected);
+        ] {
+            assert_eq!(iter_candidates.next(), Some(expected));
+        }
+        assert_eq!(iter_candidates.next(), None);
     }
 }

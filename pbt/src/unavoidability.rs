@@ -86,7 +86,18 @@ pub(crate) fn update<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
         .map(|&vertex| (vertex, iter::once(vertex).collect()))
         .collect();
 
-    'fixed_point: loop {
+    #[expect(
+        clippy::arithmetic_side_effects,
+        reason = "more than `usize::MAX` iterations would be bad!"
+    )]
+    let max_iterations: usize = domain.len()
+        * (domain.len() + cache.values().map(|vertices| vertices.len()).sum::<usize>());
+    'fixed_point: for iteration in 0_usize.. {
+        debug_assert!(
+            iteration <= max_iterations,
+            "non-terminating least-fixed-point loop",
+        );
+
         let mut changed = false;
 
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]

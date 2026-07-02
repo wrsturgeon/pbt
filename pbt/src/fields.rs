@@ -466,6 +466,7 @@ where
 
 impl<T> Drop for Visitor<T> {
     #[inline]
+    #[cfg_attr(test, mutants::skip)] // <-- all this fn does is ensure memory safety
     fn drop(&mut self) {
         if let Some(queue) = self.queue.take() {
             let () = (self.bucket_ops.drop_vec)(queue);
@@ -478,7 +479,61 @@ impl<T> Drop for Visitor<T> {
 mod tests {
     #![expect(clippy::unwrap_used, reason = "Failing tests ought to panic.")]
 
-    use {super::*, crate::arbitrary::arbitrary, core::iter, pretty_assertions::assert_eq};
+    use {
+        super::*,
+        crate::{
+            arbitrary::arbitrary,
+            check_eta_expansion,
+            reflection::{Parts, Variant, Variants},
+            registration::Registration,
+        },
+        core::{iter, num::NonZero},
+        pretty_assertions::assert_eq,
+    };
+
+    #[derive(Clone, Debug, Eq, PartialEq)]
+    struct DestructsWithExtraField((), ());
+
+    impl Pbt for DestructsWithExtraField {
+        #[inline]
+        fn construct<F>(
+            Parts {
+                mut fields,
+                variant_index,
+            }: Parts<F>,
+        ) -> Self
+        where
+            F: Fields,
+        {
+            debug_assert_eq!(variant_index, Some(const { NonZero::new(1).unwrap() }));
+            #[expect(clippy::unit_arg, reason = "b/c `fields` checks its size on `drop`")]
+            Self(fields.field(), fields.field())
+        }
+
+        #[inline]
+        fn deconstruct(self) -> Parts<Store> {
+            Parts {
+                fields: {
+                    let mut acc = Store::new();
+                    let () = acc.push(());
+                    let () = acc.push(());
+                    let () = acc.push(()); // <-- extra `()`
+                    acc
+                },
+                variant_index: const { Some(NonZero::new(1).unwrap()) },
+            }
+        }
+
+        #[inline]
+        fn register(registration: &mut Registration<'_>) -> Variants<Self> {
+            let () = registration.register::<()>();
+            Variants::Algebraic(vec![Variant {
+                field_types: [TypeId::of::<()>(), TypeId::of::<()>()]
+                    .into_iter()
+                    .collect(),
+            }])
+        }
+    }
 
     // TODO: make this a real PBT when macro are ready
     #[test]
@@ -500,13 +555,13 @@ mod tests {
         let () = store.push(1_usize);
         let () = store.push(2_usize);
         let () = store.push(3_usize);
-        assert_eq!(
-            store
-                .sections(iter::once((TypeId::of::<usize>(), 1)).collect())
-                .map(|mut s| s.pop_all::<usize>().unwrap())
-                .collect::<Vec<Vec<usize>>>(),
-            vec![vec![1], vec![2], vec![3]],
-        );
+        let mut iter = store
+            .sections(iter::once((TypeId::of::<usize>(), 1)).collect())
+            .map(|mut s| s.pop_all::<usize>().unwrap());
+        assert_eq!(iter.next(), Some(vec![1]));
+        assert_eq!(iter.next(), Some(vec![2]));
+        assert_eq!(iter.next(), Some(vec![3]));
+        assert_eq!(iter.next(), None);
     }
 
     #[test]
@@ -515,20 +570,16 @@ mod tests {
         let () = store.push(1_usize);
         let () = store.push(2_usize);
         let () = store.push(3_usize);
-        assert_eq!(
-            store
-                .sections(iter::once((TypeId::of::<usize>(), 2)).collect())
-                .map(|mut s| s.pop_all::<usize>().unwrap())
-                .collect::<Vec<Vec<usize>>>(),
-            vec![
-                vec![3, 1],
-                vec![2, 1],
-                vec![1, 2],
-                vec![3, 2],
-                vec![1, 3],
-                vec![2, 3],
-            ],
-        );
+        let mut iter = store
+            .sections(iter::once((TypeId::of::<usize>(), 2)).collect())
+            .map(|mut s| s.pop_all::<usize>().unwrap());
+        assert_eq!(iter.next(), Some(vec![3, 1]));
+        assert_eq!(iter.next(), Some(vec![2, 1]));
+        assert_eq!(iter.next(), Some(vec![1, 2]));
+        assert_eq!(iter.next(), Some(vec![3, 2]));
+        assert_eq!(iter.next(), Some(vec![1, 3]));
+        assert_eq!(iter.next(), Some(vec![2, 3]));
+        assert_eq!(iter.next(), None);
     }
 
     #[test]
@@ -537,20 +588,16 @@ mod tests {
         let () = store.push(1_usize);
         let () = store.push(2_usize);
         let () = store.push(3_usize);
-        assert_eq!(
-            store
-                .sections(iter::once((TypeId::of::<usize>(), 3)).collect())
-                .map(|mut s| s.pop_all::<usize>().unwrap())
-                .collect::<Vec<Vec<usize>>>(),
-            vec![
-                vec![2, 3, 1],
-                vec![3, 2, 1],
-                vec![3, 1, 2],
-                vec![1, 3, 2],
-                vec![2, 1, 3],
-                vec![1, 2, 3]
-            ],
-        );
+        let mut iter = store
+            .sections(iter::once((TypeId::of::<usize>(), 3)).collect())
+            .map(|mut s| s.pop_all::<usize>().unwrap());
+        assert_eq!(iter.next(), Some(vec![2, 3, 1]));
+        assert_eq!(iter.next(), Some(vec![3, 2, 1]));
+        assert_eq!(iter.next(), Some(vec![3, 1, 2]));
+        assert_eq!(iter.next(), Some(vec![1, 3, 2]));
+        assert_eq!(iter.next(), Some(vec![2, 1, 3]));
+        assert_eq!(iter.next(), Some(vec![1, 2, 3]));
+        assert_eq!(iter.next(), None);
     }
 
     #[test]
@@ -559,20 +606,16 @@ mod tests {
         let () = store.push(vec![1_usize]);
         let () = store.push(vec![2_usize]);
         let () = store.push(vec![3_usize]);
-        assert_eq!(
-            store
-                .sections(iter::once((TypeId::of::<Vec<usize>>(), 2)).collect())
-                .map(|mut s| s.pop_all::<Vec<usize>>().unwrap())
-                .collect::<Vec<Vec<Vec<usize>>>>(),
-            vec![
-                vec![vec![3], vec![1]],
-                vec![vec![2], vec![1]],
-                vec![vec![1], vec![2]],
-                vec![vec![3], vec![2]],
-                vec![vec![1], vec![3]],
-                vec![vec![2], vec![3]],
-            ],
-        );
+        let mut iter = store
+            .sections(iter::once((TypeId::of::<Vec<usize>>(), 2)).collect())
+            .map(|mut s| s.pop_all::<Vec<usize>>().unwrap());
+        assert_eq!(iter.next(), Some(vec![vec![3], vec![1]]));
+        assert_eq!(iter.next(), Some(vec![vec![2], vec![1]]));
+        assert_eq!(iter.next(), Some(vec![vec![1], vec![2]]));
+        assert_eq!(iter.next(), Some(vec![vec![3], vec![2]]));
+        assert_eq!(iter.next(), Some(vec![vec![1], vec![3]]));
+        assert_eq!(iter.next(), Some(vec![vec![2], vec![3]]));
+        assert_eq!(iter.next(), None);
     }
 
     #[test]
@@ -610,5 +653,11 @@ mod tests {
         let mut visitor = store.visit::<usize>();
         let _: usize = visitor.next().unwrap();
         // drop
+    }
+
+    #[test]
+    #[should_panic(expected = "INTERNAL ERROR (`pbt`): unused fields")]
+    fn missing_field() {
+        check_eta_expansion::<DestructsWithExtraField>();
     }
 }

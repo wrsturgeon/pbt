@@ -134,18 +134,16 @@ fn tarjan<Destinations, OutgoingEdges, Vertex>(
     // i.e. the first visited within that SCC:
     let v_books = get!(&vertex);
     if v_books.global_visit_index == v_books.low_link {
-        let n_before_stack = {
-            // Mutually inductive types are small groups, so use linear search from the back:
-            let mut i = stack.len() - 1;
-            while *stack
-                .get(i)
-                .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery")
-                != vertex
-            {
-                i -= 1;
-            }
-            i
-        };
+        // Mutually inductive types are *small* SCCs, so use linear search from the back:
+        let n_before_stack = (0..stack.len())
+            .rev()
+            .find(|&i| {
+                *stack
+                    .get(i)
+                    .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery")
+                    == vertex
+            })
+            .expect("INTERNAL ERROR (`pbt`): stack invariant violated during SCC discovery");
 
         for &popped in stack
             .get(n_before_stack..)

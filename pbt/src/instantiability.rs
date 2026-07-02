@@ -168,22 +168,35 @@ pub(crate) fn update(
         })
         .collect();
 
-    'fixed_point: loop {
+    // TODO: `masks` is monotonic; how much can we move outside this loop,
+    // and to what extent can we avoid re-collecting into `instantiable_types` inside the loop?
+
+    let max_iterations: usize = masks
+        .values()
+        .map(|slice| slice.iter().map(|&b| usize::from(!b)).sum::<usize>())
+        .sum();
+    'fixed_point: for iteration in 0_usize.. {
+        debug_assert!(
+            iteration <= max_iterations,
+            "non-terminating least-fixed-point loop",
+        );
+
         let mut changed = false;
-        let instantiable_types: HashSet<TypeId> = domain
+
+        // First, enumerate the types that were already instantiable
+        // *before* we started analyzing `root`:
+        let already_instantiable = cache
             .iter()
-            .copied()
-            .filter(|ty| {
-                masks
-                    .get(ty)
-                    .is_some_and(|constructors| constructors.iter().any(|&enabled| enabled))
-            })
-            .chain(
-                cache
-                    .iter()
-                    .filter_map(|(&ty, constructors)| (!constructors.is_empty()).then_some(ty)),
-            )
-            .collect();
+            .filter_map(|(&ty, constructors)| (!constructors.is_empty()).then_some(ty));
+
+        // Then, enumerate all newly encountered types that aren't fully masked:
+        let unmasked = domain.iter().copied().filter(|ty| {
+            masks
+                .get(ty)
+                .is_some_and(|constructors| constructors.iter().any(|&enabled| enabled))
+        });
+
+        let instantiable_types: HashSet<TypeId> = unmasked.chain(already_instantiable).collect();
 
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for (&ty, constructor_masks) in &mut masks {
@@ -214,4 +227,139 @@ pub(crate) fn update(
     }
 
     let () = cache_productive_reachable(root, naive, &masks, cache);
+}
+
+#[cfg(test)]
+mod tests {
+    #[expect(
+        dead_code,
+        reason = "effectively just documentation for `update_*` tests"
+    )]
+    mod types {
+        pub(super) enum Peano {
+            O,
+            S(Box<Self>),
+        }
+
+        pub(super) struct A(B);
+        pub(super) struct B(C);
+        pub(super) struct C;
+    }
+
+    use {
+        super::*,
+        crate::{hash::map, multiset::Multiset},
+        alloc::sync::Arc,
+        core::num::NonZero,
+        pretty_assertions::assert_eq,
+    };
+
+    fn a_ctors() -> Constructors<Erased> {
+        Constructors::Algebraic(Arc::new([Constructor {
+            field_types: iter::once(TypeId::of::<types::B>()).collect(),
+            index: const { NonZero::new(1).unwrap() },
+        }]))
+    }
+
+    fn b_ctors() -> Constructors<Erased> {
+        Constructors::Algebraic(Arc::new([Constructor {
+            field_types: iter::once(TypeId::of::<types::C>()).collect(),
+            index: const { NonZero::new(1).unwrap() },
+        }]))
+    }
+
+    fn c_ctors() -> Constructors<Erased> {
+        Constructors::Algebraic(Arc::new([Constructor {
+            field_types: Multiset::new(),
+            index: const { NonZero::new(1).unwrap() },
+        }]))
+    }
+
+    #[test]
+    fn update_with_cycle() {
+        let peano = TypeId::of::<types::Peano>();
+        let naive: BTreeMap<TypeId, Constructors<Erased>> = iter::once((
+            peano,
+            Constructors::Algebraic(Arc::new([
+                Constructor {
+                    field_types: Multiset::new(),
+                    index: const { NonZero::new(1).unwrap() },
+                },
+                Constructor {
+                    field_types: iter::once(peano).collect(),
+                    index: const { NonZero::new(2).unwrap() },
+                },
+            ])),
+        ))
+        .collect();
+        let mut cache = map();
+        update(peano, &naive, &mut cache);
+        let expected: HashMap<TypeId, Constructors<Erased>> = iter::once((
+            peano,
+            Constructors::Algebraic(Arc::new([
+                Constructor {
+                    field_types: Multiset::new(),
+                    index: const { NonZero::new(1).unwrap() },
+                },
+                Constructor {
+                    field_types: iter::once(peano).collect(),
+                    index: const { NonZero::new(2).unwrap() },
+                },
+            ])),
+        ))
+        .collect();
+        assert_eq!(cache, expected);
+    }
+
+    #[test]
+    fn collect_uncached_transitive() {
+        let a = TypeId::of::<types::A>();
+        let b = TypeId::of::<types::B>();
+        let c = TypeId::of::<types::C>();
+        let naive: BTreeMap<TypeId, Constructors<Erased>> =
+            [(a, a_ctors()), (b, b_ctors()), (c, c_ctors())]
+                .into_iter()
+                .collect();
+        let cache = map();
+        let mut domain = set();
+        let () = collect_uncached(a, &naive, &cache, &mut domain);
+        assert_eq!(cache, map());
+        assert_eq!(domain, [a, b, c].into_iter().collect());
+    }
+
+    #[test]
+    fn update_transitive() {
+        let a = TypeId::of::<types::A>();
+        let b = TypeId::of::<types::B>();
+        let c = TypeId::of::<types::C>();
+        let naive: BTreeMap<TypeId, Constructors<Erased>> =
+            [(a, a_ctors()), (b, b_ctors()), (c, c_ctors())]
+                .into_iter()
+                .collect();
+        let mut cache = map();
+        update(a, &naive, &mut cache);
+        let expected: HashMap<TypeId, Constructors<Erased>> =
+            [(a, a_ctors()), (b, b_ctors()), (c, c_ctors())]
+                .into_iter()
+                .collect();
+        assert_eq!(cache, expected);
+    }
+
+    #[test]
+    fn update_transitive_partially_cached() {
+        let a = TypeId::of::<types::A>();
+        let b = TypeId::of::<types::B>();
+        let c = TypeId::of::<types::C>();
+        let naive: BTreeMap<TypeId, Constructors<Erased>> =
+            [(a, a_ctors()), (b, b_ctors()), (c, c_ctors())]
+                .into_iter()
+                .collect();
+        let mut cache: HashMap<TypeId, Constructors<Erased>> = iter::once((c, c_ctors())).collect();
+        update(a, &naive, &mut cache);
+        let expected: HashMap<TypeId, Constructors<Erased>> =
+            [(a, a_ctors()), (b, b_ctors()), (c, c_ctors())]
+                .into_iter()
+                .collect();
+        assert_eq!(cache, expected);
+    }
 }
