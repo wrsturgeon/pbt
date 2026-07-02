@@ -64,7 +64,7 @@
           doc = crane.cargoDoc craneArgs;
           fmt-rust = crane.cargoFmt craneArgs;
           fmt-toml = crane.taploFmt craneArgs;
-          tests = crane.cargoNextest craneArgs;
+          tests = crane.cargoNextest (craneArgs // { CARGO_PROFILE = ""; });
         };
         devShells.default = crane.devShell (
           env

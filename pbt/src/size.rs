@@ -280,7 +280,9 @@ mod test {
     }
 
     #[test]
-    #[should_panic(expected = "INTERNAL ERROR (`pbt`): unused size partition")]
+    #[should_panic(
+        expected = "INTERNAL ERROR (`pbt`): unused size partition (`self.separators = Some([])`)"
+    )]
     fn unused_partition() {
         let mut prng = WyRand::new(42); // deterministic
         let mut partition = Size { total: 10 }

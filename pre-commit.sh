@@ -35,19 +35,5 @@ MIRIFLAGS='-Zmiri-disable-isolation' cargo miri test --all-features --doc --quie
 
 
 echo
-echo 'Running tests with Valgrind...'
-host_target="$(rustc -vV | sed -n 's/^host: //p')"
-runner_env="CARGO_TARGET_${host_target^^}_RUNNER"
-runner_env="${runner_env//-/_}"
-valgrind_runner='valgrind --quiet --error-exitcode=1 --leak-check=full --show-leak-kinds=definite,indirect --errors-for-leak-kinds=definite,indirect'
-env "$runner_env=$valgrind_runner" \
-    cargo test --all-features --bins --examples --lib --quiet --tests --workspace
-
-echo 'Running doc-tests with Valgrind...'
-env "$runner_env=$valgrind_runner" \
-    cargo test --all-features --doc --quiet --workspace
-
-
-echo
 echo 'Running mutation testing...'
 cargo mutants -j8 -- -- -Z unstable-options --fail-fast

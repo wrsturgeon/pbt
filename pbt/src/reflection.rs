@@ -786,6 +786,10 @@ mod tests {
     use super::*;
 
     #[test]
+    #[expect(
+        clippy::todo,
+        reason = "the correct behavior is never to reach these `todo`s"
+    )]
     fn literal_constructors_eq_iff_generators_eq() {
         let f: for<'a> fn(&'a mut _) -> _ = |_| todo!();
         let g: for<'a> fn(&'a mut _) -> _ = |_| todo!();

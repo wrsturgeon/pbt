@@ -110,7 +110,10 @@ fn tarjan<Destinations, OutgoingEdges, Vertex>(
                 let child_index = child_books.global_visit_index;
                 let v_books = get_mut!(&vertex);
                 if child_index < v_books.low_link {
-                    debug_assert!(child_index < v_books.low_link);
+                    debug_assert!(
+                        child_index < v_books.low_link,
+                        "Tarjan low-links should monotonically increase",
+                    );
                     v_books.low_link = child_index;
                 }
             }
@@ -126,7 +129,10 @@ fn tarjan<Destinations, OutgoingEdges, Vertex>(
             let child_low_link = get!(&child).low_link;
             let v_books = get_mut!(&vertex);
             if child_low_link < v_books.low_link {
-                debug_assert!(child_low_link < v_books.low_link);
+                debug_assert!(
+                    child_low_link < v_books.low_link,
+                    "Tarjan low-links should monotonically increase",
+                );
                 v_books.low_link = child_low_link;
             }
         }

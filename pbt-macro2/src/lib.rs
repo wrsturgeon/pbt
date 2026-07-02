@@ -256,7 +256,7 @@ pub fn try_pbt_with_cases(ts: TokenStream, n_cases: Option<Expr>) -> syn::Result
     if !sig.generics.params.is_empty() || sig.generics.where_clause.is_some() {
         return Err(syn::Error::new_spanned(
             sig.generics,
-            "`#[pbt]` does not support generic functions",
+            "`#[pbt]` does not support generics",
         ));
     }
     if !matches!(sig.output, ReturnType::Default) {
@@ -792,6 +792,47 @@ fn lhs_at_most_rhs() {
     }
 }
 "#,
+        );
+    }
+
+    #[test]
+    fn pbt_rejects_generic_type() {
+        assert_eq!(
+            try_pbt(
+                r#"
+fn type_parameter<T>(input: &usize) {
+    let _ = input;
+}
+"#
+                .parse()
+                .expect("input couldn't be parsed"),
+                TokenStream::new(),
+            )
+            .expect_err("generics ought to be rejected")
+            .to_string(),
+            "`#[pbt]` does not support generics",
+        );
+    }
+
+    #[test]
+    fn pbt_rejects_where_clause() {
+        assert_eq!(
+            try_pbt(
+                r#"
+fn where_clause(input: &usize)
+where
+    usize: Copy,
+{
+    let _ = input;
+}
+"#
+                .parse()
+                .expect("input couldn't be parsed"),
+                TokenStream::new(),
+            )
+            .expect_err("generics ought to be rejected")
+            .to_string(),
+            "`#[pbt]` does not support generics",
         );
     }
 }

@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn merge_keeps_larger_set_as_root() {
-        let mut uf = UnionFind::new();
+        let mut uf = UnionFind::<usize>::new();
         uf.insert_singleton(1);
         uf.insert_singleton(2);
         uf.insert_singleton(3);

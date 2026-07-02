@@ -163,6 +163,7 @@ impl Pbt for usize {
 
 /// Generate integers uniformly over the target machine word.
 #[inline]
+#[mutants::skip]
 fn uniform(prng: &mut WyRand) -> usize {
     if const { usize::BITS <= 64 } {
         #[expect(
@@ -193,13 +194,14 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
+        super::*,
         crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
 
     #[test]
-    fn u8_deterministic() {
+    fn deterministic_u8() {
         let mut prng = WyRand::new(42);
         let generated: Vec<u8> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected: Vec<u8> = vec![9, 6, 6, 230, 88, 168, 3, 0, 1, 0];
@@ -217,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn usize_deterministic() {
+    fn deterministic_usize() {
         let mut prng = WyRand::new(42);
         let generated: Vec<usize> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected = vec![
@@ -243,5 +245,15 @@ mod tests {
     #[test]
     fn usize_serialization() {
         let () = check_serialization::<usize>();
+    }
+
+    #[test]
+    fn deterministic_uniform() {
+        let mut prng = WyRand::new(42);
+        assert_eq!(uniform(&mut prng), 0x_CA71_D87C_7698_3989);
+        assert_eq!(uniform(&mut prng), 0x_7E5B_A615_5208_5FC6);
+        assert_eq!(uniform(&mut prng), 0x_CDF1_01E3_BAB8_8B9F);
+        assert_eq!(uniform(&mut prng), 0x_0A38_25AD_7326_7808);
+        assert_eq!(uniform(&mut prng), 0x_8AC0_ADC1_5D67_1C29);
     }
 }

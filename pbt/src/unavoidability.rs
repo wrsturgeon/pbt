@@ -40,8 +40,14 @@ fn collect_uncached<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
     }
 }
 
+/// Debug-only upper bound on iterations for
+/// the least-fixed-point calculation below.
 #[inline]
 #[mutants::skip]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "more than `usize::MAX` iterations would be bad!"
+)]
 fn max_iterations(n_unvisited_vertices: usize, n_cached_vertices: usize) -> usize {
     n_unvisited_vertices * (n_unvisited_vertices + n_cached_vertices)
 }
@@ -92,11 +98,7 @@ pub(crate) fn update<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
         .map(|&vertex| (vertex, iter::once(vertex).collect()))
         .collect();
 
-    #[expect(
-        clippy::arithmetic_side_effects,
-        reason = "more than `usize::MAX` iterations would be bad!"
-    )]
-    let max_iterations: usize = max_iterations(
+    let max_iterations = max_iterations(
         domain.len(),
         cache.values().map(|vertices| vertices.len()).sum::<usize>(),
     );
