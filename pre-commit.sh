@@ -36,4 +36,4 @@ MIRIFLAGS='-Zmiri-disable-isolation' cargo miri test --all-features --doc --quie
 
 echo
 echo 'Running mutation testing...'
-cargo mutants -j8 -- -- -Z unstable-options --fail-fast
+cargo mutants -j8 -- --all-features --all-targets --workspace -- -Z unstable-options --fail-fast

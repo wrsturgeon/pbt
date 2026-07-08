@@ -14,10 +14,15 @@ version.workspace = true
 ahash = "~0.8"
 getrandom = "~0.3"
 mutants = "~0.0"
+num-bigint = { version = "~0.5", optional = true }
+num-traits = { version = "0.2.19", optional = true }
 pbt-macros = { path = "../pbt-macros", version = "~0" }
 pretty_assertions = "~1.4"
 serde_json = "~1.0"
 wyrand = "~0.4"
+
+[features]
+num-bigint = ["dep:num-bigint", "dep:num-traits"]
 
 [lints]
 workspace = true
