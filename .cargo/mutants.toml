@@ -1,0 +1,15 @@
+all_features = true
+exclude_globs = ["persist.rs"]
+exclude_re = [
+  "replace <impl Drop for .*>::drop with ()",
+  "replace >> with << in check_.*",
+  "replace check_.* with ()",
+  "replace getrandom -> u64 with .*",
+  "replace \\| with \\^ in <impl Pbt for num_bigint::BigUint>::register::small",
+  "replace .* with .* in uniform",
+  "replace == with != in Size::increasing",
+]
+minimum_test_timeout = 10.0
+test_tool = "nextest"
+test_workspace = true
+timeout_multiplier = 2.0

@@ -8,7 +8,7 @@ use {
     },
     core::{any::TypeId, fmt::Write as _},
     std::{
-        env::current_dir,
+        env::{self, current_dir},
         fs::{File, OpenOptions, create_dir_all},
         io::{BufRead as _, BufReader, Write as _},
         path::PathBuf,
@@ -21,7 +21,6 @@ use {
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-#[mutants::skip]
 fn workspace_root() -> PathBuf {
     let cwd = current_dir().expect("INTERNAL ERROR (`pbt`): couldn't read the current directory");
     cwd.ancestors()
@@ -33,7 +32,13 @@ fn workspace_root() -> PathBuf {
 /// The directory holding persisted witnesses.
 #[inline]
 fn dir() -> PathBuf {
-    workspace_root().join(".pbt")
+    if let Ok(cache_dir) = env::var("PBT_CACHE_DIR")
+        && !cache_dir.is_empty()
+    {
+        PathBuf::from(cache_dir)
+    } else {
+        workspace_root().join(".pbt")
+    }
 }
 
 /// The path to the JSONL file holding persisted witnesses of this type.
@@ -42,7 +47,6 @@ fn dir() -> PathBuf {
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-#[mutants::skip]
 pub(crate) fn jsonl_path<T>() -> PathBuf
 where
     T: 'static,
@@ -83,15 +87,22 @@ pub(crate) fn replay<T>() -> impl Iterator<Item = T>
 where
     T: Pbt,
 {
-    match File::open(jsonl_path::<T>()) {
-        Ok(file) => Some(file),
-        Err(error) => {
-            assert_eq!(
-                error.kind(),
-                std::io::ErrorKind::NotFound,
-                "INTERNAL ERROR (`pbt`): couldn't read persisted witnesses",
-            );
-            None
+    if let Ok(no_replay) = env::var("PBT_NO_REPLAY")
+        && !no_replay.is_empty()
+        && no_replay != "0"
+    {
+        None
+    } else {
+        match File::open(jsonl_path::<T>()) {
+            Ok(file) => Some(file),
+            Err(error) => {
+                assert_eq!(
+                    error.kind(),
+                    std::io::ErrorKind::NotFound,
+                    "INTERNAL ERROR (`pbt`): couldn't read persisted witnesses",
+                );
+                None
+            }
         }
     }
     .into_iter()
@@ -112,7 +123,6 @@ where
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-#[mutants::skip]
 pub(crate) fn witness<T>(t: &T)
 where
     T: Pbt,

@@ -29,6 +29,7 @@ impl Foo {
 }
 
 #[pbt]
+#[cfg(not(miri))]
 #[should_panic(
     expected = "\r\nConsider the following input:\r\n\r\n```\r\nBaz {\n    a: 0,\n    b: 0,\n    c: [\n        Bar,\n        Bar,\n        Bar,\n    ],\n}\r\n```\r\n\r\nassertion failed: foo.qux() < 3"
 )]

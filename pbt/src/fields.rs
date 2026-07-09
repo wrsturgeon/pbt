@@ -466,7 +466,6 @@ where
 
 impl<T> Drop for Visitor<T> {
     #[inline]
-    #[mutants::skip] // <-- all this fn does is ensure memory safety
     fn drop(&mut self) {
         if let Some(queue) = self.queue.take() {
             let () = (self.bucket_ops.drop_vec)(queue);

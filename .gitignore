@@ -1,5 +1,5 @@
 **/.direnv
-**/mutant*
+**/*mutant*.out*
 **/result
 **/rustc-ice-*
 **/target

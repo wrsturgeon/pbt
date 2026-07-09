@@ -43,7 +43,6 @@ fn collect_uncached<'ctors, Vertex, Variant, Constructors, Fields, FieldsOf>(
 /// Debug-only upper bound on iterations for
 /// the least-fixed-point calculation below.
 #[inline]
-#[mutants::skip]
 #[expect(
     clippy::arithmetic_side_effects,
     reason = "more than `usize::MAX` iterations would be bad!"
@@ -216,6 +215,36 @@ mod tests {
             &fields_of_multiset,
         );
         cache
+    }
+
+    #[test]
+    fn max_iterations_counts_each_uncached_known_vertex_pair() {
+        assert_eq!(max_iterations(0, 0), 0);
+
+        assert_eq!(max_iterations(0, 1), 0);
+        assert_eq!(max_iterations(1, 0), 1);
+
+        assert_eq!(max_iterations(0, 2), 0);
+        assert_eq!(max_iterations(1, 1), 2);
+        assert_eq!(max_iterations(2, 0), 4);
+
+        assert_eq!(max_iterations(0, 3), 0);
+        assert_eq!(max_iterations(1, 2), 3);
+        assert_eq!(max_iterations(2, 1), 6);
+        assert_eq!(max_iterations(3, 0), 9);
+
+        assert_eq!(max_iterations(0, 4), 0);
+        assert_eq!(max_iterations(1, 3), 4);
+        assert_eq!(max_iterations(2, 2), 8);
+        assert_eq!(max_iterations(3, 1), 12);
+        assert_eq!(max_iterations(4, 0), 16);
+
+        assert_eq!(max_iterations(0, 5), 0);
+        assert_eq!(max_iterations(1, 4), 5);
+        assert_eq!(max_iterations(2, 3), 10);
+        assert_eq!(max_iterations(3, 2), 15);
+        assert_eq!(max_iterations(4, 1), 20);
+        assert_eq!(max_iterations(5, 0), 25);
     }
 
     fn vertex_set(vertices: &[u8]) -> HashSet<u8> {

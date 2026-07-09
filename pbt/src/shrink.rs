@@ -175,7 +175,6 @@ impl ShrinkingCache {
 
 impl Drop for ShrinkingCache {
     #[inline]
-    #[mutants::skip]
     fn drop(&mut self) {
         let () = (self.bucket_ops.drop)(self.original);
         let () = (self.bucket_ops.drop_vec)(mem::take(&mut self.cache));

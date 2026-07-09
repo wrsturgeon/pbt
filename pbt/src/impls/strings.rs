@@ -77,27 +77,33 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
-        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
+        crate::{
+            arbitrary::arbitrary, check_eta_expansion, check_serialization, persist,
+            reflection::register_globally,
+        },
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
 
     #[test]
     fn deterministic() {
+        let () = register_globally::<String>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<String> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<String> = vec![
-            "\u{80}".to_owned(), // <-- persisted to `.pbt/` and replayed
-            String::new(),
-            String::new(),
-            "\u{fb8e8}".to_owned(),
-            String::new(),
-            String::new(),
-            "\u{9bf28}\u{7ea5b}".to_owned(),
-            "\u{100fee}".to_owned(),
-            "\u{bdb4}".to_owned(),
-            "\u{67457}\u{6db20}".to_owned(),
-        ];
+        let expected: Vec<String> = persist::replay()
+            .chain([
+                String::new(),
+                String::new(),
+                "\u{fb8e8}".to_owned(),
+                String::new(),
+                String::new(),
+                "\u{9bf28}\u{7ea5b}".to_owned(),
+                "\u{100fee}".to_owned(),
+                "\u{bdb4}".to_owned(),
+                "\u{67457}\u{6db20}".to_owned(),
+                "\u{f7975}".to_owned(),
+            ])
+            .collect();
+        let generated: Vec<String> = arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 

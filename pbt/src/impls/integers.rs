@@ -211,7 +211,6 @@ impl Pbt for num_bigint::BigUint {
     #[expect(clippy::arithmetic_side_effects, reason = "not with `BigUint`")]
     fn register(_registration: &mut Registration<'_>) -> Variants<Self> {
         #[inline]
-        #[mutants::skip] // <-- replacing `|` with `^` yields an equivalent program
         fn small(prng: &mut WyRand) -> num_bigint::BigUint {
             let mut coin = CoinFlips::new(prng);
             if coin.flip(prng) {
@@ -254,7 +253,6 @@ impl Pbt for num_bigint::BigUint {
 
 /// Generate integers uniformly over the target machine word.
 #[inline]
-#[mutants::skip]
 fn uniform(prng: &mut WyRand) -> usize {
     if const { usize::BITS <= 64 } {
         #[expect(
@@ -286,7 +284,10 @@ mod tests {
 
     use {
         super::*,
-        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
+        crate::{
+            arbitrary::arbitrary, check_eta_expansion, check_serialization, persist,
+            reflection::register_globally,
+        },
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
@@ -311,20 +312,23 @@ mod tests {
 
     #[test]
     fn deterministic_usize() {
+        let () = register_globally::<usize>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<usize> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected = vec![
-            42, // <-- persisted to `.pbt/` and replayed
-            9,
-            6,
-            6,
-            10_465_773_274_321_242_342,
-            9_091_519_196_080_063_832,
-            17_108_568_891_541_767_080,
-            3,
-            0,
-            1,
-        ];
+        let expected: Vec<usize> = persist::replay()
+            .chain([
+                9,
+                6,
+                6,
+                10_465_773_274_321_242_342,
+                9_091_519_196_080_063_832,
+                17_108_568_891_541_767_080,
+                3,
+                0,
+                1,
+                0,
+            ])
+            .collect();
+        let generated: Vec<usize> = arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 
