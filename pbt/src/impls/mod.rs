@@ -9,6 +9,8 @@ mod chars;
 mod hash_collections;
 mod infallible;
 mod integers;
+#[cfg(feature = "serde_json")]
+mod json;
 mod options;
 mod phantoms;
 mod strings;

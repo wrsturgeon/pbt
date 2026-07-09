@@ -5,7 +5,7 @@ exclude_re = [
   "replace >> with << in check_.*",
   "replace check_.* with ()",
   "replace getrandom -> u64 with .*",
-  "replace \\| with \\^ in <impl Pbt for num_bigint::BigUint>::register::small",
+  "replace \\| with \\^ in big_uint",
   "replace .* with .* in uniform",
   "replace == with != in Size::increasing",
 ]

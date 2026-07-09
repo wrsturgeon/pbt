@@ -4,6 +4,7 @@
 extern crate alloc;
 
 mod arbitrary;
+mod coin_flips;
 pub mod fields;
 pub mod hash;
 mod impls;

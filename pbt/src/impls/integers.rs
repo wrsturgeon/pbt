@@ -3,6 +3,7 @@
 use {
     crate::{
         Pbt,
+        coin_flips::CoinFlips,
         fields::{Fields, Store},
         reflection::{Parts, Variants},
         registration::Registration,
@@ -107,39 +108,6 @@ impl_unsigned!(u16);
 impl_unsigned!(u32);
 impl_unsigned!(u64);
 
-/// A sequence of coin flips, powered by a pseudorandom number generator.
-struct CoinFlips {
-    /// Cached bits from a full `u64` PRNG generation.
-    bit_reservoir: u64,
-    /// The number of remaining cached bits from a full `u64` PRNG generation.
-    remaining_bits: u8,
-}
-
-impl CoinFlips {
-    /// Flip a coin: sample `bool` with equal probability of `true` or `false`.
-    #[inline]
-    fn flip(&mut self, prng: &mut WyRand) -> bool {
-        if let Some(decrement) = self.remaining_bits.checked_sub(1) {
-            self.remaining_bits = decrement;
-        } else {
-            self.bit_reservoir = prng.rand();
-            self.remaining_bits = 63;
-        }
-        let bit = (self.bit_reservoir & 1) != 0;
-        self.bit_reservoir >>= 1_u8;
-        bit
-    }
-
-    /// A sequence of coin flips, powered by a pseudorandom number generator.
-    #[inline]
-    fn new(prng: &mut WyRand) -> Self {
-        Self {
-            bit_reservoir: prng.rand(),
-            remaining_bits: 64,
-        }
-    }
-}
-
 impl Pbt for usize {
     #[inline]
     fn construct<F>(
@@ -211,19 +179,6 @@ impl Pbt for num_bigint::BigUint {
     #[expect(clippy::arithmetic_side_effects, reason = "not with `BigUint`")]
     fn register(_registration: &mut Registration<'_>) -> Variants<Self> {
         #[inline]
-        fn small(prng: &mut WyRand) -> num_bigint::BigUint {
-            let mut coin = CoinFlips::new(prng);
-            if coin.flip(prng) {
-                return num_bigint::BigUint::ZERO;
-            }
-            let mut acc = num_bigint::BigUint::ONE;
-            while coin.flip(prng) {
-                acc = (acc << 1_u8) | num_bigint::BigUint::from(coin.flip(prng));
-            }
-            acc
-        }
-
-        #[inline]
         fn shrink(n: num_bigint::BigUint) -> Box<dyn Iterator<Item = num_bigint::BigUint>> {
             let mut shift: usize = 0;
             Box::new(iter::from_fn(move || {
@@ -244,11 +199,33 @@ impl Pbt for num_bigint::BigUint {
                 };
                 s.parse().ok()
             },
-            generators: vec![small],
+            generators: vec![
+                |prng| big_uint(&mut CoinFlips::new(prng), prng, 1),
+                |prng| big_uint(&mut CoinFlips::new(prng), prng, 8),
+            ],
             serialize: |i| i.to_string().into(),
             shrink,
         }
     }
+}
+
+/// Generate a `BigUint` using a geometric bit-by-bit distribution.
+#[cfg(feature = "num-bigint")]
+#[inline]
+#[expect(clippy::arithmetic_side_effects, reason = "not with `BigUint`")]
+pub(crate) fn big_uint(
+    coin: &mut CoinFlips,
+    prng: &mut WyRand,
+    pow2: usize,
+) -> num_bigint::BigUint {
+    if !coin.pow2_flips(prng, pow2) {
+        return num_bigint::BigUint::ZERO;
+    }
+    let mut acc = num_bigint::BigUint::ONE;
+    while coin.pow2_flips(prng, pow2) {
+        acc = (acc << 1_u8) | num_bigint::BigUint::from(coin.flip(prng));
+    }
+    acc
 }
 
 /// Generate integers uniformly over the target machine word.
@@ -368,11 +345,23 @@ mod tests {
     #[cfg(feature = "num-bigint")]
     fn deterministic_big_uint() {
         let mut prng = WyRand::new(42);
-        let generated: Vec<num_bigint::BigUint> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<_> = [1, 9, 0, 0, 0, 3, 1, 0, 5, 0]
-            .into_iter()
-            .map(<num_bigint::BigUint as From<usize>>::from)
+        let generated: Vec<String> = arbitrary(&mut prng)
+            .unwrap()
+            .take(10)
+            .map(|big: num_bigint::BigUint| big.to_string())
             .collect();
+        let expected: Vec<String> = [
+            "192387651248888016389085626434681014503257100276876248210348042302204812884730323007848216711868879194335246081627046316711862977761945081692532156234913465416792741282538278054676654647045",
+            "3",
+            "0",
+            "0",
+            "0",
+            "0",
+            "183",
+            "0",
+            "0",
+            "0",
+        ].into_iter().map(str::to_owned).collect();
         assert_eq!(generated, expected);
     }
 
