@@ -105,7 +105,7 @@ checksum = "9f7c3e4beb33f85d45ae3e3a1792185706c8e16d043238c593331cc7cd313b50"
 
 [[package]]
 name = "pbt"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "ahash",
  "getrandom",
@@ -119,7 +119,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-macro2"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "heck",
  "pretty_assertions",
@@ -131,7 +131,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-macros"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "pbt-macro2",
  "proc-macro2",
@@ -139,7 +139,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-tests"
-version = "0.5.8"
+version = "0.5.9"
 dependencies = [
  "pbt",
 ]

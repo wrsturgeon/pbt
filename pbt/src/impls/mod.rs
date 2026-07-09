@@ -2,6 +2,7 @@
 //! that would otherwise fall to the orphan rule.
 
 mod arcs;
+mod arrays;
 mod booleans;
 mod boxes;
 mod chars;
