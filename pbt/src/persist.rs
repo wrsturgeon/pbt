@@ -74,6 +74,12 @@ where
 }
 
 /// Replay any witnesses persisted for this type.
+///
+/// # Panics
+///
+/// If persisted witnesses could not be found because of unexpected I/O errors,
+/// not because the directory does not exist
+/// (in which case this will safely return an empty iterator).
 #[inline]
 #[expect(
     clippy::expect_used,
@@ -83,7 +89,7 @@ where
     clippy::absolute_paths,
     reason = "`core::io::ErrorKind` is unstable; filesystem errors use stable `std::io`."
 )]
-pub(crate) fn replay<T>() -> impl Iterator<Item = T>
+pub fn replay<T>() -> impl Iterator<Item = T>
 where
     T: Pbt,
 {

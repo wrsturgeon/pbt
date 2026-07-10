@@ -11,7 +11,7 @@ mod impls;
 mod instantiability;
 pub mod multiset;
 pub mod panic;
-mod persist;
+pub mod persist;
 pub mod reflection;
 pub mod registration;
 mod scc;
