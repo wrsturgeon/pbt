@@ -546,76 +546,6 @@ impl PartialOrd for Constructor {
     }
 }
 
-impl<SelfType> Eq for Constructors<SelfType> {}
-
-impl<SelfType> Hash for Constructors<SelfType> {
-    #[inline]
-    fn hash<H>(&self, state: &mut H)
-    where
-        H: Hasher,
-    {
-        match *self {
-            Self::Algebraic(ref ctors) => {
-                let () = 0_usize.hash(state);
-                let () = ctors.hash(state);
-            }
-            Self::Literal { ref generators, .. } => {
-                let () = 1_usize.hash(state);
-                let () = generators.hash(state);
-                // The shrinking function is always the same within a given type.
-            }
-        }
-    }
-}
-
-impl<SelfType> Ord for Constructors<SelfType> {
-    #[inline]
-    fn cmp(&self, other: &Self) -> cmp::Ordering {
-        match (self, other) {
-            (
-                &Self::Literal {
-                    generators: ref lhs,
-                    ..
-                },
-                &Self::Literal {
-                    generators: ref rhs,
-                    ..
-                },
-            ) => lhs.cmp(rhs),
-            (&Self::Literal { .. }, &Self::Algebraic(_)) => cmp::Ordering::Less,
-            (&Self::Algebraic(_), &Self::Literal { .. }) => cmp::Ordering::Greater,
-            (&Self::Algebraic(ref lhs), &Self::Algebraic(ref rhs)) => lhs.cmp(rhs),
-        }
-    }
-}
-
-impl<SelfType> PartialEq for Constructors<SelfType> {
-    #[inline]
-    fn eq(&self, other: &Self) -> bool {
-        match (self, other) {
-            (
-                &Self::Literal {
-                    generators: ref lhs,
-                    ..
-                },
-                &Self::Literal {
-                    generators: ref rhs,
-                    ..
-                },
-            ) => lhs.eq(rhs),
-            (&Self::Algebraic(ref lhs), &Self::Algebraic(ref rhs)) => lhs.eq(rhs),
-            _ => false,
-        }
-    }
-}
-
-impl<SelfType> PartialOrd for Constructors<SelfType> {
-    #[inline]
-    fn partial_cmp(&self, other: &Self) -> Option<cmp::Ordering> {
-        Some(<Self as Ord>::cmp(self, other))
-    }
-}
-
 impl<SelfType> Clone for Constructors<SelfType> {
     #[inline]
     fn clone(&self) -> Self {
@@ -942,37 +872,4 @@ unsafe fn drop_typed<T>(pointer: ptr::NonNull<u8>, length: usize, capacity: usiz
     // SAFETY: Required by this function's safety contract.
     let typed = unsafe { Vec::from_raw_parts(pointer.cast::<T>().as_ptr(), length, capacity) };
     let () = drop(typed);
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    #[expect(
-        clippy::todo,
-        reason = "the correct behavior is never to reach these `todo`s"
-    )]
-    fn literal_constructors_eq_iff_generators_eq() {
-        let f: for<'a> fn(&'a mut _) -> _ = |_| todo!();
-        let g: for<'a> fn(&'a mut _) -> _ = |_| todo!();
-
-        let ctors_f = Constructors::Literal {
-            deserialize: |_| todo!(),
-            generators: Arc::new([f]),
-            serialize: |_| todo!(),
-            shrink: |_| todo!(),
-        };
-        let ctors_g = Constructors::Literal {
-            deserialize: |_| todo!(),
-            generators: Arc::new([g]),
-            serialize: |_| todo!(),
-            shrink: |_| todo!(),
-        };
-
-        assert_eq!(ctors_f, ctors_f);
-        assert_eq!(ctors_g, ctors_g);
-        assert_ne!(ctors_f, ctors_g);
-        assert_ne!(ctors_g, ctors_f);
-    }
 }

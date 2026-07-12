@@ -275,6 +275,18 @@ mod tests {
         }]))
     }
 
+    fn constructor_maps_equal(
+        lhs: &HashMap<TypeId, Constructors<Erased>>,
+        rhs: &HashMap<TypeId, Constructors<Erased>>,
+    ) -> bool {
+        lhs.len() == rhs.len()
+            && lhs.iter().all(|(ty, lhs_constructors)| {
+                rhs.get(ty).is_some_and(|rhs_constructors| {
+                    lhs_constructors.algebraic() == rhs_constructors.algebraic()
+                })
+            })
+    }
+
     #[test]
     fn update_with_cycle() {
         let peano = TypeId::of::<types::Peano>();
@@ -308,7 +320,7 @@ mod tests {
             ])),
         ))
         .collect();
-        assert_eq!(cache, expected);
+        assert!(constructor_maps_equal(&cache, &expected));
     }
 
     #[test]
@@ -323,7 +335,7 @@ mod tests {
         let cache = map();
         let mut domain = set();
         let () = collect_uncached(a, &naive, &cache, &mut domain);
-        assert_eq!(cache, map());
+        assert!(cache.is_empty());
         assert_eq!(domain, [a, b, c].into_iter().collect());
     }
 
@@ -342,7 +354,7 @@ mod tests {
             [(a, a_ctors()), (b, b_ctors()), (c, c_ctors())]
                 .into_iter()
                 .collect();
-        assert_eq!(cache, expected);
+        assert!(constructor_maps_equal(&cache, &expected));
     }
 
     #[test]
@@ -360,6 +372,6 @@ mod tests {
             [(a, a_ctors()), (b, b_ctors()), (c, c_ctors())]
                 .into_iter()
                 .collect();
-        assert_eq!(cache, expected);
+        assert!(constructor_maps_equal(&cache, &expected));
     }
 }

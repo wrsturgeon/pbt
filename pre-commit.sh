@@ -36,4 +36,4 @@ MIRIFLAGS='-Zmiri-disable-isolation' cargo miri test --all-features --doc --quie
 
 echo
 echo 'Running mutation testing...'
-cargo mutants -j8
+PBT_CACHE_DIR="$(pwd)/.pbt" cargo mutants -j8

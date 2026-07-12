@@ -202,7 +202,7 @@ impl Swarm {
     )]
     pub(crate) fn new<T>(
         prng: &mut WyRand,
-        cache: &mut HashMap<BTreeMap<TypeId, Constructors<Erased>>, Option<Arc<Self>>>,
+        cache: &mut HashMap<BTreeMap<TypeId, Box<[bool]>>, Option<Arc<Self>>>,
     ) -> Result<Arc<Self>, Uninstantiable>
     where
         T: Pbt,
@@ -216,14 +216,16 @@ impl Swarm {
 
         'rejection_sampling: loop {
             // Mask constructors at random (though preferring more variants over fewer variants):
-            let mut naive_masked_constructors = BTreeMap::new();
-            let () = mask_all_constructors_reachable_from(ty, &mut naive_masked_constructors, prng);
-            if let Some(cached) = cache.get(&naive_masked_constructors) {
+            let mut swarm_mask = BTreeMap::new();
+            let () = mask_all_constructors_reachable_from(ty, &mut swarm_mask, prng);
+            if let Some(cached) = cache.get(&swarm_mask) {
                 match *cached {
                     None => continue 'rejection_sampling, // uninstantiable
                     Some(ref swarm) => return Ok(Arc::clone(swarm)),
                 }
             }
+
+            let naive_masked_constructors = masked_constructors(&swarm_mask);
 
             // Remove all uninstantiable variants:
             let mut masked_constructors = map();
@@ -235,7 +237,7 @@ impl Swarm {
                 .get(&ty)
                 .is_none_or(Constructors::is_empty)
             {
-                let _: &mut _ = cache.entry(naive_masked_constructors).or_insert(None);
+                let _: &mut _ = cache.entry(swarm_mask).or_insert(None);
                 continue 'rejection_sampling;
             }
 
@@ -278,9 +280,7 @@ impl Swarm {
                 .collect();
 
             let arc = Arc::new(Self { affordances });
-            let _: &mut _ = cache
-                .entry(naive_masked_constructors)
-                .or_insert(Some(Arc::clone(&arc)));
+            let _: &mut _ = cache.entry(swarm_mask).or_insert(Some(Arc::clone(&arc)));
 
             return Ok(arc);
         }
@@ -425,54 +425,84 @@ fn affordances_of(
 #[inline]
 fn mask_all_constructors_reachable_from(
     ty: TypeId,
-    masked_constructors: &mut BTreeMap<TypeId, Constructors<Erased>>,
+    swarm_mask: &mut BTreeMap<TypeId, Box<[bool]>>,
     prng: &mut WyRand,
 ) {
-    if masked_constructors.contains_key(&ty) {
+    if swarm_mask.contains_key(&ty) {
         return;
     }
+    let _duplicate = swarm_mask.insert(ty, Box::new([]));
 
     match constructors_of(ty) {
         Constructors::Algebraic(constructors) => {
             let mask = mask_for(constructors.len(), prng);
-            let masked = constructors
-                .iter()
-                .zip(mask)
-                .filter_map(|(constructor, enable)| enable.then_some(constructor.clone()))
-                .collect();
-            let _dup: Option<_> =
-                masked_constructors.insert(ty, Constructors::Algebraic(Arc::clone(&masked)));
-
-            for constructor in &*masked {
-                for field_ty in constructor.dedup_fields() {
-                    let () =
-                        mask_all_constructors_reachable_from(field_ty, masked_constructors, prng);
+            for (constructor, &enabled) in constructors.iter().zip(&mask) {
+                if enabled {
+                    for field_ty in constructor.dedup_fields() {
+                        let () = mask_all_constructors_reachable_from(field_ty, swarm_mask, prng);
+                    }
                 }
             }
+            let _in_progress = swarm_mask.insert(ty, mask.into_boxed_slice());
         }
-        Constructors::Literal {
-            deserialize,
-            generators,
-            serialize,
-            shrink,
-        } => {
+        Constructors::Literal { generators, .. } => {
             let mask = mask_for(generators.len(), prng);
-            let masked_generators = generators
-                .iter()
-                .zip(mask)
-                .filter_map(|(&generate, enable)| enable.then_some(generate))
-                .collect();
-            let _dup: Option<_> = masked_constructors.insert(
-                ty,
-                Constructors::Literal {
-                    deserialize,
-                    generators: masked_generators,
-                    serialize,
-                    shrink,
-                },
-            );
+            let _in_progress = swarm_mask.insert(ty, mask.into_boxed_slice());
         }
     }
+}
+
+/// Apply a swarm mask to the canonical constructors in the global registry.
+#[inline]
+fn masked_constructors(
+    swarm_mask: &BTreeMap<TypeId, Box<[bool]>>,
+) -> BTreeMap<TypeId, Constructors<Erased>> {
+    swarm_mask
+        .iter()
+        .map(|(&ty, mask)| {
+            let constructors = match constructors_of(ty) {
+                Constructors::Algebraic(constructors) => {
+                    debug_assert_eq!(
+                        constructors.len(),
+                        mask.len(),
+                        "INTERNAL ERROR (`pbt`): algebraic swarm mask size mismatch",
+                    );
+                    Constructors::Algebraic(
+                        constructors
+                            .iter()
+                            .zip(mask)
+                            .filter_map(|(constructor, &enabled)| {
+                                enabled.then_some(constructor.clone())
+                            })
+                            .collect(),
+                    )
+                }
+                Constructors::Literal {
+                    deserialize,
+                    generators,
+                    serialize,
+                    shrink,
+                } => {
+                    debug_assert_eq!(
+                        generators.len(),
+                        mask.len(),
+                        "INTERNAL ERROR (`pbt`): literal swarm mask size mismatch",
+                    );
+                    Constructors::Literal {
+                        deserialize,
+                        generators: generators
+                            .iter()
+                            .zip(mask)
+                            .filter_map(|(&generate, &enabled)| enabled.then_some(generate))
+                            .collect(),
+                        serialize,
+                        shrink,
+                    }
+                }
+            };
+            (ty, constructors)
+        })
+        .collect()
 }
 
 #[cfg(test)]
