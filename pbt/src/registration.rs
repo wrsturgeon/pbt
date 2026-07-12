@@ -4,7 +4,7 @@
 use {
     crate::{
         Pbt,
-        reflection::{BucketOps, Constructors, Erased},
+        reflection::{Constructors, Erased, ErasedVecOps},
     },
     ahash::HashMap,
     alloc::collections::BTreeMap,
@@ -16,7 +16,7 @@ use {
 #[non_exhaustive]
 pub struct Registration<'lock> {
     /// Erased function pointers performing operations on vectors of this type.
-    pub(crate) bucket_ops: &'lock mut HashMap<TypeId, BucketOps<Erased>>,
+    pub(crate) erased_vec_ops: &'lock mut HashMap<TypeId, ErasedVecOps>,
     /// The global "naive" variant graph including uninstantiable structures.
     pub(crate) variants: &'lock mut BTreeMap<TypeId, Constructors<Erased>>,
 }
@@ -37,8 +37,8 @@ impl Registration<'_> {
         // If this type has already been registered, short-circuit:
         let ty = TypeId::of::<T>();
         if self
-            .bucket_ops
-            .insert(ty, BucketOps::<T>::derive().erase())
+            .erased_vec_ops
+            .insert(ty, ErasedVecOps::derive::<T>())
             .is_some()
         {
             return;

@@ -5,7 +5,10 @@ use {
         Pbt,
         fields::Store,
         persist,
-        reflection::{BucketOps, Constructors, Erased, Parts, bucket_ops_of, constructors_of},
+        reflection::{
+            Constructors, Erased, ErasedVec, ErasedVecOps, Parts, constructors_of,
+            erased_vec_ops_of,
+        },
     },
     alloc::sync::Arc,
     core::{any::TypeId, mem, ptr},
@@ -30,10 +33,10 @@ pub struct EachFieldRecursively {
 
 /// Lazily extended cache of shrinking steps.
 pub struct ShrinkingCache {
-    /// Function pointers performing operations on vectors of some type.
-    bucket_ops: BucketOps<Erased>, // <-- TODO: duplicated across `Vec<ShrinkingCache>`
     /// Already-computed shrinking candidates.
-    cache: Vec<Erased>,
+    cache: ErasedVec,
+    /// Function pointers performing operations on vectors of some type.
+    erased_vec_ops: ErasedVecOps, // <-- TODO: duplicated across `Vec<ShrinkingCache>`
     /// The underlying shrinking iterator, extended lazily into `cache`.
     iterator: Box<dyn Iterator<Item = ptr::NonNull<Erased>>>,
     /// A clone of the original value, yielded after all proper shrinks.
@@ -117,8 +120,10 @@ impl EachFieldRecursively {
             let remaining_leash = leash_length.checked_sub(self.index)?;
             let (head, orig) = shrinking_cache.get(self.index)?;
             if let Some((mut next, all_orig)) = recurse.next_with_leash(remaining_leash) {
-                let () =
-                    next.push_erased(shrinking_cache.ty, (shrinking_cache.bucket_ops.clone)(head));
+                let () = next.push_erased(
+                    shrinking_cache.ty,
+                    (shrinking_cache.erased_vec_ops.clone)(head),
+                );
                 return Some((next, all_orig && orig));
             }
             self.index += 1;
@@ -146,26 +151,26 @@ impl ShrinkingCache {
         // We only ever extend this cache by one element at a time,
         // so this dumb retry loop is not only fine but optimal:
         loop {
-            if let Some(cached_ref) = (self.bucket_ops.get)(&mut self.cache, index) {
+            if let Some(cached_ref) = (self.erased_vec_ops.get)(&self.cache, index) {
                 return Some((cached_ref, false));
             }
             let Some(next) = self.iterator.next() else {
                 return (index == self.cache.len()).then_some((self.original, true));
             };
-            let () = (self.bucket_ops.push)(&mut self.cache, next);
+            let () = (self.erased_vec_ops.push)(&mut self.cache, next);
         }
     }
 
     /// Initialize a lazily-filled shrinking cache for one erased value.
     #[inline]
     fn new(ty: TypeId, erased_boxed: ptr::NonNull<Erased>) -> Self {
-        let bucket_ops = bucket_ops_of(ty);
-        // Clone `erased_boxed` before moving it into `bucket_ops.shrink`:
-        let original = (bucket_ops.clone)(erased_boxed);
-        let iterator = (bucket_ops.shrink)(erased_boxed);
+        let erased_vec_ops = erased_vec_ops_of(ty);
+        // Clone `erased_boxed` before moving it into `erased_vec_ops.shrink`:
+        let original = (erased_vec_ops.clone)(erased_boxed);
+        let iterator = (erased_vec_ops.shrink)(erased_boxed);
         Self {
-            bucket_ops,
-            cache: (bucket_ops.empty)(),
+            erased_vec_ops,
+            cache: (erased_vec_ops.empty)(),
             iterator,
             original,
             ty,
@@ -176,8 +181,8 @@ impl ShrinkingCache {
 impl Drop for ShrinkingCache {
     #[inline]
     fn drop(&mut self) {
-        let () = (self.bucket_ops.drop)(self.original);
-        let () = (self.bucket_ops.drop_vec)(mem::take(&mut self.cache));
+        let () = (self.erased_vec_ops.drop)(self.original);
+        let () = (self.erased_vec_ops.drop_vec)(self.cache.take());
     }
 }
 

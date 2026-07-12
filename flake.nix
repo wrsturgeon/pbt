@@ -1,4 +1,5 @@
 {
+
   inputs = {
     advisory-db = {
       flake = false;
@@ -16,6 +17,7 @@
       url = "github:numtide/treefmt-nix/main";
     };
   };
+
   outputs =
     {
       advisory-db,
@@ -29,6 +31,7 @@
     flake-utils.lib.eachDefaultSystem (
       system:
       let
+
         pkgs = import nixpkgs {
           inherit system;
           overlays = [ (import rust-overlay) ];
@@ -54,8 +57,10 @@
         craneArtifacts = crane.buildPackage (craneArgs // { doCheck = false; });
 
         treefmt = treefmt-nix.lib.evalModule pkgs ./.treefmt.nix;
+
       in
       {
+
         checks = {
           audit = crane.cargoAudit { inherit src advisory-db; };
           build = craneArtifacts;
@@ -66,6 +71,7 @@
           fmt-toml = crane.taploFmt craneArgs;
           tests = crane.cargoNextest (craneArgs // { CARGO_PROFILE = ""; });
         };
+
         devShells.default = crane.devShell (
           env
           // {
@@ -79,8 +85,11 @@
             ];
           }
         );
+
         formatter = treefmt.config.build.wrapper;
+
         packages.default = craneArtifacts;
+
       }
     );
 }

@@ -4,7 +4,7 @@ use {
     crate::{
         Pbt,
         hash::random_state,
-        reflection::{Parts, bucket_ops_of},
+        reflection::{Parts, erased_vec_ops_of},
     },
     core::{any::TypeId, fmt::Write as _},
     std::{
@@ -52,9 +52,9 @@ where
     T: 'static,
 {
     let ty = TypeId::of::<T>();
-    let bucket_ops = bucket_ops_of(ty);
+    let erased_vec_ops = erased_vec_ops_of(ty);
 
-    let type_name = (bucket_ops.name)();
+    let type_name = (erased_vec_ops.name)();
     let mut jsonl_filename = String::new();
     let () = write!(
         jsonl_filename,

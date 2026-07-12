@@ -22,9 +22,7 @@ use {
         any::{TypeId, type_name},
         cmp,
         hash::{Hash, Hasher},
-        iter,
-        marker::PhantomData,
-        mem,
+        iter, mem,
         num::NonZero,
         ptr,
     },
@@ -33,7 +31,7 @@ use {
 };
 
 /// Function pointers performing operations on vectors of some type.
-static BUCKET_OPS: RwLock<HashMap<TypeId, BucketOps<Erased>>> = RwLock::new(map());
+static ERASED_VEC_OPS: RwLock<HashMap<TypeId, ErasedVecOps>> = RwLock::new(map());
 
 /// All variants of each registered type
 /// *including* uninstantiable variants.
@@ -48,37 +46,35 @@ static NAIVE_VARIANTS: RwLock<BTreeMap<TypeId, Constructors<Erased>>> =
 /// Function pointers performing operations on vectors of some type.
 #[non_exhaustive]
 #[derive(Clone, Copy)]
-pub(crate) struct BucketOps<SelfType> {
-    /// Type-level indicator.
-    pub(crate) _phantom: PhantomData<SelfType>,
+pub(crate) struct ErasedVecOps {
     /// Clone a term of this type.
     pub(crate) clone: fn(ptr::NonNull<Erased>) -> ptr::NonNull<Erased>,
     /// Clone a vector of this type.
-    pub(crate) clone_vec: fn(&Vec<Erased>) -> Vec<Erased>,
+    pub(crate) clone_vec: fn(&ErasedVec) -> ErasedVec,
     /// Deconstruct a boxed value into its constructor index and its fields.
     pub(crate) deconstruct: fn(ptr::NonNull<Erased>) -> Parts<Store>,
     /// Deserialize JSON into a vector of this type.
-    pub(crate) deserialize: fn(&Vec<serde_json::Value>) -> Option<Vec<Erased>>,
+    pub(crate) deserialize: fn(&Vec<serde_json::Value>) -> Option<ErasedVec>,
     /// Drop a boxed term of this type.
     pub(crate) drop: fn(ptr::NonNull<Erased>),
-    /// Drop a vector of this type.
-    pub(crate) drop_vec: fn(Vec<Erased>),
+    /// Drop a vector using the original type recorded in its raw parts.
+    pub(crate) drop_vec: fn(ErasedVec),
     /// Create an empty vector of this type.
-    pub(crate) empty: fn() -> Vec<Erased>,
+    pub(crate) empty: fn() -> ErasedVec,
     /// Get a *reference* (*not* a `Box`) to the nth element of a vector.
-    pub(crate) get: fn(&Vec<Erased>, usize) -> Option<ptr::NonNull<Erased>>,
+    pub(crate) get: fn(&ErasedVec, usize) -> Option<ptr::NonNull<Erased>>,
     /// The name of this type.
     pub(crate) name: fn() -> &'static str,
     /// Pop an element and box it.
-    pub(crate) pop: fn(&mut Vec<Erased>) -> Option<ptr::NonNull<Erased>>,
+    pub(crate) pop: fn(&mut ErasedVec) -> Option<ptr::NonNull<Erased>>,
     /// Push a boxed element onto a vector.
-    pub(crate) push: fn(&mut Vec<Erased>, ptr::NonNull<Erased>),
+    pub(crate) push: fn(&mut ErasedVec, ptr::NonNull<Erased>),
     /// Serialize a vector of this type into JSON.
-    pub(crate) serialize: fn(Vec<Erased>) -> Vec<serde_json::Value>,
+    pub(crate) serialize: fn(ErasedVec) -> Vec<serde_json::Value>,
     /// Iterate over shrinking candidates for a given initial witness.
     pub(crate) shrink: fn(ptr::NonNull<Erased>) -> Box<dyn Iterator<Item = ptr::NonNull<Erased>>>,
     /// Remove the `i`th element in O(1) by swapping it with the last element.
-    pub(crate) swap_remove: fn(&mut Vec<Erased>, usize) -> ptr::NonNull<Erased>,
+    pub(crate) swap_remove: fn(&mut ErasedVec, usize) -> ptr::NonNull<Erased>,
 }
 
 /// Each variant of some type in roughly "smallest-to-largest" order,
@@ -138,6 +134,180 @@ pub(crate) struct Constructor {
 #[non_exhaustive]
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum Erased {}
+
+/// The raw allocation parts of a vector whose element type is erased.
+///
+/// An `ErasedVec` created from `Vec<T>` may be reconstructed only as `Vec<T>`.
+/// Its destructor records the original `T`, so partially-built collections and
+/// unwinding paths still drop the allocation with the correct layout.
+#[non_exhaustive]
+pub(crate) struct ErasedVec {
+    /// The allocation capacity, measured in elements of the original type.
+    capacity: usize,
+    /// Drop the allocation after reconstructing its original vector type.
+    drop_vec: unsafe fn(ptr::NonNull<u8>, usize, usize),
+    /// The number of initialized elements.
+    length: usize,
+    /// The vector's allocation pointer, or `None` while it is temporarily a `Vec<T>`.
+    pointer: Option<ptr::NonNull<u8>>,
+}
+
+/// A temporarily reconstructed vector that restores its raw parts when dropped.
+struct TypedVec<'erased, T> {
+    /// The raw vector to restore, including while unwinding from the operation.
+    erased: &'erased mut ErasedVec,
+    /// The vector reconstructed with its original element type.
+    typed: mem::ManuallyDrop<Vec<T>>,
+}
+
+impl ErasedVec {
+    /// Erase the raw allocation parts of a typed vector.
+    #[inline]
+    #[must_use]
+    fn from_typed<T>(vec: Vec<T>) -> Self {
+        let mut raw = mem::ManuallyDrop::new(vec);
+        // SAFETY: `Vec::as_mut_ptr` is non-null, including for empty vectors.
+        let pointer = unsafe { ptr::NonNull::new_unchecked(raw.as_mut_ptr().cast()) };
+        Self {
+            capacity: raw.capacity(),
+            drop_vec: drop_typed::<T>,
+            length: raw.len(),
+            pointer: Some(pointer),
+        }
+    }
+
+    /// Reconstruct this vector with its original element type.
+    ///
+    /// # Safety
+    ///
+    /// The vector must have been created by [`Self::from_typed`] for this exact
+    /// `T`, and no other typed reconstruction may still exist.
+    #[inline]
+    pub(crate) unsafe fn into_typed<T>(mut self) -> Vec<T> {
+        let pointer = self.take_pointer();
+        // SAFETY: Required by this method's safety contract.
+        unsafe { Vec::from_raw_parts(pointer.cast::<T>().as_ptr(), self.length, self.capacity) }
+    }
+
+    /// Whether this vector has no elements.
+    #[inline]
+    #[must_use]
+    pub(crate) fn is_empty(&self) -> bool {
+        self.pointer();
+        self.length == 0
+    }
+
+    /// The number of elements in this vector.
+    #[inline]
+    #[must_use]
+    pub(crate) fn len(&self) -> usize {
+        self.pointer();
+        self.length
+    }
+
+    /// Return the allocation pointer while asserting that no typed vector borrows it.
+    #[inline]
+    #[expect(
+        clippy::panic,
+        reason = "A missing pointer means an internal typed-vector borrow escaped."
+    )]
+    fn pointer(&self) -> ptr::NonNull<u8> {
+        let Some(pointer) = self.pointer else {
+            panic!("INTERNAL ERROR (`pbt`): inspecting a borrowed erased vector")
+        };
+        pointer
+    }
+
+    /// Take this vector, leaving it unavailable for further operations.
+    #[inline]
+    pub(crate) fn take(&mut self) -> Self {
+        mem::replace(
+            self,
+            Self {
+                capacity: 0,
+                drop_vec: self.drop_vec,
+                length: 0,
+                pointer: None,
+            },
+        )
+    }
+
+    /// Take the allocation pointer while temporarily lending it to a typed vector.
+    #[inline]
+    #[expect(
+        clippy::panic,
+        reason = "A missing pointer means an internal typed-vector borrow escaped."
+    )]
+    fn take_pointer(&mut self) -> ptr::NonNull<u8> {
+        let Some(pointer) = self.pointer.take() else {
+            panic!("INTERNAL ERROR (`pbt`): borrowing a borrowed erased vector")
+        };
+        pointer
+    }
+
+    /// Borrow the vector as its original typed representation.
+    ///
+    /// # Safety
+    ///
+    /// The vector must have been created by [`Self::from_typed`] for this exact
+    /// `T`. The callback must not retain references into the vector.
+    #[inline]
+    unsafe fn with_typed<T, Output>(&self, f: impl FnOnce(&Vec<T>) -> Output) -> Output {
+        let pointer = self.pointer();
+        // SAFETY: Required by this method's safety contract. `ManuallyDrop`
+        // leaves ownership with `self`.
+        let typed = mem::ManuallyDrop::new(unsafe {
+            Vec::from_raw_parts(pointer.cast::<T>().as_ptr(), self.length, self.capacity)
+        });
+        f(&typed)
+    }
+
+    /// Mutably borrow the vector as its original typed representation.
+    ///
+    /// # Safety
+    ///
+    /// The vector must have been created by [`Self::from_typed`] for this exact
+    /// `T`. The callback must not retain references into the vector.
+    #[inline]
+    unsafe fn with_typed_mut<T, Output>(
+        &mut self,
+        f: impl FnOnce(&mut Vec<T>) -> Output,
+    ) -> Output {
+        let pointer = self.take_pointer();
+        let length = self.length;
+        let capacity = self.capacity;
+        // SAFETY: Required by this method's safety contract. `TypedVec` restores
+        // the raw parts whether `f` returns normally or unwinds.
+        let vector = unsafe { Vec::from_raw_parts(pointer.cast::<T>().as_ptr(), length, capacity) };
+        let mut typed = TypedVec {
+            erased: self,
+            typed: mem::ManuallyDrop::new(vector),
+        };
+        f(&mut typed.typed)
+    }
+}
+
+impl Drop for ErasedVec {
+    #[inline]
+    fn drop(&mut self) {
+        if let Some(pointer) = self.pointer.take() {
+            // SAFETY: `from_typed::<T>` recorded `drop_typed::<T>` alongside
+            // these exact raw parts.
+            unsafe {
+                (self.drop_vec)(pointer, self.length, self.capacity);
+            }
+        }
+    }
+}
+
+impl<T> Drop for TypedVec<'_, T> {
+    #[inline]
+    fn drop(&mut self) {
+        // SAFETY: `typed` is taken exactly once, when this guard restores `erased`.
+        let typed = unsafe { mem::ManuallyDrop::take(&mut self.typed) };
+        *self.erased = ErasedVec::from_typed(typed);
+    }
+}
 
 /// A deconstruction of a value into its constructor index and its fields.
 #[expect(
@@ -208,21 +378,14 @@ pub enum Variants<SelfType> {
     },
 }
 
-impl<T> BucketOps<T> {
-    /// Erase type data while maintaining exactly the same function pointers.
-    #[inline]
-    #[must_use]
-    pub(crate) const fn erase(self) -> BucketOps<Erased> {
-        // SAFETY: Function pointers are the same size no matter the types in these positions.
-        unsafe { mem::transmute::<BucketOps<T>, BucketOps<Erased>>(self) }
-    }
-}
-
-impl<T: Pbt> BucketOps<T> {
+impl ErasedVecOps {
     /// Derive operations for a statically known type.
     #[inline]
     #[must_use]
-    pub(crate) const fn derive() -> Self {
+    pub(crate) fn derive<T>() -> Self
+    where
+        T: Pbt,
+    {
         Self {
             clone: |erased_t: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
@@ -230,13 +393,9 @@ impl<T: Pbt> BucketOps<T> {
                 let cloned: Box<T> = Box::new(t.clone());
                 ptr::NonNull::from_mut(Box::leak(cloned)).cast()
             },
-            clone_vec: |erased_v: &Vec<Erased>| {
-                // SAFETY: Invariant. Extremely dangerous.
-                let v: &Vec<T> =
-                    unsafe { ptr::from_ref(erased_v).cast::<Vec<T>>().as_ref_unchecked() };
-                let cloned: Vec<T> = v.clone();
-                // SAFETY: Invariant. Extremely dangerous.
-                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(cloned) }
+            clone_vec: |erased_v: &ErasedVec| {
+                // SAFETY: A erased_vec operation is called only for its registered type.
+                unsafe { erased_v.with_typed::<T, _>(|v| ErasedVec::from_typed(v.clone())) }
             },
             deconstruct: |erased_boxed| {
                 // SAFETY: Invariant. Extremely dangerous.
@@ -248,49 +407,46 @@ impl<T: Pbt> BucketOps<T> {
                     .iter()
                     .map(Parts::deserialize)
                     .collect::<Option<Vec<T>>>()?;
-                // SAFETY: Invariant. Extremely dangerous.
-                Some(unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) })
+                Some(ErasedVec::from_typed(v))
             },
             drop: |erased_boxed: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
                 let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
                 let () = drop(boxed);
             },
-            drop_vec: |erased_v: Vec<Erased>| {
-                // SAFETY: Invariant. Extremely dangerous.
-                let v: Vec<T> = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_v) };
-                let () = drop(v);
-            },
-            empty: || {
-                let v: Vec<T> = Vec::new();
-                // SAFETY: Invariant. Extremely dangerous.
-                unsafe { mem::transmute::<Vec<T>, Vec<Erased>>(v) }
-            },
-            get: |erased_v: &Vec<Erased>, index: usize| {
-                // SAFETY: Invariant. Extremely dangerous.
-                let v: &Vec<T> =
-                    unsafe { ptr::from_ref(erased_v).cast::<Vec<T>>().as_ref_unchecked() };
-                Some(ptr::NonNull::from_ref(v.get(index)?).cast::<Erased>())
+            drop_vec: |erased_v: ErasedVec| drop(erased_v),
+            empty: || ErasedVec::from_typed(Vec::<T>::new()),
+            get: |erased_v: &ErasedVec, index: usize| {
+                // SAFETY: A erased_vec operation is called only for its registered type.
+                unsafe {
+                    erased_v.with_typed::<T, _>(|v| {
+                        Some(ptr::NonNull::from_ref(v.get(index)?).cast::<Erased>())
+                    })
+                }
             },
             name: type_name::<T>,
-            pop: |erased_v: &mut Vec<Erased>| {
-                // SAFETY: Invariant. Extremely dangerous.
-                let v: &mut Vec<T> =
-                    unsafe { ptr::from_mut(erased_v).cast::<Vec<T>>().as_mut_unchecked() };
-                let boxed = Box::new(v.pop()?);
-                Some(ptr::NonNull::from_mut(Box::leak(boxed)).cast())
+            pop: |erased_v: &mut ErasedVec| {
+                // SAFETY: A erased_vec operation is called only for its registered type.
+                unsafe {
+                    erased_v.with_typed_mut::<T, _>(|v| {
+                        let boxed = Box::new(v.pop()?);
+                        Some(ptr::NonNull::from_mut(Box::leak(boxed)).cast())
+                    })
+                }
             },
-            push: |erased_v: &mut Vec<Erased>, erased_boxed: ptr::NonNull<Erased>| {
-                // SAFETY: Invariant. Extremely dangerous.
-                let v: &mut Vec<T> =
-                    unsafe { ptr::from_mut(erased_v).cast::<Vec<T>>().as_mut_unchecked() };
+            push: |erased_v: &mut ErasedVec, erased_boxed: ptr::NonNull<Erased>| {
                 // SAFETY: Invariant. Extremely dangerous.
                 let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
-                let () = v.push(*boxed);
+                // SAFETY: A erased_vec operation is called only for its registered type.
+                unsafe {
+                    erased_v.with_typed_mut::<T, _>(|v| {
+                        let () = v.push(*boxed);
+                    });
+                }
             },
-            serialize: |erased_v: Vec<Erased>| {
-                // SAFETY: Invariant. Extremely dangerous.
-                let v: Vec<T> = unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_v) };
+            serialize: |erased_v: ErasedVec| {
+                // SAFETY: A erased_vec operation is called only for its registered type.
+                let v: Vec<T> = unsafe { erased_v.into_typed() };
                 if let Constructors::Literal { serialize, .. } = constructors_of(TypeId::of::<T>())
                 {
                     // SAFETY: Invariant. Extremely dangerous.
@@ -315,22 +471,16 @@ impl<T: Pbt> BucketOps<T> {
                     iter_over_t.map(|t: T| ptr::NonNull::from_mut(Box::leak(Box::new(t))).cast());
                 Box::new(iter_over_erased)
             },
-            swap_remove: |erased_v: &mut Vec<Erased>, i: usize| {
-                // SAFETY: Invariant. Extremely dangerous.
-                let v: &mut Vec<T> =
-                    unsafe { ptr::from_mut(erased_v).cast::<Vec<T>>().as_mut_unchecked() };
-                let boxed: Box<T> = Box::new(v.swap_remove(i));
-                ptr::NonNull::from_mut(Box::leak(boxed)).cast()
+            swap_remove: |erased_v: &mut ErasedVec, i: usize| {
+                // SAFETY: A erased_vec operation is called only for its registered type.
+                unsafe {
+                    erased_v.with_typed_mut::<T, _>(|v| {
+                        let boxed: Box<T> = Box::new(v.swap_remove(i));
+                        ptr::NonNull::from_mut(Box::leak(boxed)).cast()
+                    })
+                }
             },
-            _phantom: PhantomData,
         }
-    }
-}
-
-impl<T: Pbt> Default for BucketOps<T> {
-    #[inline]
-    fn default() -> Self {
-        Self::derive()
     }
 }
 
@@ -601,7 +751,7 @@ impl Parts<Store> {
                 >(serialize)
             };
             let json = serialize_ptr(erased);
-            let () = (bucket_ops_of(ty).drop)(erased);
+            let () = (erased_vec_ops_of(ty).drop)(erased);
             json
         }
     }
@@ -688,12 +838,12 @@ impl<SelfType> Variants<SelfType> {
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-pub(crate) fn bucket_ops_of(ty: TypeId) -> BucketOps<Erased> {
-    *BUCKET_OPS
+pub(crate) fn erased_vec_ops_of(ty: TypeId) -> ErasedVecOps {
+    *ERASED_VEC_OPS
         .read()
         .expect("INTERNAL ERROR (`pbt`): variants lock poisoned")
         .get(&ty)
-        .expect("INTERNAL ERROR (`pbt`): unregistered type during bucket-ops lookup")
+        .expect("INTERNAL ERROR (`pbt`): unregistered type during erased_vec-ops lookup")
 }
 
 /// Whether a registered type is represented by opaque literal operations.
@@ -770,15 +920,28 @@ where
     let mut naive_variants = NAIVE_VARIANTS
         .write()
         .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
-    let mut bucket_ops = BUCKET_OPS
+    let mut erased_vec_ops = ERASED_VEC_OPS
         .write()
         .expect("INTERNAL ERROR (`pbt`): variants lock poisoned");
 
     let mut registration = Registration {
-        bucket_ops: &mut bucket_ops,
+        erased_vec_ops: &mut erased_vec_ops,
         variants: &mut naive_variants,
     };
     let () = registration.register::<T>();
+}
+
+/// Drop raw vector parts using their original element type.
+///
+/// # Safety
+///
+/// `pointer`, `length`, and `capacity` must originate from a `Vec<T>` and be
+/// owned exclusively by this call.
+#[inline]
+unsafe fn drop_typed<T>(pointer: ptr::NonNull<u8>, length: usize, capacity: usize) {
+    // SAFETY: Required by this function's safety contract.
+    let typed = unsafe { Vec::from_raw_parts(pointer.cast::<T>().as_ptr(), length, capacity) };
+    let () = drop(typed);
 }
 
 #[cfg(test)]

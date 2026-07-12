@@ -6,12 +6,14 @@ use {
         Pbt,
         hash::map,
         multiset::Multiset,
-        reflection::{BucketOps, Erased, bucket_ops_of, is_literal, register_globally},
+        reflection::{
+            Erased, ErasedVec, ErasedVecOps, erased_vec_ops_of, is_literal, register_globally,
+        },
         size::{self, Size},
         swarm::Swarm,
     },
     ahash::HashMap,
-    core::{any::TypeId, mem, ptr},
+    core::{any::TypeId, ptr},
     std::collections::hash_map,
     wyrand::WyRand,
 };
@@ -70,20 +72,19 @@ struct Sections {
 /// unknown fields are newly generated leaves.
 #[non_exhaustive]
 pub struct Store {
-    /// A map from type IDs to erased vectors
-    /// whose elements match the associated type.
-    store: HashMap<TypeId, Vec<Erased>>,
+    /// A map from type IDs to raw vector parts whose elements match the associated type.
+    store: HashMap<TypeId, ErasedVec>,
 }
 
 /// Visit all sub-terms of an arbitrary type within a `Store`.
 #[non_exhaustive]
 struct Visitor<T> {
     /// Function pointers performing operations on vectors of `self.ty`.
-    bucket_ops: BucketOps<Erased>,
+    erased_vec_ops: ErasedVecOps,
     /// All immediate sub-terms of type `T`.
     matches: Vec<T>,
     /// All immediate sub-terms of type `self.ty`.
-    queue: Option<Vec<Erased>>,
+    queue: Option<ErasedVec>,
     /// Recurse on each field.
     recurse: Option<Box<Self>>,
     /// The original store we're visiting.
@@ -141,7 +142,7 @@ impl Drop for Sections {
             let ty = self
                 .maybe_ty
                 .expect("INTERNAL ERROR (`pbt`): unused `Sections` head without a type");
-            let () = (bucket_ops_of(ty).drop)(head);
+            let () = (erased_vec_ops_of(ty).drop)(head);
         }
     }
 }
@@ -158,17 +159,18 @@ impl Iterator for Sections {
                 self.requirements = None; // <-- "don't return another after this" (see above)
                 return Some(Store::new());
             };
-            let bucket_ops = bucket_ops_of(ty);
+            let erased_vec_ops = erased_vec_ops_of(ty);
 
             if let Some((ref head, ref mut recurse)) = self.recurse {
                 if let Some(mut tail) = recurse.next() {
-                    let v: &mut Vec<Erased> = tail.store.entry(ty).or_insert_with(bucket_ops.empty);
-                    let cloned = (bucket_ops.clone)(*head);
-                    let () = (bucket_ops.push)(v, cloned);
+                    let v: &mut ErasedVec =
+                        tail.store.entry(ty).or_insert_with(erased_vec_ops.empty);
+                    let cloned = (erased_vec_ops.clone)(*head);
+                    let () = (erased_vec_ops.push)(v, cloned);
                     return Some(tail);
                 }
                 if let Some((drop_head, _)) = self.recurse.take() {
-                    let () = (bucket_ops.drop)(drop_head);
+                    let () = (erased_vec_ops.drop)(drop_head);
                 }
             }
 
@@ -177,7 +179,7 @@ impl Iterator for Sections {
             }
             let mut ablated = self.store.clone();
             let v = ablated.store.get_mut(&ty)?;
-            let head = (bucket_ops.swap_remove)(v, self.index);
+            let head = (erased_vec_ops.swap_remove)(v, self.index);
             #[expect(
                 clippy::arithmetic_side_effects,
                 reason = "hardware can't support `usize::MAX` elements in a vector"
@@ -216,11 +218,11 @@ impl Store {
         };
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for &ty in field_types.iter_dedup() {
-            let bucket_ops = bucket_ops_of(ty);
-            let serde_json::Value::Array(ref values) = *map.get((bucket_ops.name)())? else {
+            let erased_vec_ops = erased_vec_ops_of(ty);
+            let serde_json::Value::Array(ref values) = *map.get((erased_vec_ops.name)())? else {
                 return None;
             };
-            let _: Option<_> = store.insert(ty, (bucket_ops.deserialize)(values)?);
+            let _: Option<_> = store.insert(ty, (erased_vec_ops.deserialize)(values)?);
         }
         Some(Self { store })
     }
@@ -232,8 +234,8 @@ impl Store {
     pub(crate) fn drop_unused(&mut self) {
         #[expect(clippy::iter_over_hash_type, reason = "order doesn't matter")]
         for (k, v) in self.store.drain() {
-            let bucket_ops = bucket_ops_of(k);
-            let () = (bucket_ops.drop_vec)(v);
+            let erased_vec_ops = erased_vec_ops_of(k);
+            let () = (erased_vec_ops.drop_vec)(v);
         }
     }
 
@@ -251,22 +253,10 @@ impl Store {
         T: 'static,
     {
         let ty = TypeId::of::<T>();
-        let hash_map::Entry::Occupied(mut entry) = self.store.entry(ty) else {
-            return None;
-        };
-        let erased: &mut Vec<Erased> = entry.get_mut();
-        // SAFETY: Invariant. Extremely dangerous.
-        let typed: &mut Vec<T> =
-            unsafe { ptr::from_mut(erased).cast::<Vec<T>>().as_mut_unchecked() };
-        let t = typed.pop()?;
-        if typed.is_empty() {
-            let erased_to_drop: Vec<Erased> = entry.remove();
-            // SAFETY: Invariant. Extremely dangerous.
-            let typed_to_drop: Vec<T> =
-                unsafe { mem::transmute::<Vec<Erased>, Vec<T>>(erased_to_drop) };
-            let () = drop(typed_to_drop);
-        }
-        Some(t)
+        let erased_boxed = self.pop_type(ty)?;
+        // SAFETY: The `TypeId` selected this erased_vec, so it contains `T`.
+        let boxed: Box<T> = unsafe { Box::from_raw(erased_boxed.cast::<T>().as_ptr()) };
+        Some(*boxed)
     }
 
     /// Pop and return all cached fields of this type iff they exist.
@@ -276,36 +266,42 @@ impl Store {
     where
         T: 'static,
     {
-        // SAFETY: Invariant. Extremely dangerous.
-        unsafe {
-            mem::transmute::<Option<Vec<Erased>>, Option<Vec<T>>>(
-                self.store.remove(&TypeId::of::<T>()),
-            )
-        }
+        let erased = self.store.remove(&TypeId::of::<T>())?;
+        // SAFETY: The `TypeId` selected this erased_vec, so it contains `T`.
+        Some(unsafe { erased.into_typed() })
     }
 
     /// Pop and return a cached field of any type iff one exists.
     #[inline]
     #[expect(
         clippy::expect_used,
-        clippy::panic,
         clippy::unwrap_in_result,
         reason = "Internal invariants: violations should fail loudly."
     )]
     pub(crate) fn pop_erased(&mut self) -> Option<(TypeId, ptr::NonNull<Erased>)> {
         let ty = *self.store.keys().next()?;
-        let bucket_ops = bucket_ops_of(ty);
-        let hash_map::Entry::Occupied(mut entry) = self.store.entry(ty) else {
-            panic!("INTERNAL ERROR (`pbt`): disappearing store items")
-        };
-        let erased: &mut Vec<Erased> = entry.get_mut();
-        let popped =
-            (bucket_ops.pop)(erased).expect("INTERNAL ERROR (`pbt`): empty vector in a `Store`");
-        if erased.is_empty() {
-            let erased_to_drop: Vec<Erased> = entry.remove();
-            let () = (bucket_ops.drop_vec)(erased_to_drop);
-        }
+        let popped = self
+            .pop_type(ty)
+            .expect("INTERNAL ERROR (`pbt`): empty vector in a `Store`");
         Some((ty, popped))
+    }
+
+    /// Pop one field from the erased vector associated with `ty`.
+    ///
+    /// Removes an exhausted erased vector so its typed allocation is dropped
+    /// immediately rather than being retained as an empty map entry.
+    #[inline]
+    fn pop_type(&mut self, ty: TypeId) -> Option<ptr::NonNull<Erased>> {
+        let hash_map::Entry::Occupied(mut entry) = self.store.entry(ty) else {
+            return None;
+        };
+        let erased_vec_ops = erased_vec_ops_of(ty);
+        let erased_vec = entry.get_mut();
+        let erased_boxed = (erased_vec_ops.pop)(erased_vec)?;
+        if erased_vec.is_empty() {
+            drop(entry.remove());
+        }
+        Some(erased_boxed)
     }
 
     /// Store a field of this type.
@@ -324,9 +320,9 @@ impl Store {
     /// Store a field of some type.
     #[inline]
     pub(crate) fn push_erased(&mut self, ty: TypeId, erased_boxed: ptr::NonNull<Erased>) {
-        let bucket_ops = bucket_ops_of(ty);
-        let v: &mut Vec<Erased> = self.store.entry(ty).or_insert_with(bucket_ops.empty);
-        let () = (bucket_ops.push)(v, erased_boxed);
+        let erased_vec_ops = erased_vec_ops_of(ty);
+        let v: &mut ErasedVec = self.store.entry(ty).or_insert_with(erased_vec_ops.empty);
+        let () = (erased_vec_ops.push)(v, erased_boxed);
     }
 
     /// Iterate over all possible subsets and orderings
@@ -344,10 +340,10 @@ impl Store {
             self.store
                 .drain()
                 .map(|(ty, v)| {
-                    let bucket_ops = bucket_ops_of(ty);
+                    let erased_vec_ops = erased_vec_ops_of(ty);
                     (
-                        (bucket_ops.name)().to_owned(),
-                        serde_json::Value::Array((bucket_ops.serialize)(v)),
+                        (erased_vec_ops.name)().to_owned(),
+                        serde_json::Value::Array((erased_vec_ops.serialize)(v)),
                     )
                 })
                 .collect(),
@@ -371,7 +367,7 @@ impl Clone for Store {
             store: self
                 .store
                 .iter()
-                .map(|(&k, v)| (k, (bucket_ops_of(k).clone_vec)(v)))
+                .map(|(&k, v)| (k, (erased_vec_ops_of(k).clone_vec)(v)))
                 .collect(),
         }
     }
@@ -387,10 +383,11 @@ impl Default for Store {
 impl Drop for Store {
     #[inline]
     fn drop(&mut self) {
-        assert!(
-            self.store.is_empty(),
-            "INTERNAL ERROR (`pbt`): unused fields",
-        );
+        let unused = !self.store.is_empty();
+        if unused {
+            let () = self.drop_unused();
+        }
+        assert!(!unused, "INTERNAL ERROR (`pbt`): unused fields");
     }
 }
 
@@ -403,7 +400,7 @@ where
     fn new(store: Store) -> Self {
         let ty = TypeId::of::<T>();
         Self {
-            bucket_ops: bucket_ops_of(ty),
+            erased_vec_ops: erased_vec_ops_of(ty),
             matches: vec![],
             queue: None,
             recurse: None,
@@ -434,9 +431,9 @@ where
             }
 
             while let Some(ref mut queue) = self.queue
-                && let Some(boxed_erased) = (self.bucket_ops.pop)(queue)
+                && let Some(boxed_erased) = (self.erased_vec_ops.pop)(queue)
             {
-                let mut fields = (self.bucket_ops.deconstruct)(boxed_erased).fields;
+                let mut fields = (self.erased_vec_ops.deconstruct)(boxed_erased).fields;
                 if !is_literal(self.ty) {
                     self.recurse = Some(Box::new(Self::new(fields)));
                     continue 'restart;
@@ -445,20 +442,19 @@ where
             }
 
             if let Some(queue) = self.queue.take() {
-                let () = (self.bucket_ops.drop_vec)(queue);
+                let () = (self.erased_vec_ops.drop_vec)(queue);
             }
 
             self.ty = *self.store.store.keys().next()?;
-            self.bucket_ops = bucket_ops_of(self.ty);
+            self.erased_vec_ops = erased_vec_ops_of(self.ty);
             self.queue = self.store.store.remove(&self.ty);
 
             if self.ty == TypeId::of::<T>()
                 && let Some(ref queue) = self.queue
             {
-                // SAFETY: Invariant. Extremely dangerous.
-                self.matches = unsafe {
-                    mem::transmute::<Vec<Erased>, Vec<T>>((self.bucket_ops.clone_vec)(queue))
-                };
+                let cloned = (self.erased_vec_ops.clone_vec)(queue);
+                // SAFETY: `self.ty == TypeId::of::<T>()` selected this erased_vec.
+                self.matches = unsafe { cloned.into_typed() };
             }
         }
     }
@@ -468,7 +464,7 @@ impl<T> Drop for Visitor<T> {
     #[inline]
     fn drop(&mut self) {
         if let Some(queue) = self.queue.take() {
-            let () = (self.bucket_ops.drop_vec)(queue);
+            let () = (self.erased_vec_ops.drop_vec)(queue);
         }
         let () = self.store.drop_unused();
     }
@@ -486,12 +482,61 @@ mod tests {
             reflection::{Parts, Variant, Variants},
             registration::Registration,
         },
-        core::{iter, num::NonZero},
+        core::{
+            iter,
+            num::NonZero,
+            sync::atomic::{AtomicUsize, Ordering},
+        },
         pretty_assertions::assert_eq,
+        std::panic,
     };
+
+    /// Count drops that occur while reporting a `Store` invariant violation.
+    static UNUSED_FIELD_DROPS: AtomicUsize = AtomicUsize::new(0);
 
     #[derive(Clone, Debug, Eq, PartialEq)]
     struct DestructsWithExtraField((), ());
+
+    /// An over-aligned field whose destructor records that it ran.
+    #[repr(align(64))]
+    #[derive(Clone, Debug)]
+    struct DroppedUnusedField(u8);
+
+    impl Drop for DroppedUnusedField {
+        #[inline]
+        fn drop(&mut self) {
+            let _: u8 = self.0;
+            let _previous = UNUSED_FIELD_DROPS.fetch_add(1, Ordering::SeqCst);
+        }
+    }
+
+    impl Pbt for DroppedUnusedField {
+        #[inline]
+        fn construct<F>(Parts { mut fields, .. }: Parts<F>) -> Self
+        where
+            F: Fields,
+        {
+            Self(fields.field())
+        }
+
+        #[inline]
+        fn deconstruct(self) -> Parts<Store> {
+            let mut fields = Store::new();
+            let () = fields.push(self.0);
+            Parts {
+                fields,
+                variant_index: const { Some(NonZero::new(1).unwrap()) },
+            }
+        }
+
+        #[inline]
+        fn register(registration: &mut Registration<'_>) -> Variants<Self> {
+            let () = registration.register::<u8>();
+            Variants::Algebraic(vec![Variant {
+                field_types: iter::once(TypeId::of::<u8>()).collect(),
+            }])
+        }
+    }
 
     impl Pbt for DestructsWithExtraField {
         #[inline]
@@ -652,6 +697,17 @@ mod tests {
         let mut visitor = store.visit::<usize>();
         let _: usize = visitor.next().unwrap();
         // drop
+    }
+
+    #[test]
+    fn dropping_unused_fields_drops_them_before_panicking() {
+        let () = UNUSED_FIELD_DROPS.store(0, Ordering::SeqCst);
+        let result = panic::catch_unwind(|| {
+            let mut store = Store::new();
+            let () = store.push(DroppedUnusedField(42));
+        });
+        assert!(result.is_err());
+        assert_eq!(UNUSED_FIELD_DROPS.load(Ordering::SeqCst), 1);
     }
 
     #[test]
