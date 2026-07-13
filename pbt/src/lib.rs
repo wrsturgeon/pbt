@@ -2,9 +2,19 @@
 //! and full graph-theoretic type analysis over mutually inductive and uninstantiable types.
 
 extern crate alloc;
+#[cfg(test)]
+extern crate self as pbt;
 
 mod arbitrary;
 mod coin_flips;
+#[cfg_attr(
+    not(test),
+    expect(
+        dead_code,
+        reason = "The private coverage core is intentionally awaiting instrumentation integration."
+    )
+)]
+mod coverage_frontier;
 pub mod fields;
 pub mod hash;
 mod impls;
