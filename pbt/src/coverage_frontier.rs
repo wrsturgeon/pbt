@@ -33,11 +33,11 @@ impl FiniteNonnegative {
     #[inline]
     #[track_caller]
     fn new(value: f64, description: &str) -> Self {
-        assert!(
+        debug_assert!(
             value.is_finite(),
             "INTERNAL ERROR (`pbt`): {description} must be finite, not {value:?}",
         );
-        assert!(
+        debug_assert!(
             value >= 0.0_f64,
             "INTERNAL ERROR (`pbt`): {description} must be nonnegative, not {value:?}",
         );
