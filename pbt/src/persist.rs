@@ -15,6 +15,12 @@ use {
     },
 };
 
+/// Return whether a nonempty, nonzero environment flag is enabled.
+#[inline]
+fn env_flag(name: &str) -> bool {
+    matches!(env::var(name), Ok(value) if !value.is_empty() && value != "0")
+}
+
 /// Find the Cargo workspace root by walking upward to `Cargo.lock`.
 #[inline]
 #[expect(
@@ -75,6 +81,8 @@ where
 
 /// Replay any witnesses persisted for this type.
 ///
+/// Set `PBT_NO_REPLAY` to any nonempty value other than `0` to skip replay.
+///
 /// # Panics
 ///
 /// If persisted witnesses could not be found because of unexpected I/O errors,
@@ -93,10 +101,7 @@ pub fn replay<T>() -> impl Iterator<Item = T>
 where
     T: Pbt,
 {
-    if let Ok(no_replay) = env::var("PBT_NO_REPLAY")
-        && !no_replay.is_empty()
-        && no_replay != "0"
-    {
+    if env_flag("PBT_NO_REPLAY") {
         None
     } else {
         match File::open(jsonl_path::<T>()) {
@@ -123,6 +128,8 @@ where
 }
 
 /// Persist a witness of this type to its JSONL corpus.
+///
+/// Set `PBT_NO_PERSIST` to any nonempty value other than `0` to skip persistence.
 #[inline]
 #[expect(
     clippy::absolute_paths,
@@ -133,6 +140,10 @@ pub(crate) fn witness<T>(t: &T)
 where
     T: Pbt,
 {
+    if env_flag("PBT_NO_PERSIST") {
+        return;
+    }
+
     let json = t.clone().deconstruct().serialize();
     let path = jsonl_path::<T>();
 

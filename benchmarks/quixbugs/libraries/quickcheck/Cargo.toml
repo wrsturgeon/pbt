@@ -1,0 +1,19 @@
+[package]
+name = "quixbugs-quickcheck"
+authors.workspace = true
+categories.workspace = true
+description.workspace = true
+edition.workspace = true
+keywords.workspace = true
+license.workspace = true
+publish = false
+readme.workspace = true
+repository.workspace = true
+version.workspace = true
+
+[dependencies]
+quickcheck = { version = "~1.1", default-features = false }
+quixbugs-api = { path = "../../api" }
+
+[lints]
+workspace = true

@@ -93,14 +93,14 @@ mod tests {
             .chain([
                 String::new(),
                 String::new(),
-                "\u{fb8e8}".to_owned(),
+                "\u{a76e5}".to_owned(),
                 String::new(),
-                String::new(),
-                "\u{9bf28}\u{7ea5b}".to_owned(),
-                "\u{100fee}".to_owned(),
-                "\u{bdb4}".to_owned(),
-                "\u{67457}\u{6db20}".to_owned(),
-                "\u{f7975}".to_owned(),
+                "\u{24dea}".to_owned(),
+                "\u{16efb}".to_owned(),
+                "\u{e7613}\u{7ba93}".to_owned(),
+                "\u{bd56d}".to_owned(),
+                "\u{d0dc9}\u{499ef}".to_owned(),
+                "\u{85b94}\u{bd703}\u{4be1a}".to_owned(),
             ])
             .collect();
         let generated: Vec<String> = arbitrary(&mut prng).unwrap().take(expected.len()).collect();

@@ -44,6 +44,15 @@ assertion `left == right` failed
 
 See `./pbt-tests/src/lib.rs` to run this example and a few others.
 
+## Witness persistence
+
+Minimized witnesses are persisted under `.pbt` and replayed before newly generated inputs.
+Set `PBT_CACHE_DIR` to choose another corpus directory, `PBT_NO_REPLAY` to bypass replay, or
+`PBT_NO_PERSIST` to bypass writes. A flag is enabled by any nonempty value other than `0`.
+
+Code that must avoid all persistence-related filesystem access can call
+`pbt::witness_without_persistence`, which neither replays nor persists witnesses.
+
 ## Using `derive` on custom types
 
 ```rust

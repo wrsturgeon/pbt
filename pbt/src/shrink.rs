@@ -260,8 +260,37 @@ where
 #[inline]
 pub(crate) fn to_minimal_witness<T, Property, Proof>(
     property: &Property,
+    best_yet: T,
+    proof: Proof,
+) -> (T, Proof)
+where
+    Property: Fn(&T) -> Option<Proof>,
+    T: Pbt,
+{
+    to_minimal_witness_with_persistence(property, best_yet, proof, true)
+}
+
+/// Find an approximately-global minimum without persisting it.
+#[inline]
+pub(crate) fn to_minimal_witness_without_persistence<T, Property, Proof>(
+    property: &Property,
+    best_yet: T,
+    proof: Proof,
+) -> (T, Proof)
+where
+    Property: Fn(&T) -> Option<Proof>,
+    T: Pbt,
+{
+    to_minimal_witness_with_persistence(property, best_yet, proof, false)
+}
+
+/// Find an approximately-global minimum with configurable persistence.
+#[inline]
+fn to_minimal_witness_with_persistence<T, Property, Proof>(
+    property: &Property,
     mut best_yet: T,
     mut proof: Proof,
+    persist: bool,
 ) -> (T, Proof)
 where
     Property: Fn(&T) -> Option<Proof>,
@@ -275,7 +304,9 @@ where
                 continue 'giant_leaps;
             }
         }
-        let () = persist::witness(&best_yet);
+        if persist {
+            let () = persist::witness(&best_yet);
+        }
         return (best_yet, proof);
     }
 }

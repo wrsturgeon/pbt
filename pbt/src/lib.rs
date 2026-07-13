@@ -153,6 +153,31 @@ where
     None
 }
 
+/// Search for and shrink a witness without replaying or persisting witnesses.
+///
+/// This performs no persistence-related filesystem access. If it fails, this does not mean that
+/// the property never holds; instead, it simply means no witness was found in `cases` cases.
+#[inline]
+pub fn witness_without_persistence<T, Property, Proof>(
+    property: Property,
+    cases: usize,
+    prng: &mut wyrand::WyRand,
+) -> Option<(T, Proof)>
+where
+    Property: Fn(&T) -> Option<Proof>,
+    T: Pbt,
+{
+    let arbitrary = arbitrary::arbitrary_without_replay::<T>(prng).ok()?;
+    for t in arbitrary.take(cases) {
+        if let Some(proof) = property(&t) {
+            return Some(shrink::to_minimal_witness_without_persistence(
+                &property, t, proof,
+            ));
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use {super::*, pretty_assertions::assert_eq, wyrand::WyRand};
@@ -162,6 +187,16 @@ mod tests {
         let mut prng = WyRand::new(42); // deterministic
         assert_eq!(
             witness(|i: &usize| i.checked_sub(42), DEFAULT_N_CASES, &mut prng),
+            Some((42, 0))
+        );
+
+        let mut without_persistence_prng = WyRand::new(42);
+        assert_eq!(
+            witness_without_persistence(
+                |i: &usize| i.checked_sub(42),
+                DEFAULT_N_CASES,
+                &mut without_persistence_prng
+            ),
             Some((42, 0))
         );
     }

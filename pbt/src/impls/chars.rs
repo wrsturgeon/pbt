@@ -11,6 +11,12 @@ use {
     wyrand::WyRand,
 };
 
+/// Number of Unicode scalar values representable by `char`.
+const N_UNICODE_SCALARS: u64 = 0x10_F800;
+
+/// Largest multiple of `N_UNICODE_SCALARS` below `u64::MAX`.
+const UNBIASED_LIMIT: u64 = unbiased_limit();
+
 impl Pbt for char {
     #[inline]
     fn construct<F>(
@@ -52,6 +58,24 @@ impl Pbt for char {
     }
 }
 
+/// Map an index bijectively onto the Unicode scalar values.
+#[inline]
+#[expect(
+    clippy::arithmetic_side_effects,
+    reason = "The branch bounds the addition by char::MAX."
+)]
+fn scalar_from_index(index: u32) -> char {
+    // Rust defines `char` as U+0000..=D7FF followed by U+E000..=10FFFF:
+    // https://doc.rust-lang.org/core/primitive.char.html#validity-and-layout
+    //
+    // Indices below D800 map to the first range unchanged. Adding 800 to every
+    // remaining index skips the surrogate range and maps the final index,
+    // 10F7FF, to 10FFFF. This is therefore a bijection over every valid `char`.
+    let scalar = if index < 0xD800 { index } else { index + 0x800 };
+    // SAFETY: The bijection above produces exactly the documented scalar ranges.
+    unsafe { char::from_u32_unchecked(scalar) }
+}
+
 /// Shrink a `char` by repeatedly subtracting half the previous shrunk amount.
 #[inline]
 fn shrink(c: char) -> Box<dyn Iterator<Item = char>> {
@@ -70,20 +94,32 @@ fn shrink(c: char) -> Box<dyn Iterator<Item = char>> {
     )
 }
 
-/// Generate integers uniformly over the target machine word.
+/// Compute the rejection-sampling limit without modulo bias.
+#[inline]
+#[cfg_attr(test, mutants::skip)] // Arithmetic mutations can make generation loop forever.
+#[expect(
+    clippy::integer_division_remainder_used,
+    reason = "The remainder cannot exceed u64::MAX; subtracting it yields the largest exact multiple."
+)]
+const fn unbiased_limit() -> u64 {
+    u64::MAX - u64::MAX % N_UNICODE_SCALARS
+}
+
+/// Generate Unicode scalar values uniformly.
 #[inline]
 fn uniform(prng: &mut WyRand) -> char {
     'rejection_sampling: loop {
+        let sample = prng.rand();
+        if sample >= UNBIASED_LIMIT {
+            continue 'rejection_sampling;
+        }
         #[expect(
             clippy::as_conversions,
-            clippy::cast_possible_truncation,
-            reason = "intentional: bit width checked above"
+            clippy::integer_division_remainder_used,
+            reason = "Modulo by the scalar count yields an in-range index; the cast is then lossless."
         )]
-        let u32 = prng.rand() as u32;
-        let Ok(c) = char::try_from(u32) else {
-            continue 'rejection_sampling;
-        };
-        return c;
+        let index = (sample % N_UNICODE_SCALARS) as u32;
+        return scalar_from_index(index);
     }
 }
 
@@ -103,16 +139,16 @@ mod tests {
         let mut prng = WyRand::new(42);
         let generated: Vec<char> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected: Vec<char> = vec![
-            '\u{fb8e8}',
-            '\u{9bf28}',
-            '\u{7ea5b}',
-            '\u{100fee}',
-            '\u{bdb4}',
-            '\u{67457}',
-            '\u{6db20}',
-            '\u{f7975}',
-            '\u{8a8c1}',
-            '\u{fdc56}',
+            '\u{4b808}',
+            '\u{4d06a}',
+            '\u{af7c9}',
+            '\u{a4ad9}',
+            '\u{41131}',
+            '\u{300e6}',
+            '\u{613a8}',
+            '\u{680d1}',
+            '\u{b7a5a}',
+            '\u{81baf}',
         ];
         assert_eq!(generated, expected);
     }
@@ -136,7 +172,26 @@ mod tests {
     }
 
     #[test]
+    fn scalar_index_mapping_boundaries() {
+        assert_eq!(scalar_from_index(0), '\0');
+        assert_eq!(scalar_from_index(0xD7FF), '\u{D7FF}');
+        assert_eq!(scalar_from_index(0xD800), '\u{E000}');
+        assert_eq!(scalar_from_index(0x10_F7FF), char::MAX);
+    }
+
+    #[test]
     fn serialization() {
         let () = check_serialization::<char>();
+    }
+
+    #[test]
+    #[expect(
+        clippy::integer_division_remainder_used,
+        reason = "This test verifies that the rejection-sampling limit is an exact multiple."
+    )]
+    fn unbiased_limit_is_the_largest_multiple() {
+        assert_eq!(UNBIASED_LIMIT, 0xFFFF_FFFF_FFFF_4800);
+        assert_eq!(UNBIASED_LIMIT % N_UNICODE_SCALARS, 0);
+        assert!(u64::MAX.checked_sub(UNBIASED_LIMIT).unwrap() < N_UNICODE_SCALARS);
     }
 }

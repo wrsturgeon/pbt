@@ -1,5 +1,15 @@
 [workspace]
-members = ["pbt", "pbt-macro2", "pbt-macros", "pbt-tests"]
+members = [
+  "benchmarks/quixbugs/api",
+  "benchmarks/quixbugs/bench",
+  "benchmarks/quixbugs/libraries/pbt",
+  "benchmarks/quixbugs/libraries/proptest",
+  "benchmarks/quixbugs/libraries/quickcheck",
+  "pbt",
+  "pbt-macro2",
+  "pbt-macros",
+  "pbt-tests",
+]
 metadata.crane.name = "pbt"
 resolver = "3"
 

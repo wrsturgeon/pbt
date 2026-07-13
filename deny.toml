@@ -14,6 +14,12 @@ exceptions = []
 
 [bans]
 multiple-versions = "deny"
+skip = [
+  { crate = "getrandom@0.3.4", reason = "pbt, ahash, and Proptest's Rand 0.9 stack have not yet moved to Getrandom 0.4." },
+  { crate = "r-efi@5.3.0", reason = "This is the Getrandom 0.3 WASI dependency retained by pbt and Proptest's Rand 0.9 stack." },
+  { crate = "rand@0.9.5", reason = "Proptest 1.11 uses Rand 0.9 while QuickCheck 1.1 uses Rand 0.10." },
+  { crate = "rand_core@0.9.5", reason = "This is the Rand 0.9 core required by Proptest 1.11." },
+]
 
 
 [sources]

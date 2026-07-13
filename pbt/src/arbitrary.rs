@@ -12,26 +12,21 @@ use {
     wyrand::WyRand,
 };
 
-/// Generate an arbitrary term of any type `T`.
-///
-/// # Errors
-///
-/// If `T` is uninstantiable.
+/// Generate arbitrary terms without a replay prefix.
 #[inline]
 #[expect(
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
-pub(crate) fn arbitrary<T>(prng: &mut WyRand) -> Result<impl Iterator<Item = T>, Uninstantiable>
+fn generate<T>(prng: &mut WyRand) -> Result<impl Iterator<Item = T>, Uninstantiable>
 where
     T: Pbt,
 {
-    let () = register_globally::<T>();
     let mut swarm_cache = map();
     let mut swarm = Swarm::new::<T>(prng, &mut swarm_cache)?;
     let mut batch_size = 1_usize; // Increases over time.
     let mut remaining_in_batch = batch_size;
-    Ok(persist::replay().chain(Size::increasing().map(move |size| {
+    Ok(Size::increasing().map(move |size| {
         if let Some(decremented) = remaining_in_batch.checked_sub(1) {
             remaining_in_batch = decremented;
         } else {
@@ -45,5 +40,36 @@ where
                 .expect("INTERNAL ERROR (`pbt`): instantiability changed mid-generation");
         }
         swarm.arbitrary(size, prng)
-    })))
+    }))
+}
+
+/// Generate an arbitrary term of any type `T`.
+///
+/// # Errors
+///
+/// If `T` is uninstantiable.
+#[inline]
+pub(crate) fn arbitrary<T>(prng: &mut WyRand) -> Result<impl Iterator<Item = T>, Uninstantiable>
+where
+    T: Pbt,
+{
+    let () = register_globally::<T>();
+    let generated = generate(prng)?;
+    Ok(persist::replay().chain(generated))
+}
+
+/// Generate arbitrary terms without replaying persisted witnesses.
+///
+/// # Errors
+///
+/// If `T` is uninstantiable.
+#[inline]
+pub(crate) fn arbitrary_without_replay<T>(
+    prng: &mut WyRand,
+) -> Result<impl Iterator<Item = T>, Uninstantiable>
+where
+    T: Pbt,
+{
+    let () = register_globally::<T>();
+    generate(prng)
 }
