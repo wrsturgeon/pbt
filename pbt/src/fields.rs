@@ -477,8 +477,7 @@ mod tests {
     use {
         super::*,
         crate::{
-            arbitrary::arbitrary,
-            check_eta_expansion,
+            check_eta_expansion, pbt,
             reflection::{Parts, Variant, Variants},
             registration::Registration,
         },
@@ -579,18 +578,14 @@ mod tests {
         }
     }
 
-    // TODO: make this a real PBT when macro are ready
-    #[test]
-    fn lossless() {
-        let mut prng = WyRand::new(42);
-        for ints in arbitrary::<Vec<usize>>(&mut prng).unwrap().take(10) {
-            let mut store = Store::new();
-            for &int in ints.iter().rev() {
-                let () = store.push(int);
-            }
-            let reconstructed: Vec<usize> = iter::from_fn(|| store.pop()).collect();
-            assert_eq!(reconstructed, ints);
+    #[pbt]
+    fn lossless(ints: &Vec<usize>) {
+        let mut store = Store::new();
+        for &int in ints.iter().rev() {
+            let () = store.push(int);
         }
+        let reconstructed: Vec<usize> = iter::from_fn(|| store.pop()).collect();
+        assert_eq!(&reconstructed, ints);
     }
 
     #[test]

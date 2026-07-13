@@ -158,24 +158,37 @@ mod tests {
 
     use {
         super::*,
-        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
+        crate::{
+            arbitrary::arbitrary, check_eta_expansion, check_serialization, persist,
+            reflection::register_globally,
+        },
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
 
+    /// Convert a map into deterministic entry order for comparison.
+    fn sorted_map(map: HashMap<usize, usize>) -> Vec<(usize, usize)> {
+        let mut entries: Vec<_> = map.into_iter().collect();
+        let () = entries.sort_unstable();
+        entries
+    }
+
+    /// Convert a set into deterministic element order for comparison.
+    fn sorted_set(set: HashSet<usize>) -> Vec<usize> {
+        let mut elements: Vec<_> = set.into_iter().collect();
+        let () = elements.sort_unstable();
+        elements
+    }
+
     #[test]
     fn deterministic_set() {
+        let () = register_globally::<HashSet<usize>>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<Vec<usize>> = arbitrary(&mut prng)
-            .unwrap()
-            .take(10)
-            .map(|set: HashSet<usize>| {
-                let mut v: Vec<_> = set.into_iter().collect();
-                let () = v.sort_unstable();
-                v
-            })
+        let mut expected: Vec<Vec<usize>> = persist::replay::<HashSet<usize>>()
+            .into_iter()
+            .map(sorted_set)
             .collect();
-        let expected: Vec<Vec<usize>> = vec![
+        let () = expected.extend([
             vec![],
             vec![],
             vec![],
@@ -186,7 +199,12 @@ mod tests {
             vec![],
             vec![],
             vec![2],
-        ];
+        ]);
+        let generated: Vec<Vec<usize>> = arbitrary(&mut prng)
+            .unwrap()
+            .take(expected.len())
+            .map(sorted_set)
+            .collect();
         assert_eq!(generated, expected);
     }
 
@@ -202,17 +220,13 @@ mod tests {
 
     #[test]
     fn deterministic_map() {
+        let () = register_globally::<HashMap<usize, usize>>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<Vec<(usize, usize)>> = arbitrary(&mut prng)
-            .unwrap()
-            .take(10)
-            .map(|map: HashMap<usize, usize>| {
-                let mut v: Vec<_> = map.into_iter().collect();
-                let () = v.sort_unstable();
-                v
-            })
+        let mut expected: Vec<Vec<(usize, usize)>> = persist::replay::<HashMap<usize, usize>>()
+            .into_iter()
+            .map(sorted_map)
             .collect();
-        let expected: Vec<Vec<(usize, usize)>> = vec![
+        let () = expected.extend([
             vec![],
             vec![],
             vec![],
@@ -226,7 +240,12 @@ mod tests {
             vec![],
             vec![],
             vec![],
-        ];
+        ]);
+        let generated: Vec<Vec<(usize, usize)>> = arbitrary(&mut prng)
+            .unwrap()
+            .take(expected.len())
+            .map(sorted_map)
+            .collect();
         assert_eq!(generated, expected);
     }
 

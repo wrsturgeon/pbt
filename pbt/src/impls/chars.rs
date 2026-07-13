@@ -129,16 +129,20 @@ mod tests {
 
     use {
         super::*,
-        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
+        crate::{
+            arbitrary::arbitrary, check_eta_expansion, check_serialization, persist,
+            reflection::register_globally,
+        },
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
 
     #[test]
     fn deterministic() {
+        let () = register_globally::<char>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<char> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<char> = vec![
+        let mut expected: Vec<char> = persist::replay();
+        let () = expected.extend([
             '\u{4b808}',
             '\u{4d06a}',
             '\u{af7c9}',
@@ -149,7 +153,8 @@ mod tests {
             '\u{680d1}',
             '\u{b7a5a}',
             '\u{81baf}',
-        ];
+        ]);
+        let generated: Vec<char> = arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 

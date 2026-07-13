@@ -271,9 +271,11 @@ mod tests {
 
     #[test]
     fn deterministic_u8() {
+        let () = register_globally::<u8>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<u8> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<u8> = vec![9, 6, 6, 230, 88, 168, 3, 0, 1, 0];
+        let mut expected: Vec<u8> = persist::replay();
+        let () = expected.extend([9, 6, 6, 230, 88, 168, 3, 0, 1, 0]);
+        let generated: Vec<u8> = arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 
@@ -343,13 +345,13 @@ mod tests {
     #[test]
     #[cfg(feature = "num-bigint")]
     fn deterministic_big_uint() {
+        let () = register_globally::<num_bigint::BigUint>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<String> = arbitrary(&mut prng)
-            .unwrap()
-            .take(10)
-            .map(|big: num_bigint::BigUint| big.to_string())
+        let mut expected: Vec<String> = persist::replay::<num_bigint::BigUint>()
+            .into_iter()
+            .map(|big| big.to_string())
             .collect();
-        let expected: Vec<String> = [
+        let () = expected.extend([
             "192387651248888016389085626434681014503257100276876248210348042302204812884730323007848216711868879194335246081627046316711862977761945081692532156234913465416792741282538278054676654647045",
             "3",
             "0",
@@ -360,7 +362,12 @@ mod tests {
             "0",
             "0",
             "0",
-        ].into_iter().map(str::to_owned).collect();
+        ].into_iter().map(str::to_owned));
+        let generated: Vec<String> = arbitrary(&mut prng)
+            .unwrap()
+            .take(expected.len())
+            .map(|big: num_bigint::BigUint| big.to_string())
+            .collect();
         assert_eq!(generated, expected);
     }
 

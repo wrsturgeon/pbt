@@ -91,7 +91,10 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
-        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
+        crate::{
+            arbitrary::arbitrary, check_eta_expansion, check_serialization, persist,
+            reflection::register_globally,
+        },
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
@@ -116,9 +119,10 @@ mod tests {
 
     #[test]
     fn deterministic_singleton() {
+        let () = register_globally::<(usize,)>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<(usize,)> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<(usize,)> = vec![
+        let mut expected: Vec<(usize,)> = persist::replay();
+        let () = expected.extend([
             (0,),
             (7_804_948_724_862_110_416,),
             (17_108_568_891_541_767_080,),
@@ -129,7 +133,8 @@ mod tests {
             (19,),
             (13,),
             (0,),
-        ];
+        ]);
+        let generated: Vec<(usize,)> = arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 
@@ -145,9 +150,10 @@ mod tests {
 
     #[test]
     fn deterministic_pair() {
+        let () = register_globally::<(usize, bool)>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<(usize, bool)> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<(usize, bool)> = vec![
+        let mut expected: Vec<(usize, bool)> = persist::replay();
+        let () = expected.extend([
             (1, true),
             (17_728_079_043_341_149_863, false),
             (3_455_211_640_292_790_292, true),
@@ -158,7 +164,9 @@ mod tests {
             (0, false),
             (0, false),
             (1, false),
-        ];
+        ]);
+        let generated: Vec<(usize, bool)> =
+            arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 
@@ -174,9 +182,10 @@ mod tests {
 
     #[test]
     fn deterministic_triple() {
+        let () = register_globally::<(usize, bool, bool)>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<(usize, bool, bool)> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<(usize, bool, bool)> = vec![
+        let mut expected: Vec<(usize, bool, bool)> = persist::replay();
+        let () = expected.extend([
             (1, true, false),
             (13_639_797_723_846_260_844, false, true),
             (367_415_042_230_254_170, false, true),
@@ -187,7 +196,9 @@ mod tests {
             (0, false, false),
             (0, false, false),
             (11, false, false),
-        ];
+        ]);
+        let generated: Vec<(usize, bool, bool)> =
+            arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 

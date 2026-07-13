@@ -62,16 +62,20 @@ mod tests {
 
     use {
         super::*,
-        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
+        crate::{
+            arbitrary::arbitrary, check_eta_expansion, check_serialization, persist,
+            reflection::register_globally,
+        },
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
 
     #[test]
     fn deterministic() {
+        let () = register_globally::<Arc<usize>>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<Arc<usize>> = arbitrary(&mut prng).unwrap().take(10).collect();
-        let expected: Vec<Arc<usize>> = vec![
+        let mut expected: Vec<Arc<usize>> = persist::replay();
+        let () = expected.extend([
             Arc::new(0),
             Arc::new(7_804_948_724_862_110_416),
             Arc::new(17_108_568_891_541_767_080),
@@ -82,7 +86,9 @@ mod tests {
             Arc::new(19),
             Arc::new(13),
             Arc::new(0),
-        ];
+        ]);
+        let generated: Vec<Arc<usize>> =
+            arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 

@@ -74,16 +74,20 @@ mod tests {
     #![expect(clippy::unwrap_used, reason = "failing tests ought to panic")]
 
     use {
-        crate::{arbitrary::arbitrary, check_eta_expansion, check_serialization},
+        crate::{
+            arbitrary::arbitrary, check_eta_expansion, check_serialization, persist,
+            reflection::register_globally,
+        },
         pretty_assertions::assert_eq,
         wyrand::WyRand,
     };
 
     #[test]
     fn deterministic() {
+        let () = register_globally::<Option<usize>>();
         let mut prng = WyRand::new(42);
-        let generated: Vec<Option<usize>> = arbitrary(&mut prng).unwrap().take(16).collect();
-        let expected: Vec<Option<usize>> = vec![
+        let mut expected: Vec<Option<usize>> = persist::replay();
+        let () = expected.extend([
             Some(17_850_812_975_400_668_360),
             None,
             None,
@@ -100,7 +104,9 @@ mod tests {
             Some(0),
             None,
             Some(1),
-        ];
+        ]);
+        let generated: Vec<Option<usize>> =
+            arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
 
