@@ -89,20 +89,19 @@ mod tests {
     fn deterministic() {
         let () = register_globally::<String>();
         let mut prng = WyRand::new(42);
-        let expected: Vec<String> = persist::replay()
-            .chain([
-                String::new(),
-                String::new(),
-                "\u{a76e5}".to_owned(),
-                String::new(),
-                "\u{24dea}".to_owned(),
-                "\u{16efb}".to_owned(),
-                "\u{e7613}\u{7ba93}".to_owned(),
-                "\u{bd56d}".to_owned(),
-                "\u{d0dc9}\u{499ef}".to_owned(),
-                "\u{85b94}\u{bd703}\u{4be1a}".to_owned(),
-            ])
-            .collect();
+        let mut expected: Vec<String> = persist::replay();
+        let () = expected.extend([
+            String::new(),
+            String::new(),
+            "\u{a76e5}".to_owned(),
+            String::new(),
+            "\u{24dea}".to_owned(),
+            "\u{16efb}".to_owned(),
+            "\u{e7613}\u{7ba93}".to_owned(),
+            "\u{bd56d}".to_owned(),
+            "\u{d0dc9}\u{499ef}".to_owned(),
+            "\u{85b94}\u{bd703}\u{4be1a}".to_owned(),
+        ]);
         let generated: Vec<String> = arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }

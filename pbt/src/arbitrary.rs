@@ -55,7 +55,7 @@ where
 {
     let () = register_globally::<T>();
     let generated = generate(prng)?;
-    Ok(persist::replay().chain(generated))
+    Ok(persist::replay().into_iter().chain(generated))
 }
 
 /// Generate arbitrary terms without replaying persisted witnesses.

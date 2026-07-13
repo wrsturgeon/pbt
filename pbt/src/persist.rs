@@ -83,12 +83,16 @@ where
 ///
 /// Set `PBT_NO_REPLAY` to any nonempty value other than `0` to skip replay.
 ///
+/// The corpus is read into memory before this returns, so its shared filesystem
+/// lock is not held while the caller evaluates properties over the witnesses.
+///
 /// # Panics
 ///
 /// If persisted witnesses could not be found because of unexpected I/O errors,
 /// not because the directory does not exist
-/// (in which case this will safely return an empty iterator).
+/// (in which case this will safely return an empty vector).
 #[inline]
+#[must_use]
 #[expect(
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
@@ -97,42 +101,50 @@ where
     clippy::absolute_paths,
     reason = "`core::io::ErrorKind` is unstable; filesystem errors use stable `std::io`."
 )]
-pub fn replay<T>() -> impl Iterator<Item = T>
+pub fn replay<T>() -> Vec<T>
 where
     T: Pbt,
 {
     if env_flag("PBT_NO_REPLAY") {
-        None
+        Vec::new()
     } else {
         match File::open(jsonl_path::<T>()) {
-            Ok(file) => Some(file),
+            Ok(file) => {
+                let () = file
+                    .lock_shared()
+                    .expect("INTERNAL ERROR (`pbt`): couldn't lock persisted witnesses");
+                BufReader::new(file)
+                    .lines()
+                    .map(|line_result| {
+                        let line = line_result
+                            .expect("INTERNAL ERROR (`pbt`): couldn't read persisted witnesses");
+                        let json = serde_json::from_str(&line)
+                            .expect("INTERNAL ERROR (`pbt`): couldn't parse persisted JSONL");
+                        Parts::deserialize(&json).expect(
+                            "INTERNAL ERROR (`pbt`): couldn't deserialize a persisted witness",
+                        )
+                    })
+                    .collect()
+            }
             Err(error) => {
                 assert_eq!(
                     error.kind(),
                     std::io::ErrorKind::NotFound,
                     "INTERNAL ERROR (`pbt`): couldn't read persisted witnesses",
                 );
-                None
+                Vec::new()
             }
         }
     }
-    .into_iter()
-    .flat_map(|file| BufReader::new(file).lines())
-    .map(|line_result| {
-        let line = line_result.expect("INTERNAL ERROR (`pbt`): couldn't read persisted witnesses");
-        let json = serde_json::from_str(&line)
-            .expect("INTERNAL ERROR (`pbt`): couldn't parse persisted JSONL");
-        Parts::deserialize(&json)
-            .expect("INTERNAL ERROR (`pbt`): couldn't deserialize a persisted witness")
-    })
 }
 
 /// Persist a witness of this type to its JSONL corpus.
 ///
 /// Set `PBT_NO_PERSIST` to any nonempty value other than `0` to skip persistence.
+///
+/// The duplicate check and append form one filesystem-locked transaction.
 #[inline]
 #[expect(
-    clippy::absolute_paths,
     clippy::expect_used,
     reason = "Internal invariants: violations should fail loudly."
 )]
@@ -145,37 +157,167 @@ where
     }
 
     let json = t.clone().deconstruct().serialize();
+    let mut record =
+        serde_json::to_vec(&json).expect("INTERNAL ERROR (`pbt`): couldn't serialize a witness");
+    let () = record.push(b'\n');
     let path = jsonl_path::<T>();
-
-    match File::open(&path) {
-        Ok(file) => {
-            for line_result in BufReader::new(file).lines() {
-                let line =
-                    line_result.expect("INTERNAL ERROR (`pbt`): couldn't read persisted witnesses");
-                let persisted: serde_json::Value = serde_json::from_str(&line)
-                    .expect("INTERNAL ERROR (`pbt`): couldn't parse persisted JSONL");
-                if persisted == json {
-                    return;
-                }
-            }
-        }
-        Err(error) => {
-            assert_eq!(
-                error.kind(),
-                std::io::ErrorKind::NotFound,
-                "INTERNAL ERROR (`pbt`): couldn't read persisted witnesses",
-            );
-        }
-    }
 
     let () = create_dir_all(dir())
         .expect("INTERNAL ERROR (`pbt`): couldn't create the persistence directory");
     let mut file = OpenOptions::new()
+        .read(true)
         .append(true)
         .create(true)
         .open(path)
         .expect("INTERNAL ERROR (`pbt`): couldn't persist a witness to the filesystem");
-    let () = serde_json::to_writer(&mut file, &json)
-        .expect("INTERNAL ERROR (`pbt`): couldn't serialize a witness");
-    let () = writeln!(file).expect("INTERNAL ERROR (`pbt`): couldn't persist a witness");
+    let () = file
+        .lock()
+        .expect("INTERNAL ERROR (`pbt`): couldn't lock persisted witnesses");
+
+    for line_result in BufReader::new(&file).lines() {
+        let line = line_result.expect("INTERNAL ERROR (`pbt`): couldn't read persisted witnesses");
+        let persisted: serde_json::Value = serde_json::from_str(&line)
+            .expect("INTERNAL ERROR (`pbt`): couldn't parse persisted JSONL");
+        if persisted == json {
+            return;
+        }
+    }
+
+    let () = file
+        .write_all(&record)
+        .expect("INTERNAL ERROR (`pbt`): couldn't persist a witness");
+}
+
+#[cfg(test)]
+mod tests {
+    #![expect(
+        clippy::expect_used,
+        reason = "Subprocess and filesystem failures should fail tests loudly."
+    )]
+
+    use {
+        super::*,
+        crate::reflection::register_globally,
+        core::time::Duration,
+        std::{
+            fs::{self, File},
+            io::ErrorKind,
+            process::{self, Command, Stdio},
+            thread,
+        },
+    };
+
+    /// Environment variable selecting the witness written by a subprocess.
+    const CHILD_WITNESS: &str = "PBT_TEST_CHILD_WITNESS";
+
+    /// Environment variable naming the file that releases all waiting subprocesses.
+    const START_FILE: &str = "PBT_TEST_START_FILE";
+
+    /// Number of elements used to make concurrent writes long enough to overlap.
+    const WITNESS_ELEMENTS: usize = 0x0400;
+
+    /// Write one large witness when invoked as a child of the concurrency test.
+    #[test]
+    fn concurrent_witness_child() {
+        let Ok(element_text) = env::var(CHILD_WITNESS) else {
+            return;
+        };
+        let start_file =
+            PathBuf::from(env::var(START_FILE).expect("parent should provide the start file"));
+        while !start_file.exists() {
+            thread::sleep(Duration::from_millis(1));
+        }
+
+        let element = element_text
+            .parse::<usize>()
+            .expect("parent should provide a `usize` witness");
+        let () = register_globally::<[usize; WITNESS_ELEMENTS]>();
+        witness(&[element; WITNESS_ELEMENTS]);
+    }
+
+    /// Concurrent processes append complete, de-duplicated JSONL records.
+    #[test]
+    #[cfg_attr(miri, ignore = "Miri does not support spawning subprocesses.")]
+    fn concurrent_witnesses_remain_valid_jsonl() {
+        const DISTINCT_WITNESSES: usize = 4;
+        const PROCESSES: usize = 16;
+
+        let root = env::temp_dir().join(format!("pbt-concurrent-witnesses-{}", process::id()));
+        match fs::remove_dir_all(&root) {
+            Ok(()) => {}
+            Err(error) => assert_eq!(
+                error.kind(),
+                ErrorKind::NotFound,
+                "couldn't remove a stale persistence test directory",
+            ),
+        }
+        let () = fs::create_dir_all(&root).expect("couldn't create the persistence test directory");
+        let cache_dir = root.join("cache");
+        let start_file = root.join("start");
+        let test_binary = env::current_exe().expect("couldn't locate the test binary");
+
+        let mut children = (0..DISTINCT_WITNESSES)
+            .cycle()
+            .take(PROCESSES)
+            .map(|element| {
+                Command::new(&test_binary)
+                    .arg("--exact")
+                    .arg("persist::tests::concurrent_witness_child")
+                    .arg("--quiet")
+                    .stdout(Stdio::null())
+                    .env("PBT_CACHE_DIR", &cache_dir)
+                    .env(CHILD_WITNESS, element.to_string())
+                    .env(START_FILE, &start_file)
+                    .spawn()
+                    .expect("couldn't spawn a persistence test subprocess")
+            })
+            .collect::<Vec<_>>();
+
+        let _start = File::create(&start_file).expect("couldn't release test subprocesses");
+        for child in &mut children {
+            assert!(
+                child
+                    .wait()
+                    .expect("couldn't wait for a test subprocess")
+                    .success(),
+                "persistence test subprocess failed",
+            );
+        }
+
+        let mut corpus_entries =
+            fs::read_dir(&cache_dir).expect("couldn't read the persistence test directory");
+        let corpus_path = corpus_entries
+            .next()
+            .expect("persistence test did not create a corpus")
+            .expect("couldn't read the persisted corpus entry")
+            .path();
+        assert!(
+            corpus_entries.next().is_none(),
+            "persistence test unexpectedly created multiple corpora",
+        );
+
+        let mut actual = BufReader::new(
+            File::open(corpus_path).expect("couldn't open the persisted test corpus"),
+        )
+        .lines()
+        .map(|line| line.expect("couldn't read the persisted test corpus"))
+        .collect::<Vec<_>>();
+        for line in &actual {
+            let _: serde_json::Value =
+                serde_json::from_str(line).expect("concurrent persistence corrupted JSONL");
+        }
+        actual.sort_unstable();
+
+        let () = register_globally::<[usize; WITNESS_ELEMENTS]>();
+        let mut expected = (0..DISTINCT_WITNESSES)
+            .map(|element| {
+                serde_json::to_string(&[element; WITNESS_ELEMENTS].deconstruct().serialize())
+                    .expect("couldn't serialize an expected test witness")
+            })
+            .collect::<Vec<_>>();
+        expected.sort_unstable();
+        assert_eq!(actual, expected);
+
+        let () = fs::remove_dir_all(root).expect("couldn't remove the persistence test directory");
+    }
 }

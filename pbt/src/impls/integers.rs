@@ -291,20 +291,19 @@ mod tests {
     fn deterministic_usize() {
         let () = register_globally::<usize>();
         let mut prng = WyRand::new(42);
-        let expected: Vec<usize> = persist::replay()
-            .chain([
-                9,
-                6,
-                6,
-                10_465_773_274_321_242_342,
-                9_091_519_196_080_063_832,
-                17_108_568_891_541_767_080,
-                3,
-                0,
-                1,
-                0,
-            ])
-            .collect();
+        let mut expected: Vec<usize> = persist::replay();
+        let () = expected.extend([
+            9,
+            6,
+            6,
+            10_465_773_274_321_242_342,
+            9_091_519_196_080_063_832,
+            17_108_568_891_541_767_080,
+            3,
+            0,
+            1,
+            0,
+        ]);
         let generated: Vec<usize> = arbitrary(&mut prng).unwrap().take(expected.len()).collect();
         assert_eq!(generated, expected);
     }
