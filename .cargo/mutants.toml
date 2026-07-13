@@ -1,5 +1,6 @@
+additional_cargo_test_args = ["--max-fail=1:immediate"]
 all_features = true
-exclude_globs = ["persist.rs"]
+exclude_globs = ["persist", "pbt-tests/src/coverage_spike.rs"]
 exclude_re = [
   "replace <impl Drop for .*>::drop with ()",
   "replace >> with << in check_.*",

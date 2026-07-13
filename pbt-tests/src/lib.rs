@@ -2,8 +2,12 @@
     test,
     expect(clippy::tests_outside_test_module, reason = "This is a test module.")
 )]
+#![cfg_attr(pbt_coverage_spike, feature(coverage_attribute))]
 
 //! Tests for `pbt` as seen by downstream crates.
+
+#[cfg(all(pbt_coverage_spike, test))]
+mod coverage_spike;
 
 use pbt::{Pbt, pbt};
 
