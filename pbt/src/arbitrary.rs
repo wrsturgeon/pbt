@@ -31,19 +31,21 @@ where
     let mut swarm = Swarm::new::<T>(prng, &mut swarm_cache)?;
     let mut batch_size = 1_usize; // Increases over time.
     let mut remaining_in_batch = batch_size;
-    Ok(persist::replay().chain(Size::increasing().map(move |size| {
-        if let Some(decremented) = remaining_in_batch.checked_sub(1) {
-            remaining_in_batch = decremented;
-        } else {
-            remaining_in_batch = batch_size;
-            #[expect(
-                clippy::arithmetic_side_effects,
-                reason = "The hardware will die before batch size overflows."
-            )]
-            let () = batch_size += 1;
-            swarm = Swarm::new::<T>(prng, &mut swarm_cache)
-                .expect("INTERNAL ERROR (`pbt`): instantiability changed mid-generation");
-        }
-        swarm.arbitrary(size, prng)
-    })))
+    Ok(persist::replay()
+        .into_iter()
+        .chain(Size::increasing().map(move |size| {
+            if let Some(decremented) = remaining_in_batch.checked_sub(1) {
+                remaining_in_batch = decremented;
+            } else {
+                remaining_in_batch = batch_size;
+                #[expect(
+                    clippy::arithmetic_side_effects,
+                    reason = "The hardware will die before batch size overflows."
+                )]
+                let () = batch_size += 1;
+                swarm = Swarm::new::<T>(prng, &mut swarm_cache)
+                    .expect("INTERNAL ERROR (`pbt`): instantiability changed mid-generation");
+            }
+            swarm.arbitrary(size, prng)
+        })))
 }
