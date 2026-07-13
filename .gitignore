@@ -1,3 +1,5 @@
+**.profraw
+
 **/.direnv
 **/*mutant*.out*
 **/result
