@@ -51,11 +51,22 @@ impl Pbt for char {
                 };
                 s.parse().ok()
             },
-            generators: vec![uniform],
+            generators: vec![uniform, ascii],
             serialize: |&i| i.to_string().into(),
             shrink,
         }
     }
+}
+
+/// Generate ASCII characters uniformly.
+#[inline]
+fn ascii(prng: &mut WyRand) -> char {
+    #[expect(
+        clippy::as_conversions,
+        reason = "masking to seven bits makes the conversion lossless"
+    )]
+    let byte = (prng.rand() & 0x7F) as u8;
+    char::from(byte)
 }
 
 /// Map an index bijectively onto the Unicode scalar values.
@@ -135,20 +146,28 @@ mod tests {
     };
 
     #[test]
+    fn ascii_generator_is_ascii() {
+        let mut prng = WyRand::new(42);
+        for _ in 0_usize..10_000 {
+            assert!(ascii(&mut prng).is_ascii());
+        }
+    }
+
+    #[test]
     fn deterministic() {
         let mut prng = WyRand::new(42);
         let generated: Vec<char> = arbitrary(&mut prng).unwrap().take(10).collect();
         let expected: Vec<char> = vec![
-            '\u{4b808}',
-            '\u{4d06a}',
-            '\u{af7c9}',
-            '\u{a4ad9}',
-            '\u{41131}',
+            'j',
+            'N',
+            '\u{e}',
             '\u{300e6}',
+            '\u{5cd58}',
             '\u{613a8}',
-            '\u{680d1}',
-            '\u{b7a5a}',
-            '\u{81baf}',
+            'F',
+            'e',
+            'H',
+            'i',
         ];
         assert_eq!(generated, expected);
     }
