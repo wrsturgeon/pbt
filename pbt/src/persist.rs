@@ -226,6 +226,10 @@ mod tests {
 
     /// Concurrent processes append complete, de-duplicated JSONL records.
     #[test]
+    #[cfg_attr(
+        miri,
+        ignore = "unsupported operation: can't call foreign function `posix_spawnattr_init` on OS `linux`"
+    )]
     fn concurrent_witnesses_remain_valid_jsonl() {
         const DISTINCT_WITNESSES: usize = 4;
         const PROCESSES: usize = 16;
