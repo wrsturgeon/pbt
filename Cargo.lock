@@ -358,7 +358,7 @@ dependencies = [
 
 [[package]]
 name = "pbt"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "ahash",
  "criterion",
@@ -373,7 +373,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-macro2"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "heck",
  "pretty_assertions",
@@ -385,7 +385,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-macros"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "pbt-macro2",
  "proc-macro2",
@@ -393,7 +393,7 @@ dependencies = [
 
 [[package]]
 name = "pbt-tests"
-version = "0.5.11"
+version = "0.5.12"
 dependencies = [
  "pbt",
 ]
